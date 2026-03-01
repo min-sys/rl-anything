@@ -1,0 +1,18 @@
+# 実行ベース評価用テストタスクのサンプル
+#
+# 使用方法:
+#   python3 optimize.py --target SKILL.md --test-tasks examples/test-tasks-sample.yaml
+#
+# 各タスクは以下のフィールドを持つ:
+#   - name: タスク識別名
+#   - prompt: スキルを使って実行するタスクの指示
+#   - expected: 出力に期待される特徴（評価時の判断基準）
+
+tasks:
+  - name: "基本動作確認"
+    prompt: "スキルの指示に従って、簡単なサンプル出力を生成してください。"
+    expected: "スキルの指示に沿った構造化された出力"
+
+  - name: "エッジケース対応"
+    prompt: "不完全な入力が与えられた場合の対処を示してください。"
+    expected: "エラーハンドリングまたは適切なフォールバック動作の説明"

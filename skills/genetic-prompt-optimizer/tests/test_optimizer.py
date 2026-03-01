@@ -3,6 +3,7 @@
 
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -346,6 +347,437 @@ class TestCustomFitness:
         with patch("optimize.Path.cwd", return_value=temp_dir):
             result = optimizer._run_custom_fitness(ind)
         assert result is None
+
+
+# --- CoT 評価のテスト ---
+
+class TestCoTEvaluation:
+    """Chain-of-Thought 評価のテスト"""
+
+    def test_正常JSON(self):
+        """正常な CoT JSON レスポンスをパースできる"""
+        response = json.dumps({
+            "clarity": {"score": 0.8, "reason": "手順が明確"},
+            "completeness": {"score": 0.7, "reason": "エッジケース不足"},
+            "structure": {"score": 0.9, "reason": "見出し階層が適切"},
+            "practicality": {"score": 0.75, "reason": "コード例あり"},
+            "total": 0.79,
+        })
+        score, cot = GeneticOptimizer._parse_cot_response(response)
+        assert score == 0.79
+        assert cot is not None
+        assert cot["clarity"]["score"] == 0.8
+        assert cot["clarity"]["reason"] == "手順が明確"
+
+    def test_JSONブロック付きレスポンス(self):
+        """```json ... ``` で囲まれたレスポンスをパースできる"""
+        response = (
+            "評価結果:\n```json\n"
+            '{"clarity": {"score": 0.6, "reason": "曖昧"}, '
+            '"completeness": {"score": 0.5, "reason": "不足"}, '
+            '"structure": {"score": 0.7, "reason": "OK"}, '
+            '"practicality": {"score": 0.8, "reason": "良い"}, '
+            '"total": 0.65}\n```'
+        )
+        score, cot = GeneticOptimizer._parse_cot_response(response)
+        assert score == 0.65
+        assert cot is not None
+
+    def test_total無しJSON(self):
+        """total がない場合、各基準の平均を計算する"""
+        response = json.dumps({
+            "clarity": {"score": 0.8, "reason": "明確"},
+            "completeness": {"score": 0.6, "reason": "不足"},
+            "structure": {"score": 0.8, "reason": "良い"},
+            "practicality": {"score": 0.8, "reason": "実用的"},
+        })
+        score, cot = GeneticOptimizer._parse_cot_response(response)
+        assert score == pytest.approx(0.75, abs=0.01)
+        assert cot is not None
+        assert cot["total"] == 0.75
+
+    def test_不正JSON(self):
+        """不正な JSON の場合、正規表現フォールバックで数値を抽出"""
+        response = "スコアは 0.72 です"
+        score, cot = GeneticOptimizer._parse_cot_response(response)
+        assert score == 0.72
+        assert cot is None
+
+    def test_空出力(self):
+        """空の出力の場合、デフォルト 0.5 を返す"""
+        score, cot = GeneticOptimizer._parse_cot_response("")
+        assert score == 0.5
+        assert cot is None
+
+    def test_スコアの範囲制限(self):
+        """スコアが 0.0〜1.0 にクランプされる"""
+        response = json.dumps({
+            "clarity": {"score": 0.8, "reason": "OK"},
+            "completeness": {"score": 0.7, "reason": "OK"},
+            "structure": {"score": 0.9, "reason": "OK"},
+            "practicality": {"score": 0.75, "reason": "OK"},
+            "total": 1.5,
+        })
+        score, cot = GeneticOptimizer._parse_cot_response(response)
+        assert score == 1.0
+
+
+# --- Pairwise Comparison のテスト ---
+
+class TestPairwiseComparison:
+    """Pairwise Comparison のテスト"""
+
+    def test_dry_run_高スコアが勝つ(self, sample_skill):
+        """dry-run では絶対スコアの高い方が選ばれる"""
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            dry_run=True,
+        )
+        a = Individual("スキルA")
+        a.fitness = 0.8
+        b = Individual("スキルB")
+        b.fitness = 0.6
+
+        winner = optimizer.pairwise_compare(a, b)
+        assert winner is a
+
+    def test_dry_run_同スコアはAが勝つ(self, sample_skill):
+        """dry-run で同スコアの場合は a が選ばれる"""
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            dry_run=True,
+        )
+        a = Individual("スキルA")
+        a.fitness = 0.7
+        b = Individual("スキルB")
+        b.fitness = 0.7
+
+        winner = optimizer.pairwise_compare(a, b)
+        assert winner is a
+
+    def test_スコア差0_1以内でpairwise呼び出し(self, sample_skill):
+        """トップ2のスコア差が 0.1 以内のとき pairwise_compare が呼ばれる"""
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            population_size=3,
+            dry_run=True,
+        )
+
+        population = [
+            Individual("ベスト", generation=0),
+            Individual("セカンド", generation=0),
+            Individual("サード", generation=0),
+        ]
+        population[0].fitness = 0.80
+        population[1].fitness = 0.75  # 差が 0.05 なので pairwise が呼ばれる
+        population[2].fitness = 0.50
+
+        with patch.object(optimizer, "pairwise_compare", wraps=optimizer.pairwise_compare) as mock_pw, \
+             patch.object(optimizer, "mutate") as mock_mutate, \
+             patch.object(optimizer, "crossover") as mock_cross:
+            mock_mutate.return_value = Individual("変異", generation=1)
+            mock_cross.return_value = Individual("交叉", generation=1)
+
+            optimizer.next_generation(population, 1)
+
+            mock_pw.assert_called_once()
+
+    def test_スコア差0_1超でpairwise呼ばない(self, sample_skill):
+        """トップ2のスコア差が 0.1 を超えるとき pairwise_compare は呼ばれない"""
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            population_size=3,
+            dry_run=True,
+        )
+
+        population = [
+            Individual("ベスト", generation=0),
+            Individual("セカンド", generation=0),
+            Individual("サード", generation=0),
+        ]
+        population[0].fitness = 0.90
+        population[1].fitness = 0.60  # 差が 0.3 なので pairwise は不要
+        population[2].fitness = 0.50
+
+        with patch.object(optimizer, "pairwise_compare") as mock_pw, \
+             patch.object(optimizer, "mutate") as mock_mutate, \
+             patch.object(optimizer, "crossover") as mock_cross:
+            mock_mutate.return_value = Individual("変異", generation=1)
+            mock_cross.return_value = Individual("交叉", generation=1)
+
+            optimizer.next_generation(population, 1)
+
+            mock_pw.assert_not_called()
+
+
+# --- Regression Gate のテスト ---
+
+class TestRegressionGate:
+    """回帰テストゲートのテスト"""
+
+    def test_空コンテンツは不合格(self, sample_skill):
+        """空のコンテンツは不合格"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill))
+        passed, reason = optimizer._regression_gate("")
+        assert passed is False
+        assert reason == "empty"
+
+    def test_空白のみは不合格(self, sample_skill):
+        """空白のみのコンテンツは不合格"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill))
+        passed, reason = optimizer._regression_gate("   \n  ")
+        assert passed is False
+        assert reason == "empty"
+
+    def test_行数超過は不合格(self, temp_dir):
+        """行数上限を超えるコンテンツは不合格"""
+        # ルールファイル（3行上限）
+        rule_path = temp_dir / ".claude" / "rules" / "test.md"
+        rule_path.parent.mkdir(parents=True)
+        rule_path.write_text("# test", encoding="utf-8")
+
+        optimizer = GeneticOptimizer(target_path=str(rule_path))
+        content = "行1\n行2\n行3\n行4\n行5"  # 5行 > 3行上限
+        passed, reason = optimizer._regression_gate(content)
+        assert passed is False
+        assert "line_limit_exceeded" in reason
+
+    def test_禁止パターンTODOは不合格(self, sample_skill):
+        """TODO を含むコンテンツは不合格"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill))
+        passed, reason = optimizer._regression_gate("# スキル\nTODO: あとで実装")
+        assert passed is False
+        assert "forbidden_pattern(TODO)" == reason
+
+    def test_禁止パターンFIXMEは不合格(self, sample_skill):
+        """FIXME を含むコンテンツは不合格"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill))
+        passed, reason = optimizer._regression_gate("# スキル\nFIXME: バグ")
+        assert passed is False
+        assert "forbidden_pattern(FIXME)" == reason
+
+    def test_禁止パターンHACKは不合格(self, sample_skill):
+        """HACK を含むコンテンツは不合格"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill))
+        passed, reason = optimizer._regression_gate("# スキル\nHACK: 回避策")
+        assert passed is False
+        assert "forbidden_pattern(HACK)" == reason
+
+    def test_禁止パターンXXXは不合格(self, sample_skill):
+        """XXX を含むコンテンツは不合格"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill))
+        passed, reason = optimizer._regression_gate("# スキル\nXXX: 注意")
+        assert passed is False
+        assert "forbidden_pattern(XXX)" == reason
+
+    def test_正常コンテンツは合格(self, sample_skill):
+        """正常なコンテンツは合格"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill))
+        content = "# テストスキル\n\nこれは正常なスキルです。"
+        passed, reason = optimizer._regression_gate(content)
+        assert passed is True
+        assert reason is None
+
+
+# --- 実行ベース評価のテスト ---
+
+class TestExecutionEvaluation:
+    """実行ベース評価のテスト"""
+
+    def test_テストタスクYAMLのロード(self, temp_dir):
+        """YAML ファイルからテストタスクを正しくロードできる"""
+        yaml_content = json.dumps({
+            "tasks": [
+                {"name": "task1", "prompt": "テスト", "expected": "出力"},
+                {"name": "task2", "prompt": "テスト2", "expected": "出力2"},
+            ]
+        })
+        task_file = temp_dir / "test-tasks.json"
+        task_file.write_text(yaml_content, encoding="utf-8")
+
+        tasks = GeneticOptimizer._load_test_tasks(str(task_file))
+        assert len(tasks) == 2
+        assert tasks[0]["name"] == "task1"
+
+    def test_存在しないファイルは空リスト(self):
+        """存在しないファイルは空リストを返す"""
+        tasks = GeneticOptimizer._load_test_tasks("/nonexistent/path.yaml")
+        assert tasks == []
+
+    def test_テストタスクなしでスコア0_5(self, sample_skill):
+        """テストタスクが未設定の場合は 0.5 を返す"""
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+        )
+        ind = Individual("# テスト\nテスト内容")
+        score = optimizer._execution_evaluate(ind)
+        assert score == 0.5
+
+    def test_タイムアウト時スコア0(self, sample_skill, temp_dir):
+        """タイムアウト時はスコア 0.0 を返す"""
+        task_file = temp_dir / "tasks.json"
+        task_file.write_text(
+            json.dumps({"tasks": [{"name": "t", "prompt": "p", "expected": "e"}]}),
+            encoding="utf-8",
+        )
+
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            test_tasks=str(task_file),
+        )
+        ind = Individual("# テスト")
+
+        with patch("optimize.subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 120)):
+            score = optimizer._execution_evaluate(ind)
+
+        assert score == 0.0
+
+    def test_正常実行(self, sample_skill, temp_dir):
+        """正常なモック実行で正しいスコアが返る"""
+        task_file = temp_dir / "tasks.json"
+        task_file.write_text(
+            json.dumps({"tasks": [{"name": "t", "prompt": "p", "expected": "e"}]}),
+            encoding="utf-8",
+        )
+
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            test_tasks=str(task_file),
+        )
+        ind = Individual("# テスト")
+
+        mock_exec = MagicMock(returncode=0, stdout="タスク出力")
+        mock_eval = MagicMock(returncode=0, stdout="0.85")
+
+        with patch("optimize.subprocess.run", side_effect=[mock_exec, mock_eval]):
+            score = optimizer._execution_evaluate(ind)
+
+        assert score == 0.85
+
+    def test_加重平均の計算(self, sample_skill, temp_dir):
+        """CoT * 0.4 + 実行ベース * 0.6 の加重平均が正しく計算される"""
+        task_file = temp_dir / "tasks.json"
+        task_file.write_text(
+            json.dumps({"tasks": [{"name": "t", "prompt": "p", "expected": "e"}]}),
+            encoding="utf-8",
+        )
+
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            test_tasks=str(task_file),
+        )
+        ind = Individual("# テスト")
+
+        # _llm_evaluate -> (0.8, cot_data), _execution_evaluate -> 0.9
+        with patch.object(optimizer, "_llm_evaluate", return_value=(0.8, None)), \
+             patch.object(optimizer, "_execution_evaluate", return_value=0.9), \
+             patch.object(optimizer, "_regression_gate", return_value=(True, None)):
+            score = optimizer.evaluate(ind)
+
+        # 0.8 * 0.4 + 0.9 * 0.6 = 0.32 + 0.54 = 0.86
+        assert score == pytest.approx(0.86, abs=0.001)
+
+
+# --- Pitfall Accumulator のテスト ---
+
+class TestPitfallAccumulator:
+    """失敗パターン自動蓄積のテスト"""
+
+    def test_新規作成(self, temp_dir):
+        """pitfalls.md が存在しない場合、新規作成される"""
+        skill_path = temp_dir / "test-skill.md"
+        skill_path.write_text("# test", encoding="utf-8")
+
+        GeneticOptimizer._record_pitfall(
+            str(skill_path), "gate", "empty", 0.0
+        )
+
+        pitfalls = temp_dir / "references" / "pitfalls.md"
+        assert pitfalls.exists()
+        content = pitfalls.read_text(encoding="utf-8")
+        assert "| gate | empty | 0.00 |" in content
+
+    def test_追記(self, temp_dir):
+        """既存の pitfalls.md に追記される"""
+        skill_path = temp_dir / "test-skill.md"
+        skill_path.write_text("# test", encoding="utf-8")
+
+        GeneticOptimizer._record_pitfall(str(skill_path), "gate", "empty", 0.0)
+        GeneticOptimizer._record_pitfall(str(skill_path), "cot", "clarity: low", 0.3)
+
+        pitfalls = temp_dir / "references" / "pitfalls.md"
+        content = pitfalls.read_text(encoding="utf-8")
+        assert "| gate | empty | 0.00 |" in content
+        assert "| cot | clarity: low | 0.30 |" in content
+
+    def test_重複排除(self, temp_dir):
+        """同じパターンは重複追記されない"""
+        skill_path = temp_dir / "test-skill.md"
+        skill_path.write_text("# test", encoding="utf-8")
+
+        GeneticOptimizer._record_pitfall(str(skill_path), "gate", "empty", 0.0)
+        GeneticOptimizer._record_pitfall(str(skill_path), "gate", "empty", 0.0)
+
+        pitfalls = temp_dir / "references" / "pitfalls.md"
+        content = pitfalls.read_text(encoding="utf-8")
+        # データ行（ヘッダー2行を除く）が1行のみ
+        data_lines = [
+            l for l in content.strip().split("\n")[2:]
+            if l.strip().startswith("|")
+        ]
+        assert len(data_lines) == 1
+
+    def test_行数上限(self, temp_dir):
+        """50行上限を超えると古い行が削除される"""
+        skill_path = temp_dir / "test-skill.md"
+        skill_path.write_text("# test", encoding="utf-8")
+
+        for i in range(55):
+            GeneticOptimizer._record_pitfall(
+                str(skill_path), "gate", f"pattern_{i}", 0.0
+            )
+
+        pitfalls = temp_dir / "references" / "pitfalls.md"
+        content = pitfalls.read_text(encoding="utf-8")
+        data_lines = [
+            l for l in content.strip().split("\n")[2:]
+            if l.strip().startswith("|")
+        ]
+        assert len(data_lines) == 50
+        # 最初の5つが削除されている
+        assert "pattern_0" not in content
+        assert "pattern_54" in content
+
+    def test_動的ゲートチェック(self, temp_dir):
+        """pitfalls.md のパターンが regression_gate で動的チェックされる"""
+        skill_path = temp_dir / "test-skill.md"
+        skill_path.write_text("# test", encoding="utf-8")
+
+        # pitfalls.md に gate パターンを手動追加
+        refs_dir = temp_dir / "references"
+        refs_dir.mkdir(parents=True, exist_ok=True)
+        pitfalls = refs_dir / "pitfalls.md"
+        pitfalls.write_text(
+            "| Source | Pattern | Score |\n"
+            "|--------|---------|-------|\n"
+            "| gate | forbidden_pattern(DANGER) | 0.00 |\n",
+            encoding="utf-8",
+        )
+
+        optimizer = GeneticOptimizer(target_path=str(skill_path))
+        # DANGER を含むコンテンツは不合格
+        passed, reason = optimizer._regression_gate("# スキル\nDANGER: 注意")
+        assert passed is False
+        assert "pitfall_pattern(DANGER)" == reason
+
+    def test_動的ゲート_pitfallsなし(self, temp_dir):
+        """pitfalls.md が存在しない場合、動的パターンチェックはスキップ"""
+        skill_path = temp_dir / "test-skill.md"
+        skill_path.write_text("# test", encoding="utf-8")
+
+        optimizer = GeneticOptimizer(target_path=str(skill_path))
+        passed, reason = optimizer._regression_gate("# 正常なコンテンツ")
+        assert passed is True
 
 
 if __name__ == "__main__":

@@ -21,6 +21,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+try:
+    import yaml
+except ImportError:
+    yaml = None  # type: ignore
+
 # --- 設定 ---
 GENERATIONS_DIR = Path(__file__).parent / "generations"
 BACKUP_SUFFIX = ".backup"
@@ -62,12 +67,17 @@ class GeneticOptimizer:
         population_size: int = 3,
         fitness_func: str = "default",
         dry_run: bool = False,
+        test_tasks: Optional[str] = None,
     ):
         self.target_path = Path(target_path)
         self.generations = generations
         self.population_size = population_size
         self.fitness_func = fitness_func
         self.dry_run = dry_run
+        self.test_tasks_path = test_tasks
+        self.test_tasks: Optional[List[Dict[str, str]]] = None
+        if test_tasks:
+            self.test_tasks = self._load_test_tasks(test_tasks)
         self.run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.run_dir = GENERATIONS_DIR / self.run_id
 
@@ -85,6 +95,106 @@ class GeneticOptimizer:
         """行数制限をチェック。超過時は False"""
         lines = content.count("\n") + 1
         return lines <= self._max_lines
+
+    @staticmethod
+    def _load_test_tasks(path: str) -> List[Dict[str, str]]:
+        """テストタスクYAMLをロード。
+
+        YAML 形式:
+            tasks:
+              - name: "タスク名"
+                prompt: "実行プロンプト"
+                expected: "期待される出力の特徴"
+        """
+        task_path = Path(path)
+        if not task_path.exists():
+            print(f"  テストタスクファイルが見つかりません: {path}")
+            return []
+
+        content = task_path.read_text(encoding="utf-8")
+
+        if yaml is not None:
+            data = yaml.safe_load(content)
+        else:
+            # yaml がない場合は JSON フォールバック
+            data = json.loads(content)
+
+        if isinstance(data, dict) and "tasks" in data:
+            return data["tasks"]
+        return []
+
+    def _execution_evaluate(self, individual: Individual) -> float:
+        """テストタスクで候補スキルを実行し、出力品質を評価する2段階パイプライン。
+
+        Stage 1: claude -p にスキルを渡してタスクを実行
+        Stage 2: 出力品質を別の claude -p 呼び出しで評価
+        """
+        if not self.test_tasks:
+            return 0.5
+
+        scores = []
+        for task in self.test_tasks:
+            task_name = task.get("name", "unnamed")
+            task_prompt = task.get("prompt", "")
+            expected = task.get("expected", "")
+
+            # Stage 1: スキルを使ってタスクを実行
+            exec_prompt = (
+                f"以下のスキル定義に従って、タスクを実行してください。\n\n"
+                f"スキル:\n```markdown\n{individual.content}\n```\n\n"
+                f"タスク: {task_prompt}"
+            )
+
+            try:
+                exec_result = subprocess.run(
+                    ["claude", "-p", "--output-format", "text"],
+                    input=exec_prompt,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                if exec_result.returncode != 0:
+                    scores.append(0.0)
+                    continue
+
+                output = exec_result.stdout.strip()
+
+                # Stage 2: 出力品質を評価
+                eval_prompt = (
+                    f"以下のタスク出力を0.0〜1.0で評価してください。\n\n"
+                    f"タスク: {task_prompt}\n"
+                    f"期待される特徴: {expected}\n\n"
+                    f"出力:\n```\n{output}\n```\n\n"
+                    f"数値のみ回答してください（例: 0.75）"
+                )
+                eval_result = subprocess.run(
+                    ["claude", "-p", "--output-format", "text"],
+                    input=eval_prompt,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                if eval_result.returncode == 0:
+                    match = re.search(
+                        r"(0\.\d+|1\.0|0|1)", eval_result.stdout.strip()
+                    )
+                    if match:
+                        scores.append(float(match.group(1)))
+                    else:
+                        scores.append(0.5)
+                else:
+                    scores.append(0.5)
+
+            except subprocess.TimeoutExpired:
+                print(f"  実行ベース評価タイムアウト: {task_name}")
+                scores.append(0.0)
+            except FileNotFoundError:
+                scores.append(0.0)
+
+        if not scores:
+            return 0.5
+
+        return sum(scores) / len(scores)
 
     def run(self) -> Dict[str, Any]:
         """最適化ループを実行"""
@@ -208,8 +318,6 @@ class GeneticOptimizer:
                 [
                     "claude",
                     "-p",
-                    "--model",
-                    "sonnet",
                     "--output-format",
                     "text",
                 ],
@@ -264,8 +372,6 @@ class GeneticOptimizer:
                 [
                     "claude",
                     "-p",
-                    "--model",
-                    "sonnet",
                     "--output-format",
                     "text",
                 ],
@@ -298,6 +404,61 @@ class GeneticOptimizer:
             parent_ids=[parent1.id, parent2.id],
         )
 
+    # 禁止パターン
+    FORBIDDEN_PATTERNS = ["TODO", "FIXME", "HACK", "XXX"]
+
+    def _regression_gate(self, content: str) -> Tuple[bool, Optional[str]]:
+        """構造的必要条件のハードゲートチェック。
+
+        Returns:
+            (passed, reason) のタプル。passed=False なら reason に不合格理由。
+        """
+        # 空チェック
+        if not content or not content.strip():
+            return False, "empty"
+
+        # 行数チェック
+        if not self._check_line_limit(content):
+            lines = content.count("\n") + 1
+            return False, f"line_limit_exceeded({lines}/{self._max_lines})"
+
+        # 禁止パターンチェック
+        for pattern in self.FORBIDDEN_PATTERNS:
+            if pattern in content:
+                return False, f"forbidden_pattern({pattern})"
+
+        # pitfalls.md からの動的パターンチェック
+        pitfall_patterns = self._load_pitfall_patterns()
+        for pp in pitfall_patterns:
+            if pp in content:
+                return False, f"pitfall_pattern({pp})"
+
+        return True, None
+
+    def _load_pitfall_patterns(self) -> List[str]:
+        """pitfalls.md からゲート不合格パターンを読み込む。
+
+        gate ソースのパターンのうち、forbidden_pattern(*) の中身を抽出して返す。
+        """
+        pitfalls_file = self.target_path.parent / "references" / "pitfalls.md"
+        if not pitfalls_file.exists():
+            return []
+
+        patterns = []
+        content = pitfalls_file.read_text(encoding="utf-8")
+        for line in content.strip().split("\n"):
+            if not line.strip().startswith("|"):
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            # parts: ['', 'Source', 'Pattern', 'Score', '']
+            if len(parts) >= 4 and parts[1] == "gate":
+                pat = parts[2]
+                # forbidden_pattern(X) から X を抽出
+                m = re.match(r"forbidden_pattern\((.+)\)", pat)
+                if m:
+                    patterns.append(m.group(1))
+        return patterns
+
     def evaluate(self, individual: Individual) -> float:
         """適応度関数で個体を評価"""
         if self.dry_run:
@@ -305,13 +466,45 @@ class GeneticOptimizer:
             base = min(len(individual.content) / 5000, 1.0)
             return round(base * 0.5 + 0.3, 2)
 
+        # Regression Gate: 不合格なら即 0.0
+        passed, reason = self._regression_gate(individual.content)
+        if not passed:
+            print(f"  Regression Gate 不合格: {reason}")
+            self._record_pitfall(
+                str(self.target_path), "gate", reason or "unknown", 0.0
+            )
+            return 0.0
+
         # カスタム適応度関数を試す
         fitness_score = self._run_custom_fitness(individual)
         if fitness_score is not None:
             return fitness_score
 
-        # デフォルト: LLM 評価
-        return self._llm_evaluate(individual)
+        # デフォルト: LLM 評価（CoT）
+        cot_score, cot = self._llm_evaluate(individual)
+
+        # CoT 低スコア基準を pitfalls に記録
+        if cot:
+            criteria = ["clarity", "completeness", "structure", "practicality"]
+            for c in criteria:
+                if c in cot and isinstance(cot[c], dict):
+                    c_score = cot[c].get("score", 1.0)
+                    if c_score < 0.4:
+                        reason_text = cot[c].get("reason", "low score")
+                        self._record_pitfall(
+                            str(self.target_path),
+                            "cot",
+                            f"{c}: {reason_text}",
+                            c_score,
+                        )
+
+        # 実行ベース評価（--test-tasks 指定時のみ）
+        if self.test_tasks:
+            exec_score = self._execution_evaluate(individual)
+            # CoT * 0.4 + 実行ベース * 0.6
+            return round(cot_score * 0.4 + exec_score * 0.6, 3)
+
+        return cot_score
 
     def _run_custom_fitness(self, individual: Individual) -> Optional[float]:
         """カスタム適応度関数を実行。
@@ -362,17 +555,28 @@ class GeneticOptimizer:
 
         return None
 
-    def _llm_evaluate(self, individual: Individual) -> float:
-        """LLM でスキル品質を評価"""
+    def _llm_evaluate(self, individual: Individual) -> Tuple[float, Optional[Dict[str, Any]]]:
+        """LLM でスキル品質を CoT 付きで評価。
+
+        Returns:
+            (total_score, cot_result) のタプル。
+            cot_result は各基準の score/reason を含む dict、またはパース失敗時 None。
+        """
         prompt = (
-            "以下のClaude Codeスキル定義を0.0〜1.0で評価してください。\n\n"
+            "以下のClaude Codeスキル定義を評価してください。\n\n"
+            "各基準について、まず根拠（reason）を述べてから 0.0〜1.0 のスコアを付けてください。\n\n"
             "評価基準:\n"
-            "- 明確性: 指示が明確で曖昧さがないか (25%)\n"
-            "- 完全性: 必要な情報が全て含まれているか (25%)\n"
-            "- 構造: 論理的に整理されているか (25%)\n"
-            "- 実用性: 実際に使いやすいか (25%)\n\n"
+            "- clarity: 指示が明確で曖昧さがないか (25%)\n"
+            "- completeness: 必要な情報が全て含まれているか (25%)\n"
+            "- structure: 論理的に整理されているか (25%)\n"
+            "- practicality: 実際に使いやすいか (25%)\n\n"
             f"スキル:\n```markdown\n{individual.content}\n```\n\n"
-            "数値のみ回答してください（例: 0.75）"
+            "以下のJSON形式で回答してください:\n"
+            '{"clarity": {"score": 0.8, "reason": "..."}, '
+            '"completeness": {"score": 0.7, "reason": "..."}, '
+            '"structure": {"score": 0.9, "reason": "..."}, '
+            '"practicality": {"score": 0.75, "reason": "..."}, '
+            '"total": 0.79}'
         )
 
         try:
@@ -380,8 +584,6 @@ class GeneticOptimizer:
                 [
                     "claude",
                     "-p",
-                    "--model",
-                    "haiku",
                     "--output-format",
                     "text",
                 ],
@@ -391,14 +593,114 @@ class GeneticOptimizer:
                 timeout=60,
             )
             if result.returncode == 0:
-                # 数値を抽出
-                match = re.search(r"(0\.\d+|1\.0|0|1)", result.stdout.strip())
-                if match:
-                    return float(match.group(1))
+                score, cot = self._parse_cot_response(result.stdout.strip())
+                return score, cot
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             print(f"  LLM評価失敗（{type(e).__name__}）、デフォルトスコア使用")
 
-        return 0.5  # フォールバック
+        return 0.5, None  # フォールバック
+
+    @staticmethod
+    def _parse_cot_response(text: str) -> Tuple[float, Optional[Dict[str, Any]]]:
+        """CoT JSON レスポンスをパース。
+
+        Returns:
+            (total_score, parsed_dict) のタプル。パース失敗時は正規表現フォールバック。
+        """
+        # JSON ブロックを抽出（```json ... ``` またはそのまま）
+        json_match = re.search(r"```(?:json)?\s*\n(.*?)```", text, re.DOTALL)
+        json_str = json_match.group(1).strip() if json_match else text.strip()
+
+        # JSON パース試行
+        try:
+            data = json.loads(json_str)
+            if isinstance(data, dict) and "total" in data:
+                total = float(data["total"])
+                return max(0.0, min(1.0, total)), data
+            # total がない場合、各基準の平均を計算
+            if isinstance(data, dict):
+                criteria = ["clarity", "completeness", "structure", "practicality"]
+                scores = []
+                for c in criteria:
+                    if c in data and isinstance(data[c], dict) and "score" in data[c]:
+                        scores.append(float(data[c]["score"]))
+                if scores:
+                    total = sum(scores) / len(scores)
+                    data["total"] = round(total, 2)
+                    return max(0.0, min(1.0, total)), data
+        except (json.JSONDecodeError, ValueError, TypeError):
+            pass
+
+        # 正規表現フォールバック: 数値を抽出
+        match = re.search(r"(0\.\d+|1\.0|0|1)", json_str)
+        if match:
+            return float(match.group(1)), None
+
+        return 0.5, None
+
+    def pairwise_compare(self, a: Individual, b: Individual) -> Individual:
+        """2つの候補を直接比較し、優れた方を返す。
+
+        位置バイアス緩和のため A/B 入替で2回評価。
+        一致しない場合は絶対スコアにフォールバック。
+        """
+        if self.dry_run:
+            # dry-run: 絶対スコアで判定
+            return a if (a.fitness or 0) >= (b.fitness or 0) else b
+
+        prompt_template = (
+            "以下の2つのClaude Codeスキル定義を比較し、"
+            "より優れた方を選んでください。\n\n"
+            "スキルA:\n```markdown\n{first}\n```\n\n"
+            "スキルB:\n```markdown\n{second}\n```\n\n"
+            "回答は 'A' または 'B' の一文字のみで答えてください。"
+        )
+
+        try:
+            # 1回目: a=A, b=B
+            result1 = subprocess.run(
+                ["claude", "-p", "--output-format", "text"],
+                input=prompt_template.format(first=a.content, second=b.content),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            # 2回目: b=A, a=B（入替）
+            result2 = subprocess.run(
+                ["claude", "-p", "--output-format", "text"],
+                input=prompt_template.format(first=b.content, second=a.content),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+            winner1 = None
+            winner2 = None
+
+            if result1.returncode == 0:
+                ans = result1.stdout.strip().upper()
+                if "A" in ans:
+                    winner1 = a
+                elif "B" in ans:
+                    winner1 = b
+
+            if result2.returncode == 0:
+                ans = result2.stdout.strip().upper()
+                # 入替しているので逆
+                if "A" in ans:
+                    winner2 = b
+                elif "B" in ans:
+                    winner2 = a
+
+            # 2回とも同じ勝者なら確定
+            if winner1 is not None and winner1 is winner2:
+                return winner1
+
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            print(f"  Pairwise比較失敗（{type(e).__name__}）、絶対スコアで判定")
+
+        # フォールバック: 絶対スコアで判定
+        return a if (a.fitness or 0) >= (b.fitness or 0) else b
 
     def next_generation(
         self, population: List[Individual], gen_num: int
@@ -406,13 +708,22 @@ class GeneticOptimizer:
         """次世代を生成（エリート選択 + 突然変異 + 交叉）"""
         new_pop: List[Individual] = []
 
-        # エリート: 上位1個体をそのまま次世代へ
+        # エリート選択: トップ2のスコア差が 0.1 以内なら pairwise で決定
+        elite_source = population[0]
+        if (
+            len(population) >= 2
+            and population[0].fitness is not None
+            and population[1].fitness is not None
+            and abs(population[0].fitness - population[1].fitness) <= 0.1
+        ):
+            elite_source = self.pairwise_compare(population[0], population[1])
+
         elite = Individual(
-            population[0].content,
+            elite_source.content,
             generation=gen_num,
-            parent_ids=[population[0].id],
+            parent_ids=[elite_source.id],
         )
-        elite.fitness = population[0].fitness
+        elite.fitness = elite_source.fitness
         new_pop.append(elite)
 
         # 残りは突然変異と交叉で生成
@@ -490,6 +801,58 @@ class GeneticOptimizer:
             print(f"バックアップが見つかりません: {backup}")
             sys.exit(1)
 
+    # --- Pitfall Accumulator ---
+
+    PITFALLS_MAX_ROWS = 50
+    PITFALLS_HEADER = "| Source | Pattern | Score |\n|--------|---------|-------|\n"
+
+    @staticmethod
+    def _record_pitfall(
+        target_path: str, source: str, pattern: str, score: Optional[float] = None
+    ):
+        """失敗パターンを references/pitfalls.md に記録。
+
+        Args:
+            target_path: 対象スキルファイルのパス
+            source: 観測ポイント（gate/cot/human）
+            pattern: 失敗パターンの説明
+            score: スコア（省略可）
+        """
+        target = Path(target_path)
+        refs_dir = target.parent / "references"
+        refs_dir.mkdir(parents=True, exist_ok=True)
+        pitfalls_file = refs_dir / "pitfalls.md"
+
+        score_str = f"{score:.2f}" if score is not None else "-"
+        new_row = f"| {source} | {pattern} | {score_str} |"
+
+        # 既存ファイルを読み込み
+        existing_rows: List[str] = []
+        if pitfalls_file.exists():
+            content = pitfalls_file.read_text(encoding="utf-8")
+            lines = content.strip().split("\n")
+            # ヘッダー（最初の2行）をスキップしてデータ行を取得
+            for line in lines[2:]:
+                if line.strip().startswith("|"):
+                    existing_rows.append(line.strip())
+
+        # 重複チェック: Pattern 列が一致するものがあればスキップ
+        for row in existing_rows:
+            parts = [p.strip() for p in row.split("|")]
+            # parts: ['', 'Source', 'Pattern', 'Score', '']
+            if len(parts) >= 4 and parts[2] == pattern:
+                return  # 重複
+
+        existing_rows.append(new_row)
+
+        # FIFO: 上限超過時は古い行を削除
+        if len(existing_rows) > GeneticOptimizer.PITFALLS_MAX_ROWS:
+            existing_rows = existing_rows[-GeneticOptimizer.PITFALLS_MAX_ROWS:]
+
+        # ファイル書き出し
+        output = GeneticOptimizer.PITFALLS_HEADER + "\n".join(existing_rows) + "\n"
+        pitfalls_file.write_text(output, encoding="utf-8")
+
 
 def main():
     parser = argparse.ArgumentParser(description="遺伝的プロンプト最適化")
@@ -511,6 +874,9 @@ def main():
     parser.add_argument(
         "--restore", action="store_true", help="バックアップから復元"
     )
+    parser.add_argument(
+        "--test-tasks", default=None, help="実行ベース評価用テストタスクYAMLファイル"
+    )
 
     args = parser.parse_args()
 
@@ -528,6 +894,7 @@ def main():
         population_size=args.population,
         fitness_func=args.fitness,
         dry_run=args.dry_run,
+        test_tasks=args.test_tasks,
     )
 
     result = optimizer.run()

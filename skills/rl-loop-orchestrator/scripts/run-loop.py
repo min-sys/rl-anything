@@ -26,6 +26,15 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 
+# --- optimize.py から _record_pitfall をインポート ---
+_optimizer_scripts = Path(__file__).parent.parent.parent / "genetic-prompt-optimizer" / "scripts"
+sys.path.insert(0, str(_optimizer_scripts))
+try:
+    from optimize import GeneticOptimizer as _GO
+    _record_pitfall = _GO._record_pitfall
+except ImportError:
+    _record_pitfall = None  # type: ignore
+
 # --- パス設定 ---
 OPTIMIZER_SCRIPT = (
     Path(__file__).parent.parent.parent
@@ -101,7 +110,7 @@ JSON形式で出力してください。
         prompt += f"\n内容:\n```markdown\n{content}\n```"
 
         result = subprocess.run(
-            ["claude", "-p", "--model", "sonnet", "--output-format", "json"],
+            ["claude", "-p", "--output-format", "json"],
             input=prompt,
             capture_output=True,
             text=True,
@@ -191,7 +200,7 @@ def score_variant(content: str, target_path: str, dry_run: bool = False) -> floa
     try:
         import re
         result = subprocess.run(
-            ["claude", "-p", "--model", "haiku", "--output-format", "text"],
+            ["claude", "-p", "--output-format", "text"],
             input=prompt,
             capture_output=True,
             text=True,
@@ -301,6 +310,13 @@ def run_loop(
             print(f"  差分: {len(best['content'])} 文字 (元: {Path(target_path).stat().st_size} バイト)")
             response = input("  適用する? [y/N]: ").strip().lower()
             approved = response in ("y", "yes")
+            if not approved and _record_pitfall is not None:
+                _record_pitfall(
+                    target_path,
+                    "human",
+                    f"rejected variant {best['id']} (score={best['score']})",
+                    best["score"],
+                )
         else:
             print("\n  [dry-run] 適用スキップ。")
 
