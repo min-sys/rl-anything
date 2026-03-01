@@ -5,5 +5,8 @@
   "author": {
     "name": "shohu"
   },
-  "keywords": ["optimization", "skill-evolution", "rl-loop"]
+  "repository": "https://github.com/shohu/rl-anything",
+  "homepage": "https://github.com/shohu/rl-anything",
+  "license": "MIT",
+  "keywords": ["optimization", "genetic-algorithm", "skill-evolution", "rl-loop", "claude-code"]
 }
