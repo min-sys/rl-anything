@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.backup
+*.swp
+generations/
+.rl-loop/
+.claude/session-context.md
