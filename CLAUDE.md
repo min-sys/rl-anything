@@ -17,22 +17,18 @@ Claude Code のスキルファイル（SKILL.md）やルールファイル（.cl
 
 ## クイックスタート
 
-```bash
+```
 # 1. 構造テスト（LLM 呼び出しなし）
-python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py \
-  --target .claude/skills/my-skill/SKILL.md --dry-run
+/optimize my-skill --dry-run
 
 # 2. 最適化実行（3世代 x 集団3）
-python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py \
-  --target .claude/skills/my-skill/SKILL.md --generations 3 --population 3
+/optimize my-skill --generations 3 --population 3
 
 # 3. 自律進化ループ
-python3 <PLUGIN_DIR>/skills/rl-loop-orchestrator/scripts/run-loop.py \
-  --target .claude/skills/my-skill/SKILL.md --dry-run
+/rl-loop my-skill --dry-run
 
 # 4. バックアップから復元
-python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py \
-  --target .claude/skills/my-skill/SKILL.md --restore
+/optimize my-skill --restore
 ```
 
 ## 適応度関数
