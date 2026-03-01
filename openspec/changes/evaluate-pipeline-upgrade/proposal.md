@@ -9,6 +9,7 @@
 - **Pairwise Comparison の追加**: エリート選択時にトップ候補同士を直接比較。位置バイアス緩和のため入替2回評価
 - **実行ベース評価の追加**: 候補スキルで実際にテストタスクを実行し、出力品質を評価する2段階パイプライン
 - **回帰テストゲートの導入**: LLM評価前に構造的必要条件（frontmatter, 禁止パターン等）をチェックし、不合格なら即却下
+- **失敗パターンの自動蓄積**: 最適化中に観測した失敗パターン（ゲート不合格・CoT低スコア・人間却下）を `references/pitfalls.md` に自動記録し、次回の評価精度を向上
 
 ## Capabilities
 
@@ -18,6 +19,7 @@
 - `pairwise-comparison`: 2つの候補スキルを直接比較し、優劣を判定する評価方式
 - `execution-based-eval`: テストタスクセットで候補スキルを実行し、出力品質を評価する
 - `regression-gate`: LLM評価前の構造的必要条件チェック（ハードゲート）
+- `pitfall-accumulator`: 最適化中の失敗パターンをスキル固有の `references/pitfalls.md` に自動蓄積し、Regression Gate と fitness 関数にフィードバック
 
 ### Modified Capabilities
 
