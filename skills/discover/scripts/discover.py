@@ -70,13 +70,68 @@ def detect_behavior_patterns(threshold: int = BEHAVIOR_THRESHOLD) -> List[Dict[s
     patterns = []
     for skill, count in counter.most_common():
         if count >= threshold and skill not in suppressed:
-            patterns.append({
+            pattern: Dict[str, Any] = {
                 "type": "behavior",
                 "pattern": skill,
                 "count": count,
                 "suggestion": "skill_candidate",
-            })
+            }
+            # Agent パターンの場合、prompt を分析してサブカテゴリを付与
+            if skill.startswith("Agent:"):
+                prompts = [
+                    r.get("prompt", "") for r in usage
+                    if r.get("skill_name") == skill and r.get("prompt")
+                ]
+                subcategories = _classify_agent_prompts(prompts)
+                if subcategories:
+                    pattern["subcategories"] = subcategories
+            patterns.append(pattern)
     return patterns
+
+
+# Agent prompt を簡易分類するキーワードマップ
+_PROMPT_CATEGORIES = {
+    "spec-review": ["spec", "requirement", "MUST", "quality check", "review.*spec"],
+    "code-exploration": ["structure", "explore", "codebase", "directory", "find.*file"],
+    "research": ["research", "best practice", "latest", "how to", "pattern"],
+    "code-review": ["review.*code", "review.*change", "review.*impl", "alignment", "verify"],
+    "implementation": ["implement", "create", "build", "write.*code", "add.*feature"],
+}
+
+
+def _classify_agent_prompts(prompts: List[str]) -> List[Dict[str, Any]]:
+    """Agent の prompt リストをキーワードベースで簡易分類する。"""
+    import re
+
+    category_counts: Counter = Counter()
+    category_examples: Dict[str, str] = {}
+
+    for prompt in prompts:
+        prompt_lower = prompt.lower()
+        matched = False
+        for category, keywords in _PROMPT_CATEGORIES.items():
+            for kw in keywords:
+                if re.search(kw, prompt_lower):
+                    category_counts[category] += 1
+                    if category not in category_examples:
+                        category_examples[category] = prompt[:120]
+                    matched = True
+                    break
+            if matched:
+                break
+        if not matched:
+            category_counts["other"] += 1
+
+    results = []
+    for cat, count in category_counts.most_common():
+        entry: Dict[str, Any] = {
+            "category": cat,
+            "count": count,
+        }
+        if cat in category_examples:
+            entry["example"] = category_examples[cat]
+        results.append(entry)
+    return results
 
 
 def detect_error_patterns(threshold: int = ERROR_THRESHOLD) -> List[Dict[str, Any]]:

@@ -37,24 +37,44 @@ def save_evolve_state(state: Dict[str, Any]) -> None:
 
 
 def count_new_sessions() -> int:
-    """前回 evolve 実行以降のセッション数を数える。"""
+    """前回 evolve 実行以降のセッション数を数える。
+
+    sessions.jsonl と usage.jsonl 両方からユニーク session_id を集計する。
+    backfill データ（sessions.jsonl に書かれない）も含めてカウントできる。
+    """
     state = load_evolve_state()
     last_run = state.get("last_run_timestamp", "")
+    session_ids: set = set()
 
+    # sessions.jsonl から集計
     sessions_file = DATA_DIR / "sessions.jsonl"
-    if not sessions_file.exists():
-        return 0
+    if sessions_file.exists():
+        for line in sessions_file.read_text(encoding="utf-8").splitlines():
+            try:
+                rec = json.loads(line)
+                ts = rec.get("timestamp", "")
+                if ts > last_run:
+                    sid = rec.get("session_id", "")
+                    if sid:
+                        session_ids.add(sid)
+            except json.JSONDecodeError:
+                continue
 
-    count = 0
-    for line in sessions_file.read_text(encoding="utf-8").splitlines():
-        try:
-            rec = json.loads(line)
-            ts = rec.get("timestamp", "")
-            if ts > last_run:
-                count += 1
-        except json.JSONDecodeError:
-            continue
-    return count
+    # usage.jsonl からもユニーク session_id を集計（backfill 対応）
+    usage_file = DATA_DIR / "usage.jsonl"
+    if usage_file.exists():
+        for line in usage_file.read_text(encoding="utf-8").splitlines():
+            try:
+                rec = json.loads(line)
+                ts = rec.get("timestamp", "")
+                if ts > last_run:
+                    sid = rec.get("session_id", "")
+                    if sid:
+                        session_ids.add(sid)
+            except json.JSONDecodeError:
+                continue
+
+    return len(session_ids)
 
 
 def count_new_observations() -> int:
@@ -79,20 +99,45 @@ def count_new_observations() -> int:
 
 
 def check_data_sufficiency() -> Dict[str, Any]:
-    """観測データの十分性をチェックする。"""
+    """観測データの十分性をチェックする。
+
+    判定基準: セッション3+かつ観測10+、
+    または全観測が20+（backfill で大量データがある場合を考慮）。
+    """
     sessions = count_new_sessions()
     observations = count_new_observations()
+
+    # 全データ（last_run 以前も含む）の観測数もフォールバックで確認
+    total_observations = _count_total_observations()
+
+    sufficient = (
+        (sessions >= 3 and observations >= 10)
+        or total_observations >= 20
+    )
+
+    if sufficient:
+        msg = f"{sessions} セッション, {observations} 新規観測 (全{total_observations}) — データ十分"
+    else:
+        msg = f"前回 evolve 以降: {sessions} セッション, {observations} 観測 (全{total_observations})"
 
     return {
         "sessions": sessions,
         "observations": observations,
-        "sufficient": sessions >= 3 and observations >= 10,
-        "message": (
-            f"前回 evolve 以降: {sessions} セッション, {observations} 観測"
-            if sessions < 3 or observations < 10
-            else f"{sessions} セッション, {observations} 観測 — データ十分"
-        ),
+        "total_observations": total_observations,
+        "sufficient": sufficient,
+        "message": msg,
     }
+
+
+def _count_total_observations() -> int:
+    """usage.jsonl の全レコード数を返す。"""
+    usage_file = DATA_DIR / "usage.jsonl"
+    if not usage_file.exists():
+        return 0
+    return sum(
+        1 for line in usage_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    )
 
 
 def run_evolve(

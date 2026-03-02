@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.5] - 2026-03-03
+
+### Added
+- `/rl-anything:backfill` スキル: セッショントランスクリプトから Skill/Agent 呼び出しを抽出し usage.jsonl にバックフィル
+- `skills/backfill/scripts/backfill.py`: トランスクリプトパーサー＋JSONL 書き出し
+- `--force` フラグ: 既存バックフィルレコードを削除して全セッションを再処理
+- `--project-dir` オプション: バックフィル対象プロジェクトの指定
+- 重複防止（session_id + source=backfill チェック）
+- パース失敗時のスキップ＋エラーカウント
+
+## [0.2.4] - 2026-03-03
+
+### Added
+- SubagentStop フック `hooks/subagent_observe.py` で subagent の完了データを `subagents.jsonl` に記録
+- PostToolUse で Agent ツール呼び出しを観測し `usage.jsonl` に `Agent:{subagent_type}` 形式で記録
+- hooks 共通ユーティリティ `hooks/common.py`（`ensure_data_dir`, `append_jsonl`, `DATA_DIR` を集約）
+
+### Fixed
+- hooks.json の `$PLUGIN_DIR` を公式仕様 `${CLAUDE_PLUGIN_ROOT}` に修正
+
 ## [0.2.3] - 2026-03-03
 
 ### Fixed
