@@ -13,7 +13,7 @@
 ### Step 1: Audit スクリプト実行
 
 ```bash
-python3 <PLUGIN_DIR>/scripts/audit.py "$(pwd)"
+python3 <PLUGIN_DIR>/skills/audit/scripts/audit.py "$(pwd)"
 ```
 
 出力されるレポートをユーザーに表示する。
@@ -23,7 +23,7 @@ python3 <PLUGIN_DIR>/scripts/audit.py "$(pwd)"
 optimize / rl-loop の実行履歴がある場合:
 
 ```bash
-python3 <PLUGIN_DIR>/scripts/aggregate_runs.py
+python3 <PLUGIN_DIR>/skills/audit/scripts/aggregate_runs.py
 ```
 
 ### Step 3: 意味的類似度の検出（オプション）

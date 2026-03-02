@@ -18,7 +18,7 @@ accept/reject が30件以上蓄積されていること（SHALL）。
 ### Step 1: データ分析
 
 ```bash
-python3 <PLUGIN_DIR>/scripts/fitness_evolution.py
+python3 <PLUGIN_DIR>/skills/evolve-fitness/scripts/fitness_evolution.py
 ```
 
 ### Step 2: データ不足時

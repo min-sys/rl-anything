@@ -19,7 +19,7 @@ Observe データ確認 → Discover → Optimize → Prune → Report の全フ
 ### Step 1: データ十分性チェック
 
 ```bash
-python3 <PLUGIN_DIR>/scripts/evolve.py --project-dir "$(pwd)" --dry-run
+python3 <PLUGIN_DIR>/skills/evolve/scripts/evolve.py --project-dir "$(pwd)" --dry-run
 ```
 
 - 前回 evolve 実行以降のセッション数が3未満、または10観測未満の場合:

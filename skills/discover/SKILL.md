@@ -14,7 +14,7 @@
 ### Step 1: パターン検出
 
 ```bash
-python3 <PLUGIN_DIR>/scripts/discover.py
+python3 <PLUGIN_DIR>/skills/discover/scripts/discover.py
 ```
 
 ### Step 2: 検出結果の表示

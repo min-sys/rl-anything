@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2] - 2026-03-02
+
+### Fixed
+- スクリプトを各スキルの `scripts/` サブディレクトリに配置（プラグイン公式構造に準拠）
+- `<PLUGIN_DIR>/skills/{name}/scripts/` 形式のフルパスに統一
+- cross-import の `sys.path` をプラグインルートの `scripts/` に向ける
+
 ## [0.2.1] - 2026-03-02
 
 ### Fixed
