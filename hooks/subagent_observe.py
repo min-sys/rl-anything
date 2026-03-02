@@ -24,13 +24,18 @@ def handle_subagent_stop(event: dict) -> None:
     if len(last_message) > MAX_MESSAGE_LENGTH:
         last_message = last_message[:MAX_MESSAGE_LENGTH]
 
+    session_id = event.get("session_id", "")
+    wf_ctx = common.read_workflow_context(session_id)
+
     record = {
         "agent_type": event.get("agent_type", ""),
         "agent_id": event.get("agent_id", ""),
         "last_assistant_message": last_message,
         "agent_transcript_path": event.get("agent_transcript_path", ""),
-        "session_id": event.get("session_id", ""),
+        "session_id": session_id,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "parent_skill": wf_ctx["parent_skill"],
+        "workflow_id": wf_ctx["workflow_id"],
     }
     common.append_jsonl(common.DATA_DIR / "subagents.jsonl", record)
 

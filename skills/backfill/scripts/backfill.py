@@ -8,7 +8,9 @@ observe hooks と同形式で usage.jsonl に追記する。
 import argparse
 import json
 import os
+import secrets
 import sys
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -20,6 +22,14 @@ import common
 
 CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 MAX_PROMPT_LENGTH = 200
+
+
+@dataclass
+class ParseResult:
+    """parse_transcript() の戻り値。"""
+    usage_records: list = field(default_factory=list)
+    workflow_records: list = field(default_factory=list)
+    errors: int = 0
 
 
 def resolve_project_dir(project_dir: Optional[str] = None) -> Path:
@@ -90,14 +100,63 @@ def remove_backfill_records() -> None:
     usage_file.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
 
 
-def parse_transcript(filepath: Path) -> List[Dict[str, Any]]:
+def remove_backfill_workflows() -> None:
+    """workflows.jsonl から source=backfill のレコードを全て削除する。"""
+    workflows_file = common.DATA_DIR / "workflows.jsonl"
+    if not workflows_file.exists():
+        return
+
+    lines = workflows_file.read_text(encoding="utf-8").splitlines()
+    kept: List[str] = []
+    for line in lines:
+        try:
+            record = json.loads(line)
+            if record.get("source") != "backfill":
+                kept.append(line)
+        except json.JSONDecodeError:
+            kept.append(line)
+
+    workflows_file.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
+
+
+def _generate_workflow_id() -> str:
+    """wf-{8 hex chars} 形式のワークフロー ID を生成する。"""
+    return f"wf-{secrets.token_hex(4)}"
+
+
+def _finalize_workflow(
+    workflow: Dict[str, Any],
+    steps: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """ワークフローを確定し workflows.jsonl レコードとして返す。steps が空なら None。"""
+    if not steps:
+        return None
+    workflow["steps"] = steps
+    workflow["step_count"] = len(steps)
+    workflow["ended_at"] = steps[-1].get("timestamp", workflow.get("started_at", ""))
+    workflow["source"] = "backfill"
+    return workflow
+
+
+def parse_transcript(filepath: Path) -> ParseResult:
     """トランスクリプト JSONL をパースし、Skill/Agent ツール呼び出しを抽出する。
 
+    ワークフロー境界判定ルール（1パス処理）:
+    - Skill tool_use 検出 → 新しいワークフロー開始（前のワークフローを確定）
+    - 次の Skill or トランスクリプト終了まで → Agent は current_workflow に属する
+    - Skill 前の Agent → ad-hoc（parent_skill: null, workflow_id: null）
+    - Skill だけで Agent がない場合 → workflow_records に追加しない（step_count=0）
+
     Returns:
-        List of dicts: extracted tool calls with skill_name, session_id, timestamp, source, etc.
+        ParseResult with usage_records, workflow_records, errors
     """
-    results: List[Dict[str, Any]] = []
-    errors = 0
+    result = ParseResult()
+
+    # ワークフロー追跡の状態
+    current_workflow: Optional[Dict[str, Any]] = None
+    current_steps: List[Dict[str, Any]] = []
+    current_workflow_id: Optional[str] = None
+    current_skill_name: Optional[str] = None
 
     for line in filepath.read_text(encoding="utf-8").splitlines():
         if not line.strip():
@@ -106,7 +165,7 @@ def parse_transcript(filepath: Path) -> List[Dict[str, Any]]:
         try:
             record = json.loads(line)
         except json.JSONDecodeError:
-            errors += 1
+            result.errors += 1
             continue
 
         if record.get("type") != "assistant":
@@ -133,8 +192,26 @@ def parse_transcript(filepath: Path) -> List[Dict[str, Any]]:
                 continue
 
             if tool_name == "Skill":
+                # 前のワークフローを確定
+                if current_workflow is not None:
+                    wf_rec = _finalize_workflow(current_workflow, current_steps)
+                    if wf_rec is not None:
+                        result.workflow_records.append(wf_rec)
+
+                # 新しいワークフロー開始
                 skill_name = tool_input.get("skill", "unknown")
-                results.append({
+                current_workflow_id = _generate_workflow_id()
+                current_skill_name = skill_name
+                current_workflow = {
+                    "workflow_id": current_workflow_id,
+                    "skill_name": skill_name,
+                    "session_id": session_id,
+                    "started_at": timestamp,
+                }
+                current_steps = []
+
+                # Skill 自身の usage レコード（parent_skill/workflow_id なし）
+                result.usage_records.append({
                     "skill_name": skill_name,
                     "timestamp": timestamp,
                     "session_id": session_id,
@@ -147,16 +224,40 @@ def parse_transcript(filepath: Path) -> List[Dict[str, Any]]:
                 prompt = tool_input.get("prompt", "") or ""
                 if len(prompt) > MAX_PROMPT_LENGTH:
                     prompt = prompt[:MAX_PROMPT_LENGTH]
-                results.append({
+
+                agent_record: Dict[str, Any] = {
                     "skill_name": f"Agent:{subagent_type}",
                     "subagent_type": subagent_type,
                     "prompt": prompt,
                     "timestamp": timestamp,
                     "session_id": session_id,
                     "source": "backfill",
-                })
+                }
 
-    return results, errors
+                if current_workflow is not None:
+                    # Skill ワークフロー内の Agent
+                    agent_record["parent_skill"] = current_skill_name
+                    agent_record["workflow_id"] = current_workflow_id
+                    # ステップとしても記録
+                    current_steps.append({
+                        "tool": f"Agent:{subagent_type}",
+                        "intent_category": common.classify_prompt(prompt),
+                        "timestamp": timestamp,
+                    })
+                else:
+                    # ad-hoc Agent（Skill 前）
+                    agent_record["parent_skill"] = None
+                    agent_record["workflow_id"] = None
+
+                result.usage_records.append(agent_record)
+
+    # 最後のワークフローを確定
+    if current_workflow is not None:
+        wf_rec = _finalize_workflow(current_workflow, current_steps)
+        if wf_rec is not None:
+            result.workflow_records.append(wf_rec)
+
+    return result
 
 
 def backfill(project_dir: Optional[str] = None, force: bool = False) -> Dict[str, int]:
@@ -168,6 +269,7 @@ def backfill(project_dir: Optional[str] = None, force: bool = False) -> Dict[str
     # --force 時は既存バックフィルレコードを削除
     if force:
         remove_backfill_records()
+        remove_backfill_workflows()
         backfilled_sessions: Set[str] = set()
     else:
         backfilled_sessions = get_backfilled_session_ids()
@@ -176,6 +278,7 @@ def backfill(project_dir: Optional[str] = None, force: bool = False) -> Dict[str
         "sessions_processed": 0,
         "skill_calls": 0,
         "agent_calls": 0,
+        "workflows": 0,
         "errors": 0,
         "skipped_sessions": 0,
     }
@@ -192,20 +295,24 @@ def backfill(project_dir: Optional[str] = None, force: bool = False) -> Dict[str
             summary["skipped_sessions"] += 1
             continue
 
-        records, parse_errors = parse_transcript(tf)
-        summary["errors"] += parse_errors
+        parse_result = parse_transcript(tf)
+        summary["errors"] += parse_result.errors
 
-        if not records:
+        if not parse_result.usage_records and not parse_result.workflow_records:
             continue
 
         summary["sessions_processed"] += 1
 
-        for rec in records:
+        for rec in parse_result.usage_records:
             if rec.get("skill_name", "").startswith("Agent:"):
                 summary["agent_calls"] += 1
             else:
                 summary["skill_calls"] += 1
             common.append_jsonl(common.DATA_DIR / "usage.jsonl", rec)
+
+        for wf_rec in parse_result.workflow_records:
+            summary["workflows"] += 1
+            common.append_jsonl(common.DATA_DIR / "workflows.jsonl", wf_rec)
 
     return summary
 

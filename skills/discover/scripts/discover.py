@@ -58,29 +58,53 @@ def add_to_suppression_list(pattern: str) -> None:
 
 
 def detect_behavior_patterns(threshold: int = BEHAVIOR_THRESHOLD) -> List[Dict[str, Any]]:
-    """繰り返し行動パターンの検出（usage + sessions、5+閾値）。"""
+    """繰り返し行動パターンの検出（usage + sessions、5+閾値）。
+
+    parent_skill の有無で contextualized / ad-hoc / unknown を分類し、
+    ad-hoc パターンのみをスキル候補として提案する。
+    """
     usage = load_jsonl(DATA_DIR / "usage.jsonl")
-    counter: Counter = Counter()
+
+    # ad-hoc レコードのみカウント（contextualized/unknown を除外）
+    ad_hoc_counter: Counter = Counter()
+    all_counter: Counter = Counter()
     for rec in usage:
         skill = rec.get("skill_name", "")
-        if skill:
-            counter[skill] += 1
+        if not skill:
+            continue
+        all_counter[skill] += 1
+
+        parent_skill = rec.get("parent_skill")
+        source = rec.get("source", "")
+
+        # backfill データ（parent_skill なし + source=backfill）は unknown として除外
+        if parent_skill is None and source == "backfill":
+            continue
+        # contextualized（parent_skill あり）は除外
+        if parent_skill is not None:
+            continue
+        # ad-hoc（parent_skill なし、backfill でない）のみカウント
+        ad_hoc_counter[skill] += 1
 
     suppressed = load_suppression_list()
     patterns = []
-    for skill, count in counter.most_common():
-        if count >= threshold and skill not in suppressed:
+    for skill, ad_hoc_count in ad_hoc_counter.most_common():
+        if ad_hoc_count >= threshold and skill not in suppressed:
             pattern: Dict[str, Any] = {
                 "type": "behavior",
                 "pattern": skill,
-                "count": count,
+                "count": ad_hoc_count,
+                "total_count": all_counter.get(skill, 0),
                 "suggestion": "skill_candidate",
             }
             # Agent パターンの場合、prompt を分析してサブカテゴリを付与
             if skill.startswith("Agent:"):
                 prompts = [
                     r.get("prompt", "") for r in usage
-                    if r.get("skill_name") == skill and r.get("prompt")
+                    if r.get("skill_name") == skill
+                    and r.get("prompt")
+                    and r.get("parent_skill") is None
+                    and r.get("source", "") != "backfill"
                 ]
                 subcategories = _classify_agent_prompts(prompts)
                 if subcategories:
@@ -89,38 +113,26 @@ def detect_behavior_patterns(threshold: int = BEHAVIOR_THRESHOLD) -> List[Dict[s
     return patterns
 
 
-# Agent prompt を簡易分類するキーワードマップ
-_PROMPT_CATEGORIES = {
-    "spec-review": ["spec", "requirement", "MUST", "quality check", "review.*spec"],
-    "code-exploration": ["structure", "explore", "codebase", "directory", "find.*file"],
-    "research": ["research", "best practice", "latest", "how to", "pattern"],
-    "code-review": ["review.*code", "review.*change", "review.*impl", "alignment", "verify"],
-    "implementation": ["implement", "create", "build", "write.*code", "add.*feature"],
-}
-
-
 def _classify_agent_prompts(prompts: List[str]) -> List[Dict[str, Any]]:
-    """Agent の prompt リストをキーワードベースで簡易分類する。"""
-    import re
+    """Agent の prompt リストをキーワードベースで簡易分類する。
+
+    common.PROMPT_CATEGORIES / common.classify_prompt() を利用。
+    """
+    # hooks/common.py をインポート
+    import sys as _sys
+    _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+    if str(_plugin_root / "hooks") not in _sys.path:
+        _sys.path.insert(0, str(_plugin_root / "hooks"))
+    import common as _common
 
     category_counts: Counter = Counter()
     category_examples: Dict[str, str] = {}
 
     for prompt in prompts:
-        prompt_lower = prompt.lower()
-        matched = False
-        for category, keywords in _PROMPT_CATEGORIES.items():
-            for kw in keywords:
-                if re.search(kw, prompt_lower):
-                    category_counts[category] += 1
-                    if category not in category_examples:
-                        category_examples[category] = prompt[:120]
-                    matched = True
-                    break
-            if matched:
-                break
-        if not matched:
-            category_counts["other"] += 1
+        cat = _common.classify_prompt(prompt)
+        category_counts[cat] += 1
+        if cat != "other" and cat not in category_examples:
+            category_examples[cat] = prompt[:120]
 
     results = []
     for cat, count in category_counts.most_common():

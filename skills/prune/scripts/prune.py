@@ -103,11 +103,20 @@ def detect_dead_globs(project_dir: Path) -> List[Dict[str, Any]]:
 def detect_zero_invocations(
     artifacts: Dict[str, List[Path]], days: int = ZERO_INVOCATION_DAYS
 ) -> List[Dict[str, Any]]:
-    """usage.jsonl で指定日数間使用記録がないアーティファクトを検出。"""
+    """usage.jsonl で指定日数間使用記録がないアーティファクトを検出。
+
+    直接の Skill tool_use に加えて、usage.jsonl の parent_skill として
+    参照されている回数もカウントする（MUST）。
+    subagents.jsonl は参照対象外。
+    """
     usage_records = load_usage_data(days=days)
     used_skills = set()
     for rec in usage_records:
         used_skills.add(rec.get("skill_name", ""))
+        # parent_skill 経由の使用もカウント
+        parent = rec.get("parent_skill")
+        if parent:
+            used_skills.add(parent)
 
     zero = []
     for path in artifacts.get("skills", []):

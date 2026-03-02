@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.3.1] - 2026-03-03
+
+### Added
+- Backfill ワークフロー構造抽出: parse_transcript() がワークフロー境界を検出し workflows.jsonl を生成
+- `skills/backfill/scripts/analyze.py`: ワークフロー分析スクリプト（一貫性・バリエーション・介入・Discover/Prune 比較）
+- `hooks/common.py` に `PROMPT_CATEGORIES` / `classify_prompt()` を共通化（DRY 解消）
+
+### Changed
+- `hooks/session_summary.py`: `_PROMPT_CATEGORIES`/`_classify_prompt` を `common.classify_prompt()` に置換
+- `skills/discover/scripts/discover.py`: `_PROMPT_CATEGORIES` を `common.PROMPT_CATEGORIES` に置換
+- `skills/backfill/scripts/backfill.py`: ParseResult dataclass 導入、backfill() が workflows.jsonl を出力
+
+## [0.3.0] - 2026-03-03
+
+### Added
+- ワークフロートレーシング: Skill 呼び出し時に PreToolUse hook でワークフロー文脈を記録
+- `hooks/workflow_context.py`: PreToolUse handler（文脈ファイル書き出し）
+- `hooks/common.py` に `read_workflow_context()`: 文脈ファイル読み取りの共通関数（24h expire、サイレント失敗）
+- PostToolUse/SubagentStop で `parent_skill`, `workflow_id` を usage.jsonl/subagents.jsonl に付与
+- Stop hook で `workflows.jsonl` にワークフローシーケンスレコードを書き出し
+- Discover に contextualized/ad-hoc/unknown の3分類を追加（ad-hoc のみスキル候補に）
+- Prune に `parent_skill` 経由使用のカウントを追加（plan mode 経由使用の誤検出を解消）
+- hooks.json に PreToolUse エントリを追加
+
+### Changed
+- `hooks/observe.py`: Agent 呼び出しに parent_skill/workflow_id を付与
+- `hooks/subagent_observe.py`: SubagentStop に parent_skill/workflow_id を付与
+- `hooks/session_summary.py`: ワークフローシーケンス組み立て + 文脈ファイルクリーンアップ
+- `skills/discover/scripts/discover.py`: parent_skill ベースの分類ロジック
+- `skills/prune/scripts/prune.py`: parent_skill 経由カウント
+
 ## [0.2.5] - 2026-03-03
 
 ### Added

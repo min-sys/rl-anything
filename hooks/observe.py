@@ -62,12 +62,15 @@ def handle_post_tool_use(event: dict) -> None:
         prompt = tool_input.get("prompt", "") or ""
         if len(prompt) > MAX_PROMPT_LENGTH:
             prompt = prompt[:MAX_PROMPT_LENGTH]
+        wf_ctx = common.read_workflow_context(session_id)
         usage_record = {
             "skill_name": f"Agent:{subagent_type}",
             "subagent_type": subagent_type,
             "prompt": prompt,
             "session_id": session_id,
             "timestamp": now,
+            "parent_skill": wf_ctx["parent_skill"],
+            "workflow_id": wf_ctx["workflow_id"],
         }
         common.append_jsonl(common.DATA_DIR / "usage.jsonl", usage_record)
 
