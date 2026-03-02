@@ -9,19 +9,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-DATA_DIR = Path.home() / ".claude" / "rl-anything"
-
-
-def ensure_data_dir() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def append_jsonl(filepath: Path, record: dict) -> None:
-    try:
-        with open(filepath, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except OSError as e:
-        print(f"[rl-anything:session_summary] write failed: {e}", file=sys.stderr)
+import common
 
 
 def count_session_usage(session_id: str) -> dict:
@@ -29,7 +17,7 @@ def count_session_usage(session_id: str) -> dict:
     skill_count = 0
     error_count = 0
 
-    usage_file = DATA_DIR / "usage.jsonl"
+    usage_file = common.DATA_DIR / "usage.jsonl"
     if usage_file.exists():
         for line in usage_file.read_text(encoding="utf-8").splitlines():
             try:
@@ -39,7 +27,7 @@ def count_session_usage(session_id: str) -> dict:
             except json.JSONDecodeError:
                 continue
 
-    errors_file = DATA_DIR / "errors.jsonl"
+    errors_file = common.DATA_DIR / "errors.jsonl"
     if errors_file.exists():
         for line in errors_file.read_text(encoding="utf-8").splitlines():
             try:
@@ -54,7 +42,7 @@ def count_session_usage(session_id: str) -> dict:
 
 def handle_stop(event: dict) -> None:
     """Stop イベントを処理する。"""
-    ensure_data_dir()
+    common.ensure_data_dir()
 
     session_id = event.get("session_id", "")
     stats = count_session_usage(session_id)
@@ -65,7 +53,7 @@ def handle_stop(event: dict) -> None:
         "error_count": stats["error_count"],
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    append_jsonl(DATA_DIR / "sessions.jsonl", session_record)
+    common.append_jsonl(common.DATA_DIR / "sessions.jsonl", session_record)
 
 
 def main() -> None:

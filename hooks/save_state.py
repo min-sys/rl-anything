@@ -9,16 +9,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-DATA_DIR = Path.home() / ".claude" / "rl-anything"
-
-
-def ensure_data_dir() -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+import common
 
 
 def handle_pre_compact(event: dict) -> None:
     """PreCompact イベントを処理し、進化状態を保存する。"""
-    ensure_data_dir()
+    common.ensure_data_dir()
 
     checkpoint = {
         "session_id": event.get("session_id", ""),
@@ -27,7 +23,7 @@ def handle_pre_compact(event: dict) -> None:
         "context_summary": event.get("context_summary", ""),
     }
 
-    checkpoint_file = DATA_DIR / "checkpoint.json"
+    checkpoint_file = common.DATA_DIR / "checkpoint.json"
     try:
         checkpoint_file.write_text(
             json.dumps(checkpoint, ensure_ascii=False, indent=2), encoding="utf-8"

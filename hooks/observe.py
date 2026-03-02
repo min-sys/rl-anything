@@ -13,22 +13,10 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-DATA_DIR = Path.home() / ".claude" / "rl-anything"
+import common
+
 GLOBAL_SKILLS_PREFIX = str(Path.home() / ".claude" / "skills")
-
-
-def ensure_data_dir() -> None:
-    """ディレクトリが存在しない場合 MUST 自動作成する。"""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def append_jsonl(filepath: Path, record: dict) -> None:
-    """JSONL ファイルに1行追記する。失敗時はサイレント。"""
-    try:
-        with open(filepath, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-    except OSError as e:
-        print(f"[rl-anything:observe] write failed: {e}", file=sys.stderr)
+MAX_PROMPT_LENGTH = 200
 
 
 def is_global_skill(skill_name: str, tool_input: dict) -> bool:
@@ -39,7 +27,7 @@ def is_global_skill(skill_name: str, tool_input: dict) -> bool:
 
 def handle_post_tool_use(event: dict) -> None:
     """PostToolUse イベントを処理する。"""
-    ensure_data_dir()
+    common.ensure_data_dir()
     now = datetime.now(timezone.utc).isoformat()
 
     tool_name = event.get("tool_name", "")
@@ -47,7 +35,7 @@ def handle_post_tool_use(event: dict) -> None:
     tool_result = event.get("tool_result", {})
     session_id = event.get("session_id", "")
 
-    # Skill ツール呼び出し時のみ usage を記録
+    # Skill ツール呼び出し時の usage 記録
     if tool_name == "Skill":
         skill_name = tool_input.get("skill", "unknown")
         usage_record = {
@@ -56,7 +44,7 @@ def handle_post_tool_use(event: dict) -> None:
             "session_id": session_id,
             "file_path": tool_input.get("args", ""),
         }
-        append_jsonl(DATA_DIR / "usage.jsonl", usage_record)
+        common.append_jsonl(common.DATA_DIR / "usage.jsonl", usage_record)
 
         # global スキルの場合、Usage Registry にも記録
         if is_global_skill(skill_name, tool_input):
@@ -66,7 +54,22 @@ def handle_post_tool_use(event: dict) -> None:
                 "project_path": project_path,
                 "timestamp": now,
             }
-            append_jsonl(DATA_DIR / "usage-registry.jsonl", registry_record)
+            common.append_jsonl(common.DATA_DIR / "usage-registry.jsonl", registry_record)
+
+    # Agent ツール呼び出し時の usage 記録
+    elif tool_name == "Agent":
+        subagent_type = tool_input.get("subagent_type", "unknown") or "unknown"
+        prompt = tool_input.get("prompt", "") or ""
+        if len(prompt) > MAX_PROMPT_LENGTH:
+            prompt = prompt[:MAX_PROMPT_LENGTH]
+        usage_record = {
+            "skill_name": f"Agent:{subagent_type}",
+            "subagent_type": subagent_type,
+            "prompt": prompt,
+            "session_id": session_id,
+            "timestamp": now,
+        }
+        common.append_jsonl(common.DATA_DIR / "usage.jsonl", usage_record)
 
     # エラーの記録
     is_error = tool_result.get("is_error", False) if isinstance(tool_result, dict) else False
@@ -78,7 +81,7 @@ def handle_post_tool_use(event: dict) -> None:
             "timestamp": now,
             "session_id": session_id,
         }
-        append_jsonl(DATA_DIR / "errors.jsonl", error_record)
+        common.append_jsonl(common.DATA_DIR / "errors.jsonl", error_record)
 
 
 def main() -> None:

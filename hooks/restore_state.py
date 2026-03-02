@@ -8,12 +8,12 @@ import json
 import sys
 from pathlib import Path
 
-DATA_DIR = Path.home() / ".claude" / "rl-anything"
+import common
 
 
 def handle_session_start(event: dict) -> None:
     """SessionStart イベントを処理する。"""
-    checkpoint_file = DATA_DIR / "checkpoint.json"
+    checkpoint_file = common.DATA_DIR / "checkpoint.json"
 
     if not checkpoint_file.exists():
         return
