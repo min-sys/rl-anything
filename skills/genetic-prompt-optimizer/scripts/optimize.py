@@ -44,6 +44,8 @@ class Individual:
         self.generation = generation
         self.parent_ids = parent_ids or []
         self.fitness: Optional[float] = None
+        self.strategy: Optional[str] = None  # "elite", "mutation", "crossover"
+        self.cot_reasons: Optional[Dict[str, Any]] = None
         self.id = f"gen{generation}_{datetime.now().strftime('%H%M%S_%f')}"
 
     def to_dict(self) -> dict:
@@ -52,6 +54,8 @@ class Individual:
             "generation": self.generation,
             "parent_ids": self.parent_ids,
             "fitness": self.fitness,
+            "strategy": self.strategy,
+            "cot_reasons": self.cot_reasons,
             "content_length": len(self.content),
             "content": self.content,
         }
@@ -260,6 +264,10 @@ class GeneticOptimizer:
         }
 
         self.save_result(result)
+
+        # history.jsonl にエントリを追記（human_accepted は後で更新）
+        self.save_history_entry(result)
+
         return result
 
     def backup_original(self):
@@ -335,20 +343,24 @@ class GeneticOptimizer:
                             f"  行数超過（{lines}/{self._max_lines}行）、元の個体を使用"
                         )
                     else:
-                        return Individual(
+                        child = Individual(
                             content,
                             generation=generation,
                             parent_ids=[individual.id],
                         )
+                        child.strategy = "mutation"
+                        return child
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             print(f"  突然変異失敗（{type(e).__name__}）、元の個体を使用")
 
         # フォールバック: 元の個体を返す
-        return Individual(
+        fallback = Individual(
             individual.content,
             generation=generation,
             parent_ids=[individual.id],
         )
+        fallback.strategy = "mutation"
+        return fallback
 
     def crossover(
         self, parent1: Individual, parent2: Individual, generation: int
@@ -389,20 +401,24 @@ class GeneticOptimizer:
                             f"  交叉結果が行数超過（{lines}/{self._max_lines}行）、親1を使用"
                         )
                     else:
-                        return Individual(
+                        child = Individual(
                             content,
                             generation=generation,
                             parent_ids=[parent1.id, parent2.id],
                         )
+                        child.strategy = "crossover"
+                        return child
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
             print(f"  交叉失敗（{type(e).__name__}）、親1を使用")
 
         # フォールバック
-        return Individual(
+        fallback = Individual(
             parent1.content,
             generation=generation,
             parent_ids=[parent1.id, parent2.id],
         )
+        fallback.strategy = "crossover"
+        return fallback
 
     # 禁止パターン
     FORBIDDEN_PATTERNS = ["TODO", "FIXME", "HACK", "XXX"]
@@ -482,6 +498,10 @@ class GeneticOptimizer:
 
         # デフォルト: LLM 評価（CoT）
         cot_score, cot = self._llm_evaluate(individual)
+
+        # CoT reason を Individual に保存
+        if cot:
+            individual.cot_reasons = cot
 
         # CoT 低スコア基準を pitfalls に記録
         if cot:
@@ -724,6 +744,7 @@ class GeneticOptimizer:
             parent_ids=[elite_source.id],
         )
         elite.fitness = elite_source.fitness
+        elite.strategy = "elite"
         new_pop.append(elite)
 
         # 残りは突然変異と交叉で生成
@@ -801,6 +822,65 @@ class GeneticOptimizer:
             print(f"バックアップが見つかりません: {backup}")
             sys.exit(1)
 
+    # --- History (human_accepted / rejection_reason) ---
+
+    def save_history_entry(self, result: Dict[str, Any],
+                           human_accepted: Optional[bool] = None,
+                           rejection_reason: Optional[str] = None) -> Path:
+        """history.jsonl にエントリを追記する。
+
+        Args:
+            result: run() の戻り値
+            human_accepted: ユーザーが受理したか (None=未決定)
+            rejection_reason: 却下理由 (accept 時は None)
+
+        Returns:
+            history.jsonl のパス
+        """
+        history_file = self.run_dir.parent / "history.jsonl"
+        best = result.get("best_individual", {})
+        entry = {
+            "run_id": result.get("run_id", self.run_id),
+            "target": str(self.target_path),
+            "timestamp": datetime.now().isoformat(),
+            "generations": result.get("generations", self.generations),
+            "population_size": result.get("population_size", self.population_size),
+            "fitness_func": result.get("fitness_func", self.fitness_func),
+            "best_fitness": best.get("fitness"),
+            "best_strategy": best.get("strategy"),
+            "human_accepted": human_accepted,
+            "rejection_reason": rejection_reason,
+        }
+        history_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(history_file, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        return history_file
+
+    @staticmethod
+    def record_human_decision(run_dir: str, human_accepted: bool,
+                              rejection_reason: Optional[str] = None) -> None:
+        """既存の history.jsonl エントリに human decision を記録する。
+
+        直近のエントリを読み取り、human_accepted/rejection_reason を更新して書き戻す。
+        """
+        run_path = Path(run_dir)
+        history_file = run_path.parent / "history.jsonl"
+        if not history_file.exists():
+            print(f"history.jsonl が見つかりません: {history_file}")
+            return
+
+        lines = history_file.read_text(encoding="utf-8").strip().split("\n")
+        if not lines:
+            return
+
+        # 最後のエントリを更新
+        last_entry = json.loads(lines[-1])
+        last_entry["human_accepted"] = human_accepted
+        last_entry["rejection_reason"] = rejection_reason
+        lines[-1] = json.dumps(last_entry, ensure_ascii=False)
+
+        history_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
     # --- Pitfall Accumulator ---
 
     PITFALLS_MAX_ROWS = 50
@@ -877,8 +957,38 @@ def main():
     parser.add_argument(
         "--test-tasks", default=None, help="実行ベース評価用テストタスクYAMLファイル"
     )
+    parser.add_argument(
+        "--accept", action="store_true", help="直近の最適化結果を受理する"
+    )
+    parser.add_argument(
+        "--reject", action="store_true", help="直近の最適化結果を却下する"
+    )
+    parser.add_argument(
+        "--reason", default=None, help="却下理由（--reject 時のオプション）"
+    )
 
     args = parser.parse_args()
+
+    if args.accept or args.reject:
+        # human decision の記録
+        run_dir = str(GENERATIONS_DIR)
+        if GENERATIONS_DIR.exists():
+            run_dirs = sorted(
+                [d for d in GENERATIONS_DIR.iterdir() if d.is_dir()],
+                key=lambda p: p.name,
+            )
+            if run_dirs:
+                run_dir = str(run_dirs[-1])
+        GeneticOptimizer.record_human_decision(
+            run_dir,
+            human_accepted=args.accept,
+            rejection_reason=args.reason if args.reject else None,
+        )
+        status = "受理" if args.accept else "却下"
+        print(f"結果を{status}として記録しました")
+        if args.reason:
+            print(f"理由: {args.reason}")
+        return
 
     if args.restore:
         GeneticOptimizer.restore(args.target)

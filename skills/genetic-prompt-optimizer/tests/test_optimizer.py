@@ -71,11 +71,129 @@ class TestIndividual:
         assert "id" in d
         assert "parent_ids" in d
 
+    def test_strategy_field(self):
+        """strategy フィールドの初期値とシリアライズ"""
+        ind = Individual("テスト")
+        assert ind.strategy is None
+        assert ind.to_dict()["strategy"] is None
+
+        ind.strategy = "mutation"
+        assert ind.to_dict()["strategy"] == "mutation"
+
+    def test_cot_reasons_field(self):
+        """cot_reasons フィールドの初期値とシリアライズ"""
+        ind = Individual("テスト")
+        assert ind.cot_reasons is None
+        assert ind.to_dict()["cot_reasons"] is None
+
+        ind.cot_reasons = {"clarity": {"score": 0.8, "reason": "clear"}}
+        d = ind.to_dict()
+        assert d["cot_reasons"]["clarity"]["score"] == 0.8
+
     def test_idの一意性(self):
         """同時に作成しても ID が異なる（マイクロ秒まで含むため）"""
         ids = {Individual("a").id for _ in range(10)}
         # マイクロ秒精度なので大部分はユニークだが、完全保証は難しいため5以上で OK
         assert len(ids) >= 5
+
+
+# --- テレメトリのテスト ---
+
+class TestTelemetry:
+    """strategy / cot_reasons / human_accepted / rejection_reason のテスト"""
+
+    def test_mutate_sets_strategy(self, sample_skill, temp_dir):
+        """mutate() が strategy = 'mutation' を設定する"""
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            generations=1,
+            population_size=2,
+            dry_run=True,
+        )
+        ind = Individual("テスト", generation=0)
+        # dry_run でも mutate はフォールバックで返す
+        result = optimizer.mutate(ind, 1)
+        assert result.strategy == "mutation"
+
+    def test_crossover_sets_strategy(self, sample_skill, temp_dir):
+        """crossover() が strategy = 'crossover' を設定する"""
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            generations=1,
+            population_size=2,
+            dry_run=True,
+        )
+        p1 = Individual("親1", generation=0)
+        p2 = Individual("親2", generation=0)
+        result = optimizer.crossover(p1, p2, 1)
+        assert result.strategy == "crossover"
+
+    def test_elite_sets_strategy(self, sample_skill, temp_dir):
+        """next_generation() のエリートが strategy = 'elite' を持つ"""
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            generations=1,
+            population_size=3,
+            dry_run=True,
+        )
+        pop = [Individual(f"個体{i}", generation=0) for i in range(3)]
+        for i, ind in enumerate(pop):
+            ind.fitness = 0.9 - i * 0.1
+        new_pop = optimizer.next_generation(pop, 1)
+        assert new_pop[0].strategy == "elite"
+
+    def test_history_jsonl_creation(self, sample_skill, temp_dir):
+        """save_history_entry が history.jsonl にエントリを書く"""
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            generations=1,
+            population_size=2,
+            dry_run=True,
+        )
+        optimizer.run_dir = temp_dir / "test_run"
+        optimizer.run_dir.mkdir(parents=True)
+
+        result = {"run_id": "test", "best_individual": {"fitness": 0.8, "strategy": "elite"}}
+        path = optimizer.save_history_entry(result, human_accepted=True)
+
+        assert path.exists()
+        entry = json.loads(path.read_text().strip())
+        assert entry["human_accepted"] is True
+        assert entry["rejection_reason"] is None
+
+    def test_record_human_decision_reject(self, sample_skill, temp_dir):
+        """record_human_decision が rejection_reason を記録する"""
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            generations=1,
+            population_size=2,
+            dry_run=True,
+        )
+        optimizer.run_dir = temp_dir / "test_run"
+        optimizer.run_dir.mkdir(parents=True)
+
+        result = {"run_id": "test", "best_individual": {"fitness": 0.5}}
+        optimizer.save_history_entry(result)
+
+        GeneticOptimizer.record_human_decision(
+            str(optimizer.run_dir), human_accepted=False, rejection_reason="品質不足"
+        )
+
+        history_file = optimizer.run_dir.parent / "history.jsonl"
+        entry = json.loads(history_file.read_text().strip())
+        assert entry["human_accepted"] is False
+        assert entry["rejection_reason"] == "品質不足"
+
+    def test_to_dict_includes_telemetry(self):
+        """to_dict() に strategy と cot_reasons が含まれる"""
+        ind = Individual("test")
+        ind.strategy = "crossover"
+        ind.cot_reasons = {"clarity": {"score": 0.9, "reason": "very clear"}}
+        d = ind.to_dict()
+        assert "strategy" in d
+        assert "cot_reasons" in d
+        assert d["strategy"] == "crossover"
+        assert d["cot_reasons"]["clarity"]["score"] == 0.9
 
 
 # --- GeneticOptimizer のテスト ---

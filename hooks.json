@@ -1,0 +1,54 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": {
+          "tool_name": "Skill"
+        },
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_DIR/hooks/observe.py\"",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": {},
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_DIR/hooks/session_summary.py\"",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": {},
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_DIR/hooks/save_state.py\"",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": {},
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$PLUGIN_DIR/hooks/restore_state.py\"",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

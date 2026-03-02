@@ -1,0 +1,58 @@
+name: Feedback
+description: rl-anything プラグインへのフィードバック
+title: "[Feedback] "
+labels: ["feedback"]
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: カテゴリ
+      options:
+        - バグ報告
+        - 機能提案
+        - 改善要望
+        - その他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: 対象コンポーネント
+      options:
+        - optimize
+        - rl-loop
+        - discover
+        - prune
+        - audit
+        - evolve
+        - evolve-fitness
+        - feedback
+        - その他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: score
+    attributes:
+      label: 満足度 (1=不満, 5=大変満足)
+      options:
+        - "1"
+        - "2"
+        - "3"
+        - "4"
+        - "5"
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 詳細
+      description: フィードバックの詳細を記述してください
+      placeholder: |
+        期待した動作:
+        実際の動作:
+        再現手順:
+    validations:
+      required: true
