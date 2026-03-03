@@ -228,6 +228,7 @@ def safe_global_check(artifacts: Dict[str, List[Path]]) -> List[Dict[str, Any]]:
         skill_name = path.parent.name
         usages = registry.get(skill_name, [])
         projects = set(r.get("project_path", "") for r in usages)
+        projects.discard("")
 
         if len(projects) == 0:
             candidates.append({
