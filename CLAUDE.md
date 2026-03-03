@@ -1,16 +1,20 @@
 # rl-anything Plugin
 
-スキル/ルールの遺伝的最適化と自律進化ループを提供する Claude Code Plugin。
+スキル/ルールの **自律進化パイプライン** と **遺伝的最適化** を提供する Claude Code Plugin。
 
-## 概要
+## 2つの柱
 
-Claude Code のスキルファイル（SKILL.md）やルールファイル（.claude/rules/*.md）を、
-遺伝的アルゴリズムで自動改善するパイプライン。
+| 柱 | スキル | 説明 |
+|----|--------|------|
+| 自律進化 | backfill, discover, prune, evolve, audit | Observe→Discover→Prune→Evolve のデータ駆動パイプライン |
+| 遺伝的最適化 | optimize, rl-loop, generate-fitness, evolve-fitness | LLM でバリエーション生成 → 適応度評価 → 進化 |
+| ユーティリティ | feedback, update, version | フィードバック・更新・バージョン確認 |
 
 ## コンポーネント
 
 | コンポーネント | 説明 |
 |----------------|------|
+| Observe hooks (6個) | LLM コストゼロで使用・エラー・ワークフローを自動記録 |
 | `genetic-prompt-optimizer` | LLM でバリエーションを生成し、適応度関数で評価して進化 |
 | `rl-loop-orchestrator` | ベースライン取得→バリエーション生成→評価→人間確認のループ統合 |
 | `rl-scorer` エージェント | 技術品質 + ドメイン品質 + 構造品質の3軸で採点 |
@@ -19,16 +23,16 @@ Claude Code のスキルファイル（SKILL.md）やルールファイル（.cl
 
 ```
 # 1. 構造テスト（LLM 呼び出しなし）
-/optimize my-skill --dry-run
+/rl-anything:optimize my-skill --dry-run
 
 # 2. 最適化実行（3世代 x 集団3）
-/optimize my-skill --generations 3 --population 3
+/rl-anything:optimize my-skill --generations 3 --population 3
 
-# 3. 自律進化ループ
-/rl-loop my-skill --dry-run
+# 3. 自律進化パイプライン（日次運用）
+/rl-anything:evolve --dry-run
 
 # 4. バックアップから復元
-/optimize my-skill --restore
+/rl-anything:optimize my-skill --restore
 ```
 
 ## 適応度関数
