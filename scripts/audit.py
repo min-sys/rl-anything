@@ -265,50 +265,23 @@ def semantic_similarity_check(
 def load_usage_registry() -> Dict[str, List[Dict[str, Any]]]:
     """Usage Registry からデータを読み込む。
 
-    usage-registry.jsonl が存在しない場合は usage.jsonl にフォールバックし、
-    Skill 使用レコード（Agent: 以外）をレジストリ形式で返す。
+    usage-registry.jsonl が存在しない・空の場合は空辞書を返す。
+    hooks がリアルタイムに書き込むデータのみを信頼し、
+    backfill データ（project_path なし）へのフォールバックは行わない。
     """
     registry_file = DATA_DIR / "usage-registry.jsonl"
+    if not registry_file.exists():
+        return {}
+
     result: Dict[str, List[Dict[str, Any]]] = {}
-
-    if registry_file.exists():
-        for line in registry_file.read_text(encoding="utf-8").splitlines():
-            try:
-                rec = json.loads(line)
-                skill = rec.get("skill_name", "")
-                if skill:
-                    result.setdefault(skill, []).append(rec)
-            except json.JSONDecodeError:
-                continue
-
-    # usage-registry.jsonl が空の場合、usage.jsonl + sessions.jsonl にフォールバック
-    if not result:
-        # session_id → project_name マッピングを構築
-        session_projects: Dict[str, str] = {}
-        sessions_file = DATA_DIR / "sessions.jsonl"
-        if sessions_file.exists():
-            for line in sessions_file.read_text(encoding="utf-8").splitlines():
-                try:
-                    rec = json.loads(line)
-                    sid = rec.get("session_id", "")
-                    proj = rec.get("project_name", "")
-                    if sid and proj:
-                        session_projects[sid] = proj
-                except json.JSONDecodeError:
-                    continue
-
-        usage_records = load_usage_data(days=9999)
-        for rec in usage_records:
+    for line in registry_file.read_text(encoding="utf-8").splitlines():
+        try:
+            rec = json.loads(line)
             skill = rec.get("skill_name", "")
-            if skill and not skill.startswith("Agent:"):
-                # project_path がない場合、session_id から補完
-                if not rec.get("project_path"):
-                    sid = rec.get("session_id", "")
-                    proj = session_projects.get(sid, "")
-                    if proj:
-                        rec["project_path"] = proj
+            if skill:
                 result.setdefault(skill, []).append(rec)
-
+        except json.JSONDecodeError:
+            continue
     return result
 
 

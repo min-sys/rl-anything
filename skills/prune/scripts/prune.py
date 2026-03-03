@@ -215,8 +215,15 @@ def detect_zero_invocations(
 
 
 def safe_global_check(artifacts: Dict[str, List[Path]]) -> List[Dict[str, Any]]:
-    """global スキルの安全な判断。Usage Registry を参照して cross-PJ 使用状況を確認。"""
+    """global スキルの安全な判断。Usage Registry を参照して cross-PJ 使用状況を確認。
+
+    usage-registry.jsonl（hooks が書き込む）のデータのみ使用する。
+    データがない場合は空リストを返し、蓄積を待つ。
+    """
     registry = load_usage_registry()
+    if not registry:
+        return []
+
     candidates = []
 
     for path in artifacts.get("skills", []):
@@ -234,14 +241,14 @@ def safe_global_check(artifacts: Dict[str, List[Path]]) -> List[Dict[str, Any]]:
             candidates.append({
                 "file": str(path),
                 "skill_name": skill_name,
-                "reason": "global_unused",
+                "reason": "no_usage_in_registry",
                 "project_count": 0,
             })
         elif len(projects) == 1:
             candidates.append({
                 "file": str(path),
                 "skill_name": skill_name,
-                "reason": "global_single_project",
+                "reason": "single_project_only",
                 "project_count": 1,
                 "projects": list(projects),
             })

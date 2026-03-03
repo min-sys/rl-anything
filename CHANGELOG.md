@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.2] - 2026-03-03
+
+### Fixed
+- global スキル判定を hooks データ（usage-registry.jsonl）のみに限定し、データ不足時はスキップ（backfill データで誤判定する問題を解消）
+
 ## [0.10.1] - 2026-03-03
 
 ### Fixed
