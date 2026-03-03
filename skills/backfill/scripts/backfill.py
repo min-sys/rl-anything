@@ -35,11 +35,6 @@ class ParseResult:
     errors: int = 0
 
 
-def project_name_from_dir(project_dir: str) -> str:
-    """プロジェクトディレクトリパスから末尾のディレクトリ名を返す。"""
-    return Path(project_dir).name
-
-
 def resolve_project_dir(project_dir: Optional[str] = None) -> Path:
     """プロジェクトディレクトリ → ~/.claude/projects/ パスを解決する。
 
@@ -357,7 +352,7 @@ def backfill(project_dir: Optional[str] = None, force: bool = False) -> Dict[str
     common.ensure_data_dir()
 
     project_path = resolve_project_dir(project_dir)
-    proj_name = project_name_from_dir(project_dir or os.getcwd())
+    proj_name = common.project_name_from_dir(project_dir or os.getcwd())
 
     # 対象プロジェクトの session_id を特定（トランスクリプトのファイル名 = session_id）
     project_session_ids = {tf.stem for tf in project_path.glob("*.jsonl")}

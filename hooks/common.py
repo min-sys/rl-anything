@@ -73,6 +73,11 @@ def classify_prompt(prompt: str) -> str:
     return "other"
 
 
+def project_name_from_dir(project_dir: str) -> str:
+    """プロジェクトディレクトリパスから末尾のディレクトリ名を返す。"""
+    return Path(project_dir).name
+
+
 def append_jsonl(filepath: Path, record: dict) -> None:
     """JSONL ファイルに1行追記する。失敗時はサイレント。"""
     try:

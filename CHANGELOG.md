@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0] - 2026-03-03
+
+### Added
+- `analyze.py` にプロジェクトフィルタ機能: `--project` CLI 引数でプロジェクト単位のデータ分析が可能に
+- `get_project_session_ids()`: sessions.jsonl から project_name でフィルタした session_id セットを取得
+- `load_jsonl()` に `session_ids` フィルタパラメータ追加
+- テスト 10 件追加（project filter 関連）
+
+### Changed
+- `project_name_from_dir()` を `backfill.py` から `hooks/common.py` に移動し共通化
+- `run_analysis()` が `project` 引数を受け取りフィルタ済みデータで分析を実行
+- SKILL.md Step 2 コマンドに `--project "$(basename $(pwd))"` を追加
+
 ## [0.3.3] - 2026-03-03
 
 ### Added

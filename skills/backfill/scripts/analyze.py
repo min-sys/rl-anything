@@ -4,11 +4,13 @@
 workflows.jsonl / usage.jsonl を読み込み、
 Phase C proposal の設計入力となるマークダウンレポートを stdout に出力する。
 """
+import argparse
 import json
+import os
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set
 
 # hooks/common.py を import
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
@@ -17,14 +19,38 @@ sys.path.insert(0, str(PLUGIN_ROOT / "hooks"))
 import common
 
 
-def load_jsonl(filepath: Path) -> List[Dict[str, Any]]:
-    """JSONL ファイルを読み込む。"""
+def get_project_session_ids(project_name: str) -> Set[str]:
+    """sessions.jsonl から該当 project_name の session_id セットを返す。
+
+    project_name フィールドが存在しないレコードはフィルタ対象外となる。
+    """
+    sessions_file = common.DATA_DIR / "sessions.jsonl"
+    if not sessions_file.exists():
+        return set()
+    session_ids: Set[str] = set()
+    for line in sessions_file.read_text(encoding="utf-8").splitlines():
+        try:
+            record = json.loads(line)
+            if record.get("project_name") == project_name:
+                sid = record.get("session_id", "")
+                if sid:
+                    session_ids.add(sid)
+        except json.JSONDecodeError:
+            continue
+    return session_ids
+
+
+def load_jsonl(filepath: Path, session_ids: Optional[Set[str]] = None) -> List[Dict[str, Any]]:
+    """JSONL ファイルを読み込む。session_ids が指定された場合はフィルタする。"""
     if not filepath.exists():
         return []
     records = []
     for line in filepath.read_text(encoding="utf-8").splitlines():
         try:
-            records.append(json.loads(line))
+            record = json.loads(line)
+            if session_ids is not None and record.get("session_id") not in session_ids:
+                continue
+            records.append(record)
         except json.JSONDecodeError:
             continue
     return records
@@ -341,11 +367,19 @@ def format_report(
     return "\n".join(lines)
 
 
-def run_analysis() -> str:
-    """分析を実行してマークダウンレポートを返す。"""
-    workflows = load_jsonl(common.DATA_DIR / "workflows.jsonl")
-    usage = load_jsonl(common.DATA_DIR / "usage.jsonl")
-    sessions = load_jsonl(common.DATA_DIR / "sessions.jsonl")
+def run_analysis(project: Optional[str] = None) -> str:
+    """分析を実行してマークダウンレポートを返す。
+
+    project が指定された場合、sessions.jsonl から該当プロジェクトの
+    session_id セットを取得し、全データをフィルタする。
+    """
+    if project is not None:
+        session_ids: Optional[Set[str]] = get_project_session_ids(project)
+    else:
+        session_ids = None
+    workflows = load_jsonl(common.DATA_DIR / "workflows.jsonl", session_ids)
+    usage = load_jsonl(common.DATA_DIR / "usage.jsonl", session_ids)
+    sessions = load_jsonl(common.DATA_DIR / "sessions.jsonl", session_ids)
 
     consistency = analyze_consistency(workflows)
     variations = analyze_variations(workflows)
@@ -366,7 +400,17 @@ def run_analysis() -> str:
 
 
 def main() -> None:
-    report = run_analysis()
+    parser = argparse.ArgumentParser(
+        description="ワークフロー分析レポートを生成する"
+    )
+    parser.add_argument(
+        "--project",
+        default=common.project_name_from_dir(os.getcwd()),
+        help="フィルタ対象のプロジェクト名（デフォルト: カレントディレクトリ名）",
+    )
+    args = parser.parse_args()
+
+    report = run_analysis(project=args.project)
     print(report)
 
 

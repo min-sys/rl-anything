@@ -302,6 +302,77 @@ class TestAnalyzeSessions:
         assert result["avg_tool_calls"] == 0
 
 
+class TestGetProjectSessionIds:
+    """get_project_session_ids() のテスト。"""
+
+    def test_matching_project(self, patch_data_dir):
+        """該当プロジェクトの session_id が返される。"""
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        sessions_file.write_text(
+            json.dumps({"session_id": "s1", "project_name": "my-project"}) + "\n"
+            + json.dumps({"session_id": "s2", "project_name": "other-project"}) + "\n"
+            + json.dumps({"session_id": "s3", "project_name": "my-project"}) + "\n",
+            encoding="utf-8",
+        )
+        result = analyze.get_project_session_ids("my-project")
+        assert result == {"s1", "s3"}
+
+    def test_no_matching_project(self, patch_data_dir):
+        """該当プロジェクトがない場合は空セットを返す。"""
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        sessions_file.write_text(
+            json.dumps({"session_id": "s1", "project_name": "other"}) + "\n",
+            encoding="utf-8",
+        )
+        result = analyze.get_project_session_ids("nonexistent")
+        assert result == set()
+
+    def test_records_without_project_name(self, patch_data_dir):
+        """project_name がないレコード（observe hooks 経由）はフィルタ対象外。"""
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        sessions_file.write_text(
+            json.dumps({"session_id": "s1", "project_name": "my-project"}) + "\n"
+            + json.dumps({"session_id": "s2"}) + "\n"  # project_name なし
+            + json.dumps({"session_id": "s3", "project_name": ""}) + "\n",
+            encoding="utf-8",
+        )
+        result = analyze.get_project_session_ids("my-project")
+        assert result == {"s1"}
+
+    def test_no_sessions_file(self, patch_data_dir):
+        """sessions.jsonl が存在しない場合は空セットを返す。"""
+        result = analyze.get_project_session_ids("any")
+        assert result == set()
+
+
+class TestLoadJsonlWithFilter:
+    """load_jsonl() の session_ids フィルタテスト。"""
+
+    def test_filter_by_session_ids(self, patch_data_dir):
+        """session_ids で指定したレコードのみ返される。"""
+        usage_file = patch_data_dir / "usage.jsonl"
+        usage_file.write_text(
+            json.dumps({"skill_name": "A", "session_id": "s1"}) + "\n"
+            + json.dumps({"skill_name": "B", "session_id": "s2"}) + "\n"
+            + json.dumps({"skill_name": "C", "session_id": "s1"}) + "\n",
+            encoding="utf-8",
+        )
+        result = analyze.load_jsonl(usage_file, session_ids={"s1"})
+        assert len(result) == 2
+        assert all(r["session_id"] == "s1" for r in result)
+
+    def test_no_filter(self, patch_data_dir):
+        """session_ids=None の場合は全レコードを返す。"""
+        usage_file = patch_data_dir / "usage.jsonl"
+        usage_file.write_text(
+            json.dumps({"skill_name": "A", "session_id": "s1"}) + "\n"
+            + json.dumps({"skill_name": "B", "session_id": "s2"}) + "\n",
+            encoding="utf-8",
+        )
+        result = analyze.load_jsonl(usage_file)
+        assert len(result) == 2
+
+
 class TestRunAnalysis:
     """run_analysis() の統合テスト。"""
 
@@ -335,6 +406,7 @@ class TestRunAnalysis:
         sessions_file = patch_data_dir / "sessions.jsonl"
         session = {
             "session_id": "s1",
+            "project_name": "test-project",
             "total_tool_calls": 5,
             "session_duration_seconds": 120,
             "error_count": 0,
@@ -345,13 +417,70 @@ class TestRunAnalysis:
         }
         sessions_file.write_text(json.dumps(session) + "\n", encoding="utf-8")
 
-        report = analyze.run_analysis()
+        report = analyze.run_analysis(project="test-project")
         assert "# Workflow Analysis Report" in report
         assert "opsx:refine" in report
         assert "## 5. セッション分析" in report
 
     def test_empty_data(self, patch_data_dir):
         """データがない場合も正常にレポートが生成される。"""
-        report = analyze.run_analysis()
+        report = analyze.run_analysis(project="nonexistent")
         assert "# Workflow Analysis Report" in report
         assert "0" in report
+
+    def test_project_filter_excludes_other_projects(self, patch_data_dir):
+        """--project フィルタが他プロジェクトのデータを除外する。"""
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        sessions_file.write_text(
+            json.dumps({"session_id": "s1", "project_name": "proj-a", "total_tool_calls": 5,
+                         "session_duration_seconds": 60, "error_count": 0, "human_message_count": 1,
+                         "tool_counts": {}, "user_intents": []}) + "\n"
+            + json.dumps({"session_id": "s2", "project_name": "proj-b", "total_tool_calls": 3,
+                           "session_duration_seconds": 60, "error_count": 0, "human_message_count": 1,
+                           "tool_counts": {}, "user_intents": []}) + "\n",
+            encoding="utf-8",
+        )
+        usage_file = patch_data_dir / "usage.jsonl"
+        usage_file.write_text(
+            json.dumps({"skill_name": "Agent:Explore", "session_id": "s1", "source": "backfill"}) + "\n"
+            + json.dumps({"skill_name": "Agent:Plan", "session_id": "s2", "source": "backfill"}) + "\n",
+            encoding="utf-8",
+        )
+        workflows_file = patch_data_dir / "workflows.jsonl"
+        workflows_file.write_text(
+            json.dumps({"workflow_id": "wf-1", "skill_name": "sk-a", "session_id": "s1",
+                         "steps": [{"tool": "Agent:Explore"}], "step_count": 1}) + "\n"
+            + json.dumps({"workflow_id": "wf-2", "skill_name": "sk-b", "session_id": "s2",
+                           "steps": [{"tool": "Agent:Plan"}], "step_count": 1}) + "\n",
+            encoding="utf-8",
+        )
+
+        report = analyze.run_analysis(project="proj-a")
+        assert "Agent:Explore" in report
+        assert "Agent:Plan" not in report
+
+    def test_without_project_returns_all(self, patch_data_dir):
+        """project=None の場合は全データを返す。"""
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        sessions_file.write_text(
+            json.dumps({"session_id": "s1", "project_name": "proj-a", "total_tool_calls": 5,
+                         "session_duration_seconds": 60, "error_count": 0, "human_message_count": 1,
+                         "tool_counts": {}, "user_intents": []}) + "\n"
+            + json.dumps({"session_id": "s2", "project_name": "proj-b", "total_tool_calls": 3,
+                           "session_duration_seconds": 60, "error_count": 0, "human_message_count": 1,
+                           "tool_counts": {}, "user_intents": []}) + "\n",
+            encoding="utf-8",
+        )
+        usage_file = patch_data_dir / "usage.jsonl"
+        usage_file.write_text(
+            json.dumps({"skill_name": "Agent:Explore", "session_id": "s1", "source": "backfill"}) + "\n"
+            + json.dumps({"skill_name": "Agent:Plan", "session_id": "s2", "source": "backfill"}) + "\n",
+            encoding="utf-8",
+        )
+
+        report = analyze.run_analysis(project=None)
+        # project=None → 全2セッション・全2 usage レコードが含まれる
+        assert "usage.jsonl レコード数**: 2" in report
+        assert "sessions.jsonl レコード数**: 2" in report
+        assert "proj-a" in report
+        assert "proj-b" in report

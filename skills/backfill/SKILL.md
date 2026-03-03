@@ -27,7 +27,7 @@ python3 <PLUGIN_DIR>/skills/backfill/scripts/backfill.py --project-dir "$(pwd)"
 ### Step 2: 分析レポート出力
 
 ```bash
-python3 <PLUGIN_DIR>/skills/backfill/scripts/analyze.py
+python3 <PLUGIN_DIR>/skills/backfill/scripts/analyze.py --project "$(basename $(pwd))"
 ```
 
 マークダウン形式の分析レポートをユーザーに表示する（MUST）。
