@@ -6,3 +6,4 @@ __pycache__/
 generations/
 .rl-loop/
 .claude/session-context.md
+.claude/settings.json
