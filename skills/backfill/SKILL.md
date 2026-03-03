@@ -86,6 +86,9 @@ python3 <PLUGIN_DIR>/skills/backfill/scripts/analyze.py --project "$(basename $(
 マークダウン形式の分析レポートをユーザーに表示する（MUST）。
 レポート内容: ワークフロー一貫性分析、ステップバリエーション、介入分析（workflow 内 vs ad-hoc）、Discover/Prune 比較データ。
 
+レポート表示後、次のステップとして `/rl-anything:evolve --dry-run` を推奨する（MUST）。
+evolve は discover → prune → optimize を包含するパイプラインであり、個別の discover/prune/optimize を案内してはならない（NOT）。
+
 ### Step 4: --force による再実行（オプション）
 
 ユーザーが `--force` を指定した場合のみ、Step 1 のコマンドに `--force` を追加する。
