@@ -53,8 +53,11 @@ evolve.py の出力に含まれる `fitness` フェーズを確認する。
 
 ### Step 4: Optimize フェーズ（オプション）
 
-Discover で生成された候補、または既存スキルの改善を `/rl-anything:optimize` で実行。
+既存スキルの改善を `/rl-anything:optimize` で実行。
 Step 2 で生成した fitness 関数がある場合は `--fitness {name}` を付与。
+
+**対象はカスタムスキルのみ（MUST）。** プラグイン由来スキル（openspec-*, claude-reflect-* 等）および
+グローバルスキルは最適化対象から除外する。出自判定は `classify_artifact_origin()` を使用。
 
 ### Step 5: Prune フェーズ
 
