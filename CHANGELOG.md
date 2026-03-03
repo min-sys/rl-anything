@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.10.1] - 2026-03-03
+
+### Fixed
+- `load_usage_registry()` が usage-registry.jsonl 不在時に usage.jsonl + sessions.jsonl へフォールバック（global スキルが全て「未使用」扱いになる問題を修正）
+
 ## [0.10.0] - 2026-03-03
 
 ### Added
