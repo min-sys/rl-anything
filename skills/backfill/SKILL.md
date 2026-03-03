@@ -19,6 +19,10 @@ python3 <PLUGIN_DIR>/skills/backfill/scripts/backfill.py --project-dir "$(pwd)"
 ```
 
 結果の JSON サマリを表示する（MUST）。
+出力される JSONL ファイル:
+- `usage.jsonl` — Skill/Agent ツール呼び出しレコード（parent_skill/workflow_id 付き）
+- `workflows.jsonl` — ワークフロー単位のシーケンスレコード（Skill → Agent の構造）
+- `sessions.jsonl` — セッション単位のメタデータ（全ツール名+順序、ツール種別カウント、セッション長、エラー数、ユーザー意図分類）
 
 ### Step 2: 分析レポート出力
 

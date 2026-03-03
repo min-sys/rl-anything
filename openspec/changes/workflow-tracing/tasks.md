@@ -141,3 +141,48 @@ Phase C proposal に含めるべき設計入力（アイデア記録）:
 - [x] 14.1 `skills/backfill/scripts/analyze.py` 作成（一貫性・バリエーション・介入・Discover/Prune 分析）
 - [x] 14.2 `skills/backfill/scripts/tests/test_analyze.py` 作成（13テスト）
 - [ ] 14.3 分析実行 → 結果を Phase C proposal の `## Context` に反映
+
+## 15. Backfill データ収集範囲の拡張
+
+> 全 tool_use の名前+順序、セッションメタデータ、ユーザー意図分類を収集し、
+> Phase C proposal の設計入力データを充実させる。
+> 新規ファイル `sessions.jsonl` にセッション単位のメタデータを記録する。
+
+### 15a. parse_transcript() 拡張
+
+- [x] 15.1 `ParseResult` に `session_meta: dict` フィールドを追加
+- [x] 15.2 全 tool_use の名前を順序付きで収集（`tool_sequence: list[str]`）
+- [x] 15.3 セッションメタデータを収集（`tool_counts`, `session_duration_seconds`, `total_tool_calls`, `error_count`, `human_message_count`）
+- [x] 15.4 human メッセージの intent_category を classify_prompt() で分類（`user_intents: list[str]`）
+
+### 15b. backfill() 拡張
+
+- [x] 15.5 `sessions.jsonl` に session_meta を書き出す
+- [x] 15.6 `remove_backfill_sessions()` 追加（--force 用）
+- [x] 15.7 backfill() サマリに `sessions` カウント追加
+
+### 15c. テスト
+
+- [x] 15.8 parse_transcript() の session_meta テスト追加（TestSessionMeta クラス）
+- [x] 15.9 sessions.jsonl 統合テスト追加
+- [x] 15.10 --force での sessions 削除テスト追加
+
+### 15d. 分析拡張
+
+- [x] 15.11 analyze.py にセッション分析セクション追加（ツール分布、セッション長分布、intent 分布）
+- [x] 15.12 analyze テスト追加
+
+### 15e. ドキュメント
+
+- [x] 15.13 SKILL.md に sessions.jsonl の説明追加
+- [x] 15.14 CHANGELOG.md にエントリ追加
+
+## 16. project_name 追加 + --force project-scoped 化
+
+- [x] 16.1 `project_name_from_dir()` 追加、session_meta に `project_name` フィールドを追加
+- [x] 16.2 backfill() で project_name を session_meta に設定
+- [x] 16.3 analyze.py に「プロジェクト別セッション数」セクション追加
+- [x] 16.4 `--force` を project-scoped に変更（対象プロジェクトの session_id のみ削除、他プロジェクトは保持）
+- [x] 16.5 `_remove_backfill_from_jsonl()` 共通関数に集約（session_id フィルタ付き）
+- [x] 16.6 テスト追加（project_name 検証、--force が他プロジェクトを保持するテスト）
+- [x] 16.7 type: "user" レコード対応（Claude Code の実際のトランスクリプト形式）

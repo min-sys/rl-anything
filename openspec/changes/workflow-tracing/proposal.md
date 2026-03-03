@@ -33,4 +33,5 @@ observe hooks は「どのツールを呼んだか」を記録するが「どの
 - 変更ファイル: `skills/discover/scripts/discover.py`（contextualized/ad-hoc 分類）, `skills/prune/scripts/prune.py`（parent_skill 経由カウント）
 - 変更ファイル: `hooks.json`（PreToolUse エントリ追加）
 - 新規データ: `~/.claude/rl-anything/workflows.jsonl`
+- 新規データ: `~/.claude/rl-anything/sessions.jsonl`（セッション単位メタデータ: 全ツール名+順序、ツール種別カウント、セッション長、エラー数、ユーザー意図分類、プロジェクト名）
 - 既存データ拡張: usage.jsonl, subagents.jsonl に `parent_skill`, `workflow_id` フィールド追加（null 許容で後方互換）

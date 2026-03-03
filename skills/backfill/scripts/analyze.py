@@ -163,13 +163,73 @@ def analyze_discover_prune(usage: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def analyze_sessions(sessions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """セッションメタデータを分析する。"""
+    if not sessions:
+        return {
+            "total_sessions": 0,
+            "avg_tool_calls": 0,
+            "avg_duration_minutes": 0,
+            "avg_errors": 0,
+            "avg_human_messages": 0,
+            "tool_distribution": {},
+            "intent_distribution": {},
+            "sessions_by_duration": {"short": 0, "medium": 0, "long": 0},
+        }
+
+    total_tool_calls = []
+    durations = []
+    errors = []
+    human_msgs = []
+    tool_dist: Counter = Counter()
+    intent_dist: Counter = Counter()
+    project_dist: Counter = Counter()
+
+    for sess in sessions:
+        total_tool_calls.append(sess.get("total_tool_calls", 0))
+        durations.append(sess.get("session_duration_seconds", 0))
+        errors.append(sess.get("error_count", 0))
+        human_msgs.append(sess.get("human_message_count", 0))
+
+        for tool, count in sess.get("tool_counts", {}).items():
+            tool_dist[tool] += count
+
+        for intent in sess.get("user_intents", []):
+            intent_dist[intent] += 1
+
+        proj = sess.get("project_name", "unknown")
+        if proj:
+            project_dist[proj] += 1
+
+    avg_duration_min = (sum(durations) / len(durations) / 60) if durations else 0
+
+    # セッション長の分布（short < 5min, medium 5-30min, long > 30min）
+    short = sum(1 for d in durations if d < 300)
+    medium = sum(1 for d in durations if 300 <= d < 1800)
+    long = sum(1 for d in durations if d >= 1800)
+
+    return {
+        "total_sessions": len(sessions),
+        "avg_tool_calls": round(sum(total_tool_calls) / len(total_tool_calls), 1) if total_tool_calls else 0,
+        "avg_duration_minutes": round(avg_duration_min, 1),
+        "avg_errors": round(sum(errors) / len(errors), 1) if errors else 0,
+        "avg_human_messages": round(sum(human_msgs) / len(human_msgs), 1) if human_msgs else 0,
+        "tool_distribution": dict(tool_dist.most_common()),
+        "intent_distribution": dict(intent_dist.most_common()),
+        "sessions_by_duration": {"short": short, "medium": medium, "long": long},
+        "sessions_by_project": dict(project_dist.most_common()),
+    }
+
+
 def format_report(
     consistency: Dict[str, Any],
     variations: Dict[str, Any],
     intervention: Dict[str, Any],
     discover_prune: Dict[str, Any],
+    session_analysis: Dict[str, Any],
     workflow_count: int,
     usage_count: int,
+    session_count: int,
 ) -> str:
     """マークダウンレポートを生成する。"""
     lines = []
@@ -177,6 +237,7 @@ def format_report(
     lines.append("")
     lines.append("## Overview")
     lines.append("")
+    lines.append(f"- **sessions.jsonl レコード数**: {session_count}")
     lines.append(f"- **workflows.jsonl レコード数**: {workflow_count}")
     lines.append(f"- **usage.jsonl レコード数**: {usage_count}")
     lines.append(f"- **分析対象スキル数**: {len(consistency)}")
@@ -233,6 +294,50 @@ def format_report(
     lines.append(f"- **Ad-hoc Agent タイプ**: {', '.join(discover_prune['ad_hoc_agent_types']) or 'なし'}")
     lines.append("")
 
+    # セッション分析
+    lines.append("## 5. セッション分析")
+    lines.append("")
+    sa = session_analysis
+    if sa["total_sessions"] == 0:
+        lines.append("*データなし*")
+    else:
+        lines.append(f"- **総セッション数**: {sa['total_sessions']}")
+        lines.append(f"- **平均ツール呼び出し数**: {sa['avg_tool_calls']}")
+        lines.append(f"- **平均セッション長**: {sa['avg_duration_minutes']} 分")
+        lines.append(f"- **平均エラー数**: {sa['avg_errors']}")
+        lines.append(f"- **平均 human メッセージ数**: {sa['avg_human_messages']}")
+        lines.append("")
+        lines.append("### セッション長の分布")
+        lines.append("")
+        lines.append(f"- Short (< 5分): {sa['sessions_by_duration']['short']}")
+        lines.append(f"- Medium (5-30分): {sa['sessions_by_duration']['medium']}")
+        lines.append(f"- Long (> 30分): {sa['sessions_by_duration']['long']}")
+        lines.append("")
+        lines.append("### ツール分布（全セッション合計）")
+        lines.append("")
+        if sa["tool_distribution"]:
+            lines.append("| Tool | Count |")
+            lines.append("|------|-------|")
+            for tool, count in sorted(sa["tool_distribution"].items(), key=lambda x: x[1], reverse=True):
+                lines.append(f"| {tool} | {count} |")
+        lines.append("")
+        lines.append("### プロジェクト別セッション数")
+        lines.append("")
+        if sa["sessions_by_project"]:
+            lines.append("| Project | Sessions |")
+            lines.append("|---------|----------|")
+            for proj, count in sorted(sa["sessions_by_project"].items(), key=lambda x: x[1], reverse=True):
+                lines.append(f"| {proj} | {count} |")
+        lines.append("")
+        lines.append("### ユーザー意図の分布")
+        lines.append("")
+        if sa["intent_distribution"]:
+            lines.append("| Intent | Count |")
+            lines.append("|--------|-------|")
+            for intent, count in sorted(sa["intent_distribution"].items(), key=lambda x: x[1], reverse=True):
+                lines.append(f"| {intent} | {count} |")
+        lines.append("")
+
     return "\n".join(lines)
 
 
@@ -240,19 +345,23 @@ def run_analysis() -> str:
     """分析を実行してマークダウンレポートを返す。"""
     workflows = load_jsonl(common.DATA_DIR / "workflows.jsonl")
     usage = load_jsonl(common.DATA_DIR / "usage.jsonl")
+    sessions = load_jsonl(common.DATA_DIR / "sessions.jsonl")
 
     consistency = analyze_consistency(workflows)
     variations = analyze_variations(workflows)
     intervention = analyze_intervention(usage)
     discover_prune = analyze_discover_prune(usage)
+    session_analysis = analyze_sessions(sessions)
 
     return format_report(
         consistency=consistency,
         variations=variations,
         intervention=intervention,
         discover_prune=discover_prune,
+        session_analysis=session_analysis,
         workflow_count=len(workflows),
         usage_count=len(usage),
+        session_count=len(sessions),
     )
 
 

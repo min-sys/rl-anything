@@ -207,15 +207,99 @@ class TestFormatReport:
                 "skills_referenced_as_parent": ["opsx:refine"],
                 "ad_hoc_agent_types": ["Agent:Explore"],
             },
+            session_analysis={
+                "total_sessions": 3,
+                "avg_tool_calls": 15.0,
+                "avg_duration_minutes": 12.5,
+                "avg_errors": 0.5,
+                "avg_human_messages": 4.0,
+                "tool_distribution": {"Read": 10, "Edit": 5},
+                "intent_distribution": {"implementation": 5, "code-exploration": 3},
+                "sessions_by_duration": {"short": 1, "medium": 1, "long": 1},
+                "sessions_by_project": {"rl-anything": 2, "ooishi-kun": 1},
+            },
             workflow_count=5,
             usage_count=50,
+            session_count=3,
         )
         assert "# Workflow Analysis Report" in report
         assert "## 1. ワークフロー構造の一貫性分析" in report
         assert "## 2. ステップバリエーション分析" in report
         assert "## 3. 介入分析" in report
         assert "## 4. Discover/Prune 比較データ" in report
+        assert "## 5. セッション分析" in report
         assert "opsx:refine" in report
+        assert "sessions.jsonl レコード数**: 3" in report
+
+
+class TestAnalyzeSessions:
+    """analyze_sessions() のテスト。"""
+
+    def test_basic_stats(self):
+        """基本統計が正しく計算される。"""
+        sessions = [
+            {
+                "total_tool_calls": 10,
+                "session_duration_seconds": 600,
+                "error_count": 1,
+                "human_message_count": 3,
+                "tool_counts": {"Read": 5, "Edit": 3, "Bash": 2},
+                "user_intents": ["code-exploration", "implementation"],
+            },
+            {
+                "total_tool_calls": 20,
+                "session_duration_seconds": 1200,
+                "error_count": 3,
+                "human_message_count": 5,
+                "tool_counts": {"Read": 8, "Write": 7, "Grep": 5},
+                "user_intents": ["implementation", "research", "implementation"],
+            },
+        ]
+        result = analyze.analyze_sessions(sessions)
+        assert result["total_sessions"] == 2
+        assert result["avg_tool_calls"] == 15.0
+        assert result["avg_duration_minutes"] == 15.0  # (600+1200)/2/60
+        assert result["avg_errors"] == 2.0
+        assert result["avg_human_messages"] == 4.0
+        assert result["tool_distribution"]["Read"] == 13  # 5+8
+        assert result["intent_distribution"]["implementation"] == 3  # 1+2
+
+    def test_project_distribution(self):
+        """プロジェクト別セッション数が集計される。"""
+        sessions = [
+            {"total_tool_calls": 5, "session_duration_seconds": 60, "error_count": 0,
+             "human_message_count": 1, "tool_counts": {}, "user_intents": [], "project_name": "rl-anything"},
+            {"total_tool_calls": 3, "session_duration_seconds": 60, "error_count": 0,
+             "human_message_count": 1, "tool_counts": {}, "user_intents": [], "project_name": "rl-anything"},
+            {"total_tool_calls": 8, "session_duration_seconds": 60, "error_count": 0,
+             "human_message_count": 1, "tool_counts": {}, "user_intents": [], "project_name": "ooishi-kun"},
+        ]
+        result = analyze.analyze_sessions(sessions)
+        assert result["sessions_by_project"]["rl-anything"] == 2
+        assert result["sessions_by_project"]["ooishi-kun"] == 1
+
+    def test_duration_buckets(self):
+        """セッション長のバケット分類。"""
+        sessions = [
+            {"total_tool_calls": 1, "session_duration_seconds": 60, "error_count": 0,
+             "human_message_count": 1, "tool_counts": {}, "user_intents": []},   # short
+            {"total_tool_calls": 1, "session_duration_seconds": 600, "error_count": 0,
+             "human_message_count": 1, "tool_counts": {}, "user_intents": []},   # medium
+            {"total_tool_calls": 1, "session_duration_seconds": 2000, "error_count": 0,
+             "human_message_count": 1, "tool_counts": {}, "user_intents": []},   # long
+            {"total_tool_calls": 1, "session_duration_seconds": 3600, "error_count": 0,
+             "human_message_count": 1, "tool_counts": {}, "user_intents": []},   # long
+        ]
+        result = analyze.analyze_sessions(sessions)
+        assert result["sessions_by_duration"]["short"] == 1
+        assert result["sessions_by_duration"]["medium"] == 1
+        assert result["sessions_by_duration"]["long"] == 2
+
+    def test_empty_sessions(self):
+        """空のセッションリスト。"""
+        result = analyze.analyze_sessions([])
+        assert result["total_sessions"] == 0
+        assert result["avg_tool_calls"] == 0
 
 
 class TestRunAnalysis:
@@ -248,9 +332,23 @@ class TestRunAnalysis:
         }
         usage_file.write_text(json.dumps(usage) + "\n", encoding="utf-8")
 
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        session = {
+            "session_id": "s1",
+            "total_tool_calls": 5,
+            "session_duration_seconds": 120,
+            "error_count": 0,
+            "human_message_count": 2,
+            "tool_counts": {"Read": 3, "Agent": 2},
+            "user_intents": ["code-exploration"],
+            "source": "backfill",
+        }
+        sessions_file.write_text(json.dumps(session) + "\n", encoding="utf-8")
+
         report = analyze.run_analysis()
         assert "# Workflow Analysis Report" in report
         assert "opsx:refine" in report
+        assert "## 5. セッション分析" in report
 
     def test_empty_data(self, patch_data_dir):
         """データがない場合も正常にレポートが生成される。"""

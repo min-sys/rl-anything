@@ -482,7 +482,7 @@ class TestDeduplication:
         assert summary["skill_calls"] == 1
 
     def test_force_reprocesses_all(self, patch_data_dir, transcript_dir):
-        """--force で既存バックフィルを削除して再処理する。"""
+        """--force で対象プロジェクトの既存バックフィルを削除して再処理する。"""
         usage_file = patch_data_dir / "usage.jsonl"
         existing_backfill = {"skill_name": "old", "session_id": "sess-001", "source": "backfill"}
         existing_realtime = {"skill_name": "realtime", "session_id": "sess-001", "source": "hook"}
@@ -509,6 +509,48 @@ class TestDeduplication:
         sources = [r.get("source") for r in records]
         assert "hook" in sources  # リアルタイムデータは保持
         assert "backfill" in sources  # 新しいバックフィルデータ
+
+    def test_force_only_deletes_target_project(self, patch_data_dir, transcript_dir):
+        """--force は対象プロジェクトのデータだけ削除し、他プロジェクトは保持する。"""
+        usage_file = patch_data_dir / "usage.jsonl"
+        # 対象プロジェクトのデータ（session_id = sess-target）
+        target_rec = {"skill_name": "target", "session_id": "sess-target", "source": "backfill"}
+        # 他プロジェクトのデータ（session_id = sess-other）
+        other_rec = {"skill_name": "other", "session_id": "sess-other", "source": "backfill"}
+        usage_file.write_text(
+            json.dumps(target_rec) + "\n" + json.dumps(other_rec) + "\n",
+            encoding="utf-8",
+        )
+
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        target_sess = {"session_id": "sess-target", "source": "backfill", "project_name": "target-pj"}
+        other_sess = {"session_id": "sess-other", "source": "backfill", "project_name": "other-pj"}
+        sessions_file.write_text(
+            json.dumps(target_sess) + "\n" + json.dumps(other_sess) + "\n",
+            encoding="utf-8",
+        )
+
+        # transcript_dir に sess-target.jsonl だけ置く（= 対象プロジェクト）
+        tf = transcript_dir / "sess-target.jsonl"
+        tf.write_text(
+            make_assistant_record("sess-target", [make_skill_tool_use("new-skill")]),
+            encoding="utf-8",
+        )
+
+        with mock.patch.object(backfill, "resolve_project_dir", return_value=transcript_dir):
+            backfill.backfill(force=True)
+
+        # usage: other-pj のレコードは残っている
+        usage_lines = usage_file.read_text(encoding="utf-8").strip().splitlines()
+        usage_records = [json.loads(l) for l in usage_lines]
+        usage_sids = [r["session_id"] for r in usage_records]
+        assert "sess-other" in usage_sids  # 他プロジェクトは保持
+
+        # sessions: other-pj のレコードは残っている
+        sess_lines = sessions_file.read_text(encoding="utf-8").strip().splitlines()
+        sess_records = [json.loads(l) for l in sess_lines]
+        sess_projects = [r.get("project_name") for r in sess_records]
+        assert "other-pj" in sess_projects  # 他プロジェクトは保持
 
 
 class TestSummaryOutput:
@@ -573,12 +615,14 @@ class TestSummaryOutput:
         assert wf["source"] == "backfill"
 
     def test_force_removes_backfill_workflows(self, patch_data_dir, transcript_dir):
-        """--force で backfill ワークフローが削除される（trace は保持）。"""
+        """--force で対象プロジェクトの backfill ワークフローが削除される（trace は保持）。"""
         workflows_file = patch_data_dir / "workflows.jsonl"
-        backfill_wf = {"workflow_id": "wf-old", "source": "backfill", "skill_name": "old"}
-        trace_wf = {"workflow_id": "wf-trace", "source": "trace", "skill_name": "trace"}
+        # sess-force は対象プロジェクト、sess-other は別プロジェクト
+        backfill_wf = {"workflow_id": "wf-old", "source": "backfill", "skill_name": "old", "session_id": "sess-force"}
+        other_wf = {"workflow_id": "wf-other", "source": "backfill", "skill_name": "other", "session_id": "sess-other"}
+        trace_wf = {"workflow_id": "wf-trace", "source": "trace", "skill_name": "trace", "session_id": "sess-force"}
         workflows_file.write_text(
-            json.dumps(backfill_wf) + "\n" + json.dumps(trace_wf) + "\n",
+            json.dumps(backfill_wf) + "\n" + json.dumps(other_wf) + "\n" + json.dumps(trace_wf) + "\n",
             encoding="utf-8",
         )
 
@@ -594,10 +638,10 @@ class TestSummaryOutput:
         lines = workflows_file.read_text(encoding="utf-8").strip().splitlines()
         records = [json.loads(l) for l in lines]
         sources = [r.get("source") for r in records]
-        assert "trace" in sources
-        # backfill の old は削除されている
+        assert "trace" in sources  # trace は保持
         wf_ids = [r.get("workflow_id") for r in records]
-        assert "wf-old" not in wf_ids
+        assert "wf-old" not in wf_ids  # 対象プロジェクトの backfill は削除
+        assert "wf-other" in wf_ids  # 他プロジェクトの backfill は保持
 
     def test_empty_project(self, patch_data_dir, transcript_dir):
         """トランスクリプトが空のプロジェクト。"""
@@ -607,6 +651,299 @@ class TestSummaryOutput:
         assert summary["sessions_processed"] == 0
         assert summary["skill_calls"] == 0
         assert summary["agent_calls"] == 0
+
+
+def make_human_record(
+    session_id: str,
+    text: str,
+    timestamp: str = "2025-06-15T10:30:00Z",
+) -> str:
+    """human レコードの JSONL 行を生成する。"""
+    record = {
+        "type": "human",
+        "message": {"content": [{"type": "text", "text": text}]},
+        "timestamp": timestamp,
+        "sessionId": session_id,
+    }
+    return json.dumps(record, ensure_ascii=False)
+
+
+def make_tool_result_record(
+    session_id: str,
+    is_error: bool = False,
+    timestamp: str = "2025-06-15T10:30:00Z",
+) -> str:
+    """tool_result レコードの JSONL 行を生成する。"""
+    record = {
+        "type": "tool_result",
+        "tool_use_id": "toolu-test",
+        "is_error": is_error,
+        "content": "result text",
+        "timestamp": timestamp,
+        "sessionId": session_id,
+    }
+    return json.dumps(record, ensure_ascii=False)
+
+
+def make_other_tool_use(tool_name: str, tool_input: dict = None) -> dict:
+    """Skill/Agent 以外の tool_use ブロックを生成する。"""
+    return {
+        "type": "tool_use",
+        "name": tool_name,
+        "input": tool_input or {},
+    }
+
+
+class TestSessionMeta:
+    """session_meta 収集のテスト。"""
+
+    def test_tool_sequence_collected(self, transcript_dir):
+        """全 tool_use の名前が順序付きで収集される。"""
+        tf = transcript_dir / "sess-meta-001.jsonl"
+        lines = [
+            make_assistant_record(
+                "sess-meta-001",
+                [
+                    make_other_tool_use("Read", {"file_path": "/tmp/foo"}),
+                    make_other_tool_use("Grep", {"pattern": "test"}),
+                ],
+                "2025-06-15T10:00:00Z",
+            ),
+            make_assistant_record(
+                "sess-meta-001",
+                [
+                    make_other_tool_use("Edit", {"file_path": "/tmp/foo"}),
+                    make_skill_tool_use("my-skill"),
+                ],
+                "2025-06-15T10:01:00Z",
+            ),
+        ]
+        tf.write_text("\n".join(lines), encoding="utf-8")
+
+        result = backfill.parse_transcript(tf)
+        assert result.session_meta is not None
+        assert result.session_meta["tool_sequence"] == ["Read", "Grep", "Edit", "Skill"]
+        assert result.session_meta["total_tool_calls"] == 4
+        assert result.session_meta["tool_counts"]["Read"] == 1
+        assert result.session_meta["tool_counts"]["Grep"] == 1
+        assert result.session_meta["tool_counts"]["Edit"] == 1
+        assert result.session_meta["tool_counts"]["Skill"] == 1
+
+    def test_session_duration_calculated(self, transcript_dir):
+        """セッション開始〜終了の秒数が計算される。"""
+        tf = transcript_dir / "sess-meta-002.jsonl"
+        lines = [
+            make_human_record("sess-meta-002", "hello", "2025-06-15T10:00:00Z"),
+            make_assistant_record(
+                "sess-meta-002",
+                [make_other_tool_use("Read")],
+                "2025-06-15T10:05:00Z",
+            ),
+            make_assistant_record(
+                "sess-meta-002",
+                [make_other_tool_use("Edit")],
+                "2025-06-15T10:10:00Z",
+            ),
+        ]
+        tf.write_text("\n".join(lines), encoding="utf-8")
+
+        result = backfill.parse_transcript(tf)
+        assert result.session_meta is not None
+        assert result.session_meta["session_duration_seconds"] == 600.0  # 10 minutes
+
+    def test_error_count_from_tool_result(self, transcript_dir):
+        """tool_result の is_error=true がカウントされる。"""
+        tf = transcript_dir / "sess-meta-003.jsonl"
+        lines = [
+            make_assistant_record(
+                "sess-meta-003",
+                [make_other_tool_use("Bash", {"command": "ls"})],
+                "2025-06-15T10:00:00Z",
+            ),
+            make_tool_result_record("sess-meta-003", is_error=True, timestamp="2025-06-15T10:00:01Z"),
+            make_assistant_record(
+                "sess-meta-003",
+                [make_other_tool_use("Bash", {"command": "pwd"})],
+                "2025-06-15T10:00:02Z",
+            ),
+            make_tool_result_record("sess-meta-003", is_error=False, timestamp="2025-06-15T10:00:03Z"),
+            make_tool_result_record("sess-meta-003", is_error=True, timestamp="2025-06-15T10:00:04Z"),
+        ]
+        tf.write_text("\n".join(lines), encoding="utf-8")
+
+        result = backfill.parse_transcript(tf)
+        assert result.session_meta is not None
+        assert result.session_meta["error_count"] == 2
+
+    def test_human_message_count_and_intents(self, transcript_dir):
+        """human メッセージのカウントと intent 分類。"""
+        tf = transcript_dir / "sess-meta-004.jsonl"
+        lines = [
+            make_human_record("sess-meta-004", "explore the codebase structure", "2025-06-15T10:00:00Z"),
+            make_assistant_record(
+                "sess-meta-004",
+                [make_other_tool_use("Read")],
+                "2025-06-15T10:00:30Z",
+            ),
+            make_human_record("sess-meta-004", "implement the feature", "2025-06-15T10:01:00Z"),
+            make_assistant_record(
+                "sess-meta-004",
+                [make_other_tool_use("Write")],
+                "2025-06-15T10:01:30Z",
+            ),
+        ]
+        tf.write_text("\n".join(lines), encoding="utf-8")
+
+        result = backfill.parse_transcript(tf)
+        assert result.session_meta is not None
+        assert result.session_meta["human_message_count"] == 2
+        assert len(result.session_meta["user_intents"]) == 2
+        assert result.session_meta["user_intents"][0] == "code-exploration"
+        assert result.session_meta["user_intents"][1] == "implementation"
+
+    def test_no_meta_for_empty_transcript(self, transcript_dir):
+        """ツール呼び出しも human メッセージもない場合、session_meta は None。"""
+        tf = transcript_dir / "sess-meta-005.jsonl"
+        # type=assistant だが tool_use なし
+        record = {
+            "type": "assistant",
+            "message": {"content": [{"type": "text", "text": "hello"}]},
+            "timestamp": "2025-06-15T10:00:00Z",
+            "sessionId": "sess-meta-005",
+        }
+        tf.write_text(json.dumps(record), encoding="utf-8")
+
+        result = backfill.parse_transcript(tf)
+        assert result.session_meta is None
+
+    def test_skill_and_agent_in_tool_sequence(self, transcript_dir):
+        """Skill と Agent も tool_sequence に含まれる。"""
+        tf = transcript_dir / "sess-meta-006.jsonl"
+        lines = [
+            make_assistant_record(
+                "sess-meta-006",
+                [
+                    make_other_tool_use("Read"),
+                    make_skill_tool_use("my-skill"),
+                ],
+                "2025-06-15T10:00:00Z",
+            ),
+            make_assistant_record(
+                "sess-meta-006",
+                [make_agent_tool_use("Explore", "explore")],
+                "2025-06-15T10:01:00Z",
+            ),
+        ]
+        tf.write_text("\n".join(lines), encoding="utf-8")
+
+        result = backfill.parse_transcript(tf)
+        assert result.session_meta is not None
+        assert result.session_meta["tool_sequence"] == ["Read", "Skill", "Agent"]
+        assert result.session_meta["source"] == "backfill"
+
+    def test_human_content_as_string(self, transcript_dir):
+        """human メッセージの content が文字列の場合も intent 分類される。"""
+        tf = transcript_dir / "sess-meta-007.jsonl"
+        record = {
+            "type": "human",
+            "message": {"content": "research the best practices for testing"},
+            "timestamp": "2025-06-15T10:00:00Z",
+            "sessionId": "sess-meta-007",
+        }
+        tf.write_text(json.dumps(record), encoding="utf-8")
+
+        result = backfill.parse_transcript(tf)
+        assert result.session_meta is not None
+        assert result.session_meta["human_message_count"] == 1
+        assert result.session_meta["user_intents"] == ["research"]
+
+    def test_user_type_record(self, transcript_dir):
+        """type: 'user' レコード（Claude Code の実際の形式）も intent 分類される。"""
+        tf = transcript_dir / "sess-meta-008.jsonl"
+        record = {
+            "type": "user",
+            "message": {"role": "user", "content": "implement the new feature"},
+            "timestamp": "2025-06-15T10:00:00Z",
+            "sessionId": "sess-meta-008",
+        }
+        tf.write_text(json.dumps(record), encoding="utf-8")
+
+        result = backfill.parse_transcript(tf)
+        assert result.session_meta is not None
+        assert result.session_meta["human_message_count"] == 1
+        assert result.session_meta["user_intents"] == ["implementation"]
+
+
+class TestSessionsIntegration:
+    """sessions.jsonl 統合テスト。"""
+
+    def test_sessions_written_to_jsonl(self, patch_data_dir, transcript_dir):
+        """backfill() が sessions.jsonl にセッションメタデータを書き出す。"""
+        tf = transcript_dir / "sess-int-001.jsonl"
+        lines = [
+            make_human_record("sess-int-001", "explore structure", "2025-06-15T10:00:00Z"),
+            make_assistant_record(
+                "sess-int-001",
+                [make_other_tool_use("Read"), make_other_tool_use("Grep")],
+                "2025-06-15T10:01:00Z",
+            ),
+        ]
+        tf.write_text("\n".join(lines), encoding="utf-8")
+
+        with mock.patch.object(backfill, "resolve_project_dir", return_value=transcript_dir):
+            summary = backfill.backfill(project_dir="/tmp/my-project", force=False)
+
+        assert summary["sessions"] == 1
+
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        assert sessions_file.exists()
+        meta = json.loads(sessions_file.read_text(encoding="utf-8").strip())
+        assert meta["session_id"] == "sess-int-001"
+        assert meta["tool_sequence"] == ["Read", "Grep"]
+        assert meta["human_message_count"] == 1
+        assert meta["project_name"] == "my-project"
+        assert meta["source"] == "backfill"
+
+    def test_force_removes_backfill_sessions(self, patch_data_dir, transcript_dir):
+        """--force で対象プロジェクトの backfill sessions のみ削除（hook・他プロジェクトは保持）。"""
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        # sess-force は対象プロジェクト、other-sess は別プロジェクト
+        target_sess = {"session_id": "sess-force", "source": "backfill", "total_tool_calls": 5}
+        other_sess = {"session_id": "other-sess", "source": "backfill", "total_tool_calls": 8}
+        hook_sess = {"session_id": "hook-sess", "source": "hook", "total_tool_calls": 3}
+        sessions_file.write_text(
+            json.dumps(target_sess) + "\n" + json.dumps(other_sess) + "\n" + json.dumps(hook_sess) + "\n",
+            encoding="utf-8",
+        )
+
+        tf = transcript_dir / "sess-force.jsonl"
+        tf.write_text(
+            make_assistant_record("sess-force", [make_other_tool_use("Read")]),
+            encoding="utf-8",
+        )
+
+        with mock.patch.object(backfill, "resolve_project_dir", return_value=transcript_dir):
+            backfill.backfill(force=True)
+
+        lines = sessions_file.read_text(encoding="utf-8").strip().splitlines()
+        records = [json.loads(l) for l in lines]
+        session_ids = [r.get("session_id") for r in records]
+        assert "hook-sess" in session_ids  # hook は保持
+        assert "other-sess" in session_ids  # 他プロジェクトは保持
+
+    def test_summary_includes_sessions_count(self, patch_data_dir, transcript_dir):
+        """サマリに sessions カウントが含まれる。"""
+        tf = transcript_dir / "sess-cnt.jsonl"
+        tf.write_text(
+            make_assistant_record("sess-cnt", [make_other_tool_use("Bash")]),
+            encoding="utf-8",
+        )
+
+        with mock.patch.object(backfill, "resolve_project_dir", return_value=transcript_dir):
+            summary = backfill.backfill(force=False)
+
+        assert "sessions" in summary
+        assert summary["sessions"] == 1
 
 
 class TestResolveProjectDir:
