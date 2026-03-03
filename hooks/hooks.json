@@ -2,9 +2,7 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": {
-          "tool_name": "Skill"
-        },
+        "matcher": "Skill",
         "hooks": [
           {
             "type": "command",
@@ -16,9 +14,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": {
-          "tool_name": "Skill|Agent"
-        },
+        "matcher": "Skill|Agent",
         "hooks": [
           {
             "type": "command",
@@ -30,7 +26,7 @@
     ],
     "SubagentStop": [
       {
-        "matcher": {},
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
@@ -42,7 +38,7 @@
     ],
     "Stop": [
       {
-        "matcher": {},
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
@@ -54,7 +50,7 @@
     ],
     "PreCompact": [
       {
-        "matcher": {},
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
@@ -66,7 +62,7 @@
     ],
     "SessionStart": [
       {
-        "matcher": {},
+        "matcher": "",
         "hooks": [
           {
             "type": "command",
