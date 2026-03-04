@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.12.0] - 2026-03-04
+
+### Added
+- **Reflect スキル**: `/rl-anything:reflect` — corrections.jsonl の修正フィードバックを CLAUDE.md/rules に反映
+- **discover --session-scan**: セッション JSONL のユーザーメッセージテキストを直接分析し繰り返しパターンを検出
+- **claude-reflect パターン統合**: CJK 3 + Explicit 1 + Positive 3 + Correction 8 + Guardrail 8 パターンを correction_detect.py に統合
+- **セマンティック検証デフォルト有効**: corrections のセマンティック検証をバッチ送信でデフォルト有効化
+- **corrections.jsonl 拡張スキーマ**: reflect_status, reflected_at, target_type, target_path フィールド追加
+- **auto-memory 昇格ロジック**: corrections から安定パターンを auto-memory に昇格
+- **prune corrections クリーンアップ**: applied/skipped 済み corrections の自動整理
+- **evolve Reflect フェーズ**: evolve パイプラインに Reflect ステップを追加（pending 件数・最終 reflect 日チェック）
+- **migrate_reflect_queue.py**: claude-reflect の learnings-queue.json → corrections.jsonl 変換（冪等）
+- discover の load_claude_reflect_data() を corrections.jsonl 直接参照に変更
+
 ## [0.11.0] - 2026-03-04
 
 ### Added

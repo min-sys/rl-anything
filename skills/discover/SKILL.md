@@ -55,10 +55,11 @@ python3 <PLUGIN_DIR>/skills/discover/scripts/discover.py [--session-scan]
 生成された候補をユーザーに提示し、承認/却下を確認する。
 同一パターンが2回 reject された場合、抑制リストに追加し3回目以降は提案しない。
 
-### Step 6: claude-reflect 連携（オプション）
+### Step 6: corrections.jsonl 連携（オプション）
 
-claude-reflect がインストールされている場合、learnings-queue のデータも入力ソースとして利用する。
-未インストール時は他の入力ソースのみで正常に動作する（MUST）。
+corrections.jsonl（`~/.claude/rl-anything/corrections.jsonl`）が存在する場合、修正フィードバックデータも入力ソースとして利用する。
+未生成時は他の入力ソースのみで正常に動作する（MUST）。
+旧 claude-reflect の learnings-queue.json からのデータは `scripts/migrate_reflect_queue.py` で corrections.jsonl に移行できる。
 
 ## allowed-tools
 

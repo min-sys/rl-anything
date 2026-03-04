@@ -155,14 +155,13 @@ def validate_rule_content(content: str) -> bool:
 
 
 def load_claude_reflect_data() -> List[Dict[str, Any]]:
-    """claude-reflect データの取り込み（オプション）。未インストール時はスキップ。"""
-    reflect_dir = Path.home() / ".claude" / "claude-reflect"
-    learnings_file = reflect_dir / "learnings-queue.jsonl"
+    """corrections.jsonl からの修正データ取り込み（オプション）。未生成時はスキップ。"""
+    corrections_file = DATA_DIR / "corrections.jsonl"
 
-    if not learnings_file.exists():
+    if not corrections_file.exists():
         return []
 
-    return load_jsonl(learnings_file)
+    return load_jsonl(corrections_file)
 
 
 def run_discover() -> Dict[str, Any]:

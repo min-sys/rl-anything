@@ -79,6 +79,41 @@ def count_new_observations() -> int:
     return count
 
 
+def count_pending_corrections() -> int:
+    """corrections.jsonl の pending 件数を返す。"""
+    corrections_path = DATA_DIR / "corrections.jsonl"
+    if not corrections_path.exists():
+        return 0
+    count = 0
+    for line in corrections_path.read_text(encoding="utf-8").splitlines():
+        try:
+            record = json.loads(line)
+            if record.get("reflect_status", "pending") == "pending":
+                count += 1
+        except json.JSONDecodeError:
+            continue
+    return count
+
+
+def last_reflect_date() -> Optional[str]:
+    """corrections.jsonl から最後に applied/skipped された日時を返す。"""
+    corrections_path = DATA_DIR / "corrections.jsonl"
+    if not corrections_path.exists():
+        return None
+    latest = None
+    for line in corrections_path.read_text(encoding="utf-8").splitlines():
+        try:
+            record = json.loads(line)
+            status = record.get("reflect_status", "pending")
+            if status in ("applied", "skipped"):
+                ts = record.get("reflected_at") or record.get("timestamp", "")
+                if ts and (latest is None or ts > latest):
+                    latest = ts
+        except json.JSONDecodeError:
+            continue
+    return latest
+
+
 def check_data_sufficiency() -> Dict[str, Any]:
     """観測データの十分性をチェックする。"""
     sessions = count_new_sessions()
@@ -148,6 +183,14 @@ def run_evolve(
         result["phases"]["prune"] = prune_result
     except Exception as e:
         result["phases"]["prune"] = {"error": str(e)}
+
+    # Phase: Reflect
+    pending = count_pending_corrections()
+    last_date = last_reflect_date()
+    result["phases"]["reflect"] = {
+        "pending_count": pending,
+        "last_reflect_date": last_date,
+    }
 
     # State 更新（dry-run でない場合）
     if not dry_run:

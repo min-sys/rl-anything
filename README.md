@@ -110,6 +110,7 @@ Evolve-Fitness       accept/reject データから評価関数自体を改善
 ├── subagents.jsonl       # サブエージェント完了データ
 ├── usage-registry.jsonl  # グローバルスキル使用レジストリ
 ├── workflow_stats.json   # ワークフロー統計（workflow_analysis.py が出力）
+├── corrections.jsonl     # 修正フィードバック（correction_detect.py + backfill）
 ├── checkpoint.json       # 進化状態チェックポイント
 ├── archive/              # prune でアーカイブされたファイル
 └── feedback-drafts/      # ローカル保存フィードバック
@@ -124,11 +125,12 @@ Evolve-Fitness       accept/reject データから評価関数自体を改善
 | `subagents.jsonl` | subagent_observe hook | audit |
 | `usage-registry.jsonl` | observe hook | prune（cross-PJ 判定） |
 | `workflow_stats.json` | workflow_analysis.py | optimize, rl-scorer, generate-fitness |
+| `corrections.jsonl` | correction_detect hook, backfill | reflect, discover, evolve, prune |
 | `checkpoint.json` | save_state hook | restore_state hook |
 
 ## スキル一覧
 
-全12スキル。`/rl-anything:<name>` で呼び出す。
+全13スキル。`/rl-anything:<name>` で呼び出す。
 
 | スキル | 柱 | 説明 |
 |--------|-----|------|
@@ -136,6 +138,7 @@ Evolve-Fitness       accept/reject データから評価関数自体を改善
 | `discover` | 自律進化 | 観測データからパターン検出 → スキル/ルール候補生成 |
 | `prune` | 自律進化 | 未使用・重複アーティファクトの淘汰 |
 | `evolve` | 自律進化 | Discover→Optimize→Prune→Report の全フェーズ統合 |
+| `reflect` | 自律進化 | corrections.jsonl の修正フィードバックを CLAUDE.md/rules に反映 |
 | `audit` | 自律進化 | 全 skills/rules/memory の棚卸し＋健康診断 |
 | `optimize` | 遺伝的最適化 | 遺伝的アルゴリズムでスキル/ルールを最適化 |
 | `rl-loop` | 遺伝的最適化 | ベースライン→バリエーション→評価→人間確認ループ |
@@ -165,11 +168,24 @@ Evolve-Fitness       accept/reject データから評価関数自体を改善
 ```
 /rl-anything:discover                    # パターン検出＋候補生成
 /rl-anything:discover --scope global     # グローバルスコープで検出
+/rl-anything:discover --session-scan     # セッションテキストからもパターン検出
 ```
 
 - 行動パターン（5+回）→ スキル候補
 - エラーパターン（3+回）→ ルール候補（予防策）
 - 却下理由パターン（3+回）→ ルール候補（品質基準）
+
+#### `/rl-anything:reflect`
+
+corrections.jsonl に蓄積された修正フィードバックを CLAUDE.md やルールに反映する。evolve パイプラインの Reflect ステップから自動提案されるほか、単独でも実行可能。
+
+```
+/rl-anything:reflect              # 修正フィードバックを反映
+/rl-anything:reflect --dry-run    # プレビューのみ
+```
+
+- pending 状態の correction を1件ずつ確認し、適用先（CLAUDE.md / rules / skills）を提案
+- ユーザー承認後に反映、reflect_status を applied/skipped に更新
 
 #### `/rl-anything:prune`
 
@@ -427,6 +443,25 @@ CLAUDE.md からドメインを推定し、評価軸を自動切替。
 ```bash
 python3 -m pytest skills/ scripts/rl/tests/ -v
 ```
+
+## claude-reflect からの移行
+
+claude-reflect を使用していた場合、以下の手順でデータを rl-anything に移行できる。
+
+1. **データ移行**: `/rl-anything:reflect` 初回実行時に自動検出、または手動で:
+   ```bash
+   python3 <PLUGIN_DIR>/scripts/migrate_reflect_queue.py
+   ```
+   - `~/.claude/learnings-queue.json` を `~/.claude/rl-anything/corrections.jsonl` に変換
+   - 冪等（二重追記防止）: 同一タイムスタンプ+メッセージハッシュで重複を排除
+   - 元ファイルは空配列 `[]` にリセットされる
+
+2. **アンインストール**:
+   ```bash
+   claude plugin uninstall claude-reflect
+   ```
+
+3. **確認**: `/rl-anything:reflect` で移行済みデータが表示されることを確認
 
 ## Acknowledgements
 
