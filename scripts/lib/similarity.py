@@ -2,10 +2,11 @@
 """共通類似度エンジン。
 
 TF-IDF ベクトル化とコサイン類似度計算を提供する。
-reorganize / audit / prune など複数モジュールから利用される Single Source of Truth。
+reorganize / audit / prune / enrich など複数モジュールから利用される Single Source of Truth。
 """
+import re
 import sys
-from typing import Dict, List
+from typing import Dict, List, Set
 
 
 def build_tfidf_matrix(skill_texts: dict) -> tuple:
@@ -87,3 +88,23 @@ def compute_pairwise_similarity(
                 })
 
     return results
+
+
+# --- Jaccard 類似度 ---
+
+
+def tokenize(text: str) -> Set[str]:
+    """テキストを空白・句読点で分割し、小文字トークンの集合を返す。"""
+    return set(re.split(r"[\s\W_]+", text.lower())) - {""}
+
+
+def jaccard_coefficient(set_a: Set[str], set_b: Set[str]) -> float:
+    """Jaccard 類似度係数を計算する。
+
+    両方が空集合の場合は 0.0 を返す。
+    """
+    if not set_a and not set_b:
+        return 0.0
+    intersection = set_a & set_b
+    union = set_a | set_b
+    return len(intersection) / len(union)

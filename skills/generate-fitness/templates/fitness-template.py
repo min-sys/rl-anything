@@ -51,7 +51,11 @@ def evaluate(content: str) -> float:
 
     # --- 加重平均を計算 ---
     if not scores:
-        return 0.5  # フォールバック
+        print(
+            "Warning: no scoring axes implemented, returning 0.0",
+            file=sys.stderr,
+        )
+        return 0.0
 
     total = sum(score * weight for score, weight in scores.values())
     total_weight = sum(weight for _, weight in scores.values())

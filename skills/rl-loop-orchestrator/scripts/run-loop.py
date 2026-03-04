@@ -44,8 +44,11 @@ OPTIMIZER_SCRIPT = (
 )
 DEFAULT_OUTPUT_DIR = Path.cwd() / ".rl-loop"
 MAX_KEPT_RUNS = 10  # rl-loop 結果の保持数
-MAX_SKILL_LINES = 500  # スキル行数上限
-MAX_RULE_LINES = 3  # ルール行数上限
+
+# 行数制限は共通モジュールから取得
+_plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+from line_limit import check_line_limit as _check_line_limit
 
 
 def _get_output_dir(output_dir: Optional[str] = None) -> Path:
@@ -68,18 +71,6 @@ def _cleanup_old_runs(output_dir: Path):
     for old_dir in run_dirs[: len(run_dirs) - MAX_KEPT_RUNS]:
         shutil.rmtree(old_dir)
         print(f"  古いループ結果を削除: {old_dir.name}")
-
-
-def _check_line_limit(target_path: str, content: str) -> bool:
-    """行数制限をチェック。超過時は False + 警告"""
-    is_rule = ".claude/rules/" in target_path
-    max_lines = MAX_RULE_LINES if is_rule else MAX_SKILL_LINES
-    lines = content.count("\n") + 1
-    if lines > max_lines:
-        file_type = "ルール" if is_rule else "スキル"
-        print(f"  行数超過: {lines}/{max_lines}行（{file_type}制限）。適用を拒否。")
-        return False
-    return True
 
 
 def get_baseline_score(target_path: str, dry_run: bool = False) -> Dict[str, Any]:

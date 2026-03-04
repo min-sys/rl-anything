@@ -8,7 +8,12 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from lib.similarity import build_tfidf_matrix, compute_pairwise_similarity
+from lib.similarity import (
+    build_tfidf_matrix,
+    compute_pairwise_similarity,
+    jaccard_coefficient,
+    tokenize,
+)
 
 
 # --- build_tfidf_matrix ---
@@ -187,3 +192,56 @@ def test_compute_pairwise_similarity_sklearn_not_installed(tmp_path):
         results = compute_pairwise_similarity(paths, threshold=0.50)
 
     assert results == []
+
+
+# --- tokenize ---
+
+
+class TestTokenize:
+    """tokenize のユニットテスト。"""
+
+    def test_basic_tokenization(self):
+        """基本的なトークン化: 空白・句読点で分割、小文字化。"""
+        result = tokenize("Hello World, foo-bar_baz")
+        assert "hello" in result
+        assert "world" in result
+        assert "foo" in result
+        assert "bar" in result
+        assert "baz" in result
+
+    def test_empty_string(self):
+        """空文字列は空集合を返す。"""
+        assert tokenize("") == set()
+
+    def test_duplicate_words(self):
+        """重複ワードは集合なので1つになる。"""
+        result = tokenize("test test test")
+        assert result == {"test"}
+
+
+# --- jaccard_coefficient ---
+
+
+class TestJaccardCoefficient:
+    """jaccard_coefficient のユニットテスト。"""
+
+    def test_exact_match(self):
+        """完全一致で 1.0 を返す。"""
+        assert jaccard_coefficient({"a", "b"}, {"a", "b"}) == 1.0
+
+    def test_partial_overlap(self):
+        """部分一致: {a,b} vs {b,c} => 1/3。"""
+        score = jaccard_coefficient({"a", "b"}, {"b", "c"})
+        assert abs(score - 1 / 3) < 1e-9
+
+    def test_no_overlap(self):
+        """重複なしで 0.0 を返す。"""
+        assert jaccard_coefficient({"a"}, {"b"}) == 0.0
+
+    def test_both_empty(self):
+        """両方空で 0.0 を返す。"""
+        assert jaccard_coefficient(set(), set()) == 0.0
+
+    def test_one_empty(self):
+        """片方空で 0.0 を返す。"""
+        assert jaccard_coefficient({"a"}, set()) == 0.0

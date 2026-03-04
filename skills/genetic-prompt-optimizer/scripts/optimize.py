@@ -30,8 +30,11 @@ except ImportError:
 GENERATIONS_DIR = Path(__file__).parent / "generations"
 BACKUP_SUFFIX = ".backup"
 MAX_KEPT_RUNS = 5  # generations/ に保持する最大ラン数
-MAX_SKILL_LINES = 500  # スキルファイルの行数上限
-MAX_RULE_LINES = 3  # ルールファイルの行数上限
+
+# 行数制限は共通モジュールから取得
+_plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+from line_limit import MAX_RULE_LINES, MAX_SKILL_LINES, check_line_limit
 
 
 class Individual:
@@ -97,8 +100,7 @@ class GeneticOptimizer:
 
     def _check_line_limit(self, content: str) -> bool:
         """行数制限をチェック。超過時は False"""
-        lines = content.count("\n") + 1
-        return lines <= self._max_lines
+        return check_line_limit(str(self.target_path), content)
 
     @staticmethod
     def _load_test_tasks(path: str) -> List[Dict[str, str]]:

@@ -129,10 +129,10 @@ def analyze_rejection_reasons(history: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-def generate_adversarial_candidates() -> List[Dict[str, str]]:
-    """adversarial probe: ゲーミング候補のテンプレート。
+def get_adversarial_templates() -> List[Dict[str, str]]:
+    """adversarial probe 用テンプレート辞書の提供。
 
-    実際の候補生成は Claude CLI で行う。ここではプロンプトテンプレートを提供。
+    実際の候補生成は Claude CLI で行う。ここではプロンプトテンプレートを返す。
     """
     return [
         {
@@ -172,7 +172,7 @@ def run_fitness_evolution(history: Optional[List[Dict[str, Any]]] = None) -> Dic
     # 分析
     correlation = analyze_correlations(history)
     rejections = analyze_rejection_reasons(history)
-    adversarial = generate_adversarial_candidates()
+    adversarial = get_adversarial_templates()
 
     return {
         "status": "ready",

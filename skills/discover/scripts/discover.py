@@ -25,9 +25,10 @@ BEHAVIOR_THRESHOLD = 5   # 行動パターン検出閾値
 ERROR_THRESHOLD = 3       # エラーパターン検出閾値
 REJECTION_THRESHOLD = 3   # 却下理由検出閾値
 
-# 構造的制約
-MAX_SKILL_LINES = 500
-MAX_RULE_LINES = 3
+# 構造的制約は共通モジュールから取得
+_plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+from line_limit import MAX_RULE_LINES, MAX_SKILL_LINES
 
 # Discover 振動防止用抑制リスト
 SUPPRESSION_FILE = DATA_DIR / "discover-suppression.jsonl"

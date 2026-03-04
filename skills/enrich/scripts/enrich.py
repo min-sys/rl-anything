@@ -6,32 +6,16 @@ Discover の出力（error_patterns, rejection_patterns, behavior_patterns）を
 LLM 呼び出しなし（Type A パターン）。
 """
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
+sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 
 from audit import classify_artifact_origin, find_artifacts, load_usage_data
-
-
-def tokenize(text: str) -> Set[str]:
-    """テキストを空白・句読点で分割し、小文字トークンの集合を返す。"""
-    return set(re.split(r"[\s\W_]+", text.lower())) - {""}
-
-
-def jaccard_coefficient(set_a: Set[str], set_b: Set[str]) -> float:
-    """Jaccard 類似度係数を計算する。
-
-    両方が空集合の場合は 0.0 を返す。
-    """
-    if not set_a and not set_b:
-        return 0.0
-    intersection = set_a & set_b
-    union = set_a | set_b
-    return len(intersection) / len(union)
+from similarity import jaccard_coefficient, tokenize
 
 
 def load_skill_tokens(skill_path: Path) -> Set[str]:

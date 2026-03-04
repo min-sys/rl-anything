@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.15.2] - 2026-03-04
+
+### Changed
+- **DRY リファクタリング**: `_check_line_limit` + 行数定数 (`MAX_SKILL_LINES`/`MAX_RULE_LINES`) を `scripts/lib/line_limit.py` に共通化し optimize.py / run-loop.py / discover.py から参照
+- **Jaccard 共通化**: `tokenize()` / `jaccard_coefficient()` を `scripts/lib/similarity.py` に移動し enrich.py から参照
+- **リネーム**: `generate_adversarial_candidates()` → `get_adversarial_templates()` に改名（実態に合致）
+- **スタブ修正**: fitness-template.py の未実装時フォールバックを `0.5` → stderr 警告 + `0.0` に変更
+- OpenSpec specs 同期: line-limit (新規), evolve-fitness (新規), enrich (更新), fitness-generator (更新)
+
 ## [0.15.1] - 2026-03-04
 
 ### Added
