@@ -1,5 +1,7 @@
 # Atlas Breeadersプロジェクトへの適用分析
 
+> **注記**: これは別プロジェクト（Atlas Breeaders）への rl-anything 適用を分析した調査資料です。rl-anything の現在の仕様については [README.md](../../README.md) を参照してください。
+
 ## 現状の棚卸し
 
 ### RLAnythingの3要素マッピング
@@ -222,7 +224,7 @@ claude plugin install claude-reflect@claude-reflect-marketplace
 - verify失敗の傾向分析
 
 出力:
-- 週次レポート（`docs/research/rl-self-evolving-agents/reports/`）
+- 週次レポート（`docs/research/reports/`）
 - MEMORY.md / スキル改善提案
 
 ### Phase 3: 進化層 - Layer 2: D（1ヶ月）

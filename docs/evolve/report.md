@@ -48,15 +48,18 @@ Actions: [a]pply all / [r]eview one-by-one / [s]kip
 |-----------|-------------|
 | Artifacts | skills/rules/memory の棚卸し（ファイルスキャン） |
 | Observations | usage.jsonl / errors.jsonl / sessions.jsonl |
-| Optimization stats | history.jsonl + aggregate-runs.py |
+| Optimization stats | history.jsonl + aggregate_runs.py |
 | Discoveries | Discover フェーズの出力 |
-| Prune candidates | Prune フェーズの出力 |
+| Enrich | 既存スキルとの照合・改善提案 |
+| Reorganize | TF-IDF クラスタリングによる統合/分割候補 |
+| Prune candidates (+Merge) | Prune フェーズの出力（由来ペア統合含む） |
+| Reflect | 修正フィードバックの反映状況 |
 | Optimize candidates | 全スキル/ルールのスコアスキャン |
 
-## クロスラン集計（aggregate-runs.py）
+## クロスラン集計（aggregate_runs.py）
 
 ```bash
-python3 scripts/aggregate-runs.py --dir <results_dir>
+python3 skills/audit/scripts/aggregate_runs.py --dir <results_dir>
 ```
 
 集計項目:

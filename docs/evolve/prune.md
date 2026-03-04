@@ -2,13 +2,25 @@
 
 不要になったスキル/ルールを検出し、アーカイブを提案する。
 
-## 3つの判断基準
+## 4つの判断基準
 
 | 基準 | 手法 | 根拠 |
 |------|------|------|
-| **Dead glob** | rules の `paths:` 対象がどのファイルにもマッチしない | [claude-rules-doctor](https://github.com/nulone/claude-rules-doctor) パターン |
-| **Zero invocation** | N日間使用ゼロのスキル/ルール | [32世代実験](https://dev.to/stefan_nitu/32-more-generations-my-self-evolving-ai-agent-learned-to-delete-its-own-code-18bp): 使用回数が見えると自然に淘汰が起きる |
+| **Dead glob** | rules の `paths:` 対象がどのファイルにもマッチしない | claude-rules-doctor パターン |
+| **Zero invocation** | N日間使用ゼロのスキル/ルール | 32世代実験: 使用回数が見えると自然に淘汰が起きる |
 | **Duplicate** | 意味的に重複するルール/スキルを検出 | claude-reflect `--dedupe` パターン |
+| **Plugin Unused** | プラグインが提供するスキルのうち、プロジェクトで一度も使われていないもの | Usage Registry ベースの cross-PJ 判定 |
+
+### 推薦ラベル判定チェックリスト
+
+Prune 候補に対して以下のラベルを付与:
+
+| ラベル | 条件 | アクション |
+|--------|------|-----------|
+| `archive` | 30日以上未使用、参照なし | `.claude/rl-anything/archive/` に移動 |
+| `merge` | 由来ペア（Reorganize で検出）の統合候補 | 統合案を生成して提案 |
+| `keep` | 他スキル/ルールから参照あり、または cross-PJ で使用中 | 淘汰しない |
+| `downgrade` | global スキルだが1PJのみで使用 | project スコープへの降格を提案 |
 
 ## 淘汰 ≠ 削除
 

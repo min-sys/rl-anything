@@ -9,8 +9,8 @@
 | usage.jsonl | 繰り返しパターン、未使用アーティファクト | 高 |
 | errors.jsonl | 「同じエラーが3回以上」→ ルール候補 | 高 |
 | rejection_reason (history.jsonl) | 「人間が繰り返し却下するパターン」→ ルール候補 | 高 |
-| claude-reflect queue | 明示的な修正指示 | 高（あれば） |
-| pitfalls.md | 蓄積された失敗パターン → ルール/スキル候補 | 中 |
+| corrections.jsonl (高信頼度) | 明示的な修正フィードバック | 高 |
+| corrections.jsonl | 蓄積された修正フィードバック → ルール/スキル候補 | 中 |
 | sessions.jsonl | セッション横断の行動パターン | 中 |
 | Session logs (JSONL) | 無意識の癖、フラストレーション | 低（重い） |
 
@@ -47,14 +47,20 @@ history.jsonl の rejection_reason を集計。同じ理由が繰り返される
   → ルール候補: "スキルの指示文は簡潔に。冗長な前置きを避ける"
 ```
 
-### パターン4: pitfalls の蓄積 → ルール候補
+### パターン4: corrections.jsonl の蓄積 → ルール候補
 
-pitfalls.md に蓄積された失敗パターンが N 件以上になったら、
-共通の根本原因を抽出してルール候補に。
+corrections.jsonl（correction_detect hook + backfill で収集）に蓄積された修正フィードバックが N 件以上になったら、共通の根本原因を抽出してルール候補に。
 
-### パターン5: claude-reflect の修正指示 → ルール/スキル候補
+### パターン5: 修正パターンの取り込み
 
-claude-reflect が検出した修正パターン（"no, use X"、"actually..."）を取り込み。
+correction_detect hook が検出した修正パターン（「いや」「no, use X」「actually...」等）を corrections.jsonl から取り込み。
+
+## 候補の分類
+
+| 分類 | 説明 | 例 |
+|------|------|------|
+| **Contextualized** | 既存スキル/ルールの改善提案。Enrich フェーズで既存との照合後に生成 | 「bot-create に personality 設定チェックを追加」 |
+| **Ad-hoc** | 新規スキル/ルール候補。既存に対応がないパターン | 「PR作成の定型手順をスキル化」 |
 
 ## トリガー閾値
 
@@ -82,7 +88,7 @@ Discoveries (5 candidates):
   [RULE]  「冗長な前置きを避ける」 (却下理由から, 4件)
      → .claude/rules/concise-skill-writing.md を生成しますか？
 
-  [RULE]  「エラーハンドリング必須」 (pitfalls.mdから, 3件)
+  [RULE]  「エラーハンドリング必須」 (corrections.jsonlから, 3件)
      → .claude/rules/error-handling.md を生成しますか？
 
 Observing (not yet threshold):

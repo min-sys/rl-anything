@@ -69,7 +69,7 @@ execution telemetry の戦略別 fitness 改善幅を分析し、
 複数の optimize / rl-loop ラン間で傾向を集計するスクリプト。
 
 ```bash
-python3 scripts/aggregate-runs.py --dir <results_dir>
+python3 skills/audit/scripts/aggregate_runs.py --dir <results_dir>
 ```
 
 出力:

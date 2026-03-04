@@ -72,14 +72,16 @@ Archive（ロードされない）:
   .claude/rl-anything/archive/  ← Prune で退避済み
 ```
 
-### 4. 自動圧縮トリガー
+### 4. 自動圧縮トリガー（将来計画 — 部分実装）
 
-| トリガー | アクション |
-|---------|-----------|
-| CLAUDE.md > 150行 | evolve で圧縮提案 |
-| MEMORY.md > 150行 | トピック別ファイルへの分割提案 |
-| rules 総数 > 100 | 重複検出 + 統合提案 |
-| skill 総数 > 30 | 使用頻度分析 + archive 提案 |
+> **ステータス**: bloat check レポートは audit スキルで実装済み。自動トリガーによる圧縮提案は将来計画。
+
+| トリガー | アクション | 実装状況 |
+|---------|-----------|---------|
+| CLAUDE.md > 150行 | evolve で圧縮提案 | audit で検出可能 |
+| MEMORY.md > 150行 | トピック別ファイルへの分割提案 | audit で検出可能 |
+| rules 総数 > 100 | 重複検出 + 統合提案 | 将来計画 |
+| skill 総数 > 30 | 使用頻度分析 + archive 提案 | 将来計画 |
 
 ## Global vs Project スコープ
 
@@ -199,7 +201,9 @@ Scope recommendations:
 | project skill: 他PJでも使えそう | global 昇格 or plugin 化を提案 |
 | 複数 global skills: 常に一緒に使用 | plugin bundle 提案 |
 
-#### Layer 3: Plugin Bundling（将来）
+#### Layer 3: Plugin Bundling（将来計画 — 未実装）
+
+> **ステータス**: 将来計画。Layer 1/2 の運用データが十分に蓄積された後に着手予定。
 
 evolve が「常に一緒に使われるスキル群」を検出したら plugin 化を提案:
 
