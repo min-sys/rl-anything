@@ -45,11 +45,11 @@ claude plugin install rl-anything@rl-anything --scope user
 ### 初回セットアップ
 
 ```bash
-# 過去セッションからデータを一括収集
-/rl-anything:backfill
-
 # 環境の健康診断
 /rl-anything:audit
+
+# 過去セッションからデータを一括収集
+/rl-anything:backfill
 ```
 
 ### 日次運用
