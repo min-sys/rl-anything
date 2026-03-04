@@ -477,3 +477,69 @@ class TestCLI:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert output["status"] == "empty"
+
+
+# --- Test: find_memory_update_candidates ---
+
+class TestFindMemoryUpdateCandidates:
+    def test_match_detected(self):
+        """共通キーワードが MIN_KEYWORD_MATCH 以上なら候補として検出される。"""
+        c = _make_correction(message="npm install instead of bun install for package management")
+        c["duplicate_found"] = False
+        corrections = [c]
+
+        memory_entries = [{
+            "tier": "auto-memory",
+            "path": "/memory/MEMORY.md",
+            "content": "## Package Management\n\n- bun install for package management\n",
+        }]
+        with mock.patch("reflect.read_all_memory_entries", return_value=memory_entries):
+            result = reflect.find_memory_update_candidates(corrections)
+        assert len(result) >= 1
+        assert result[0]["suggested_action"] == "update"
+
+    def test_no_match(self):
+        """共通キーワードがない場合は空リスト。"""
+        c = _make_correction(message="completely unrelated topic about database")
+        c["duplicate_found"] = False
+        corrections = [c]
+
+        memory_entries = [{
+            "tier": "auto-memory",
+            "path": "/memory/MEMORY.md",
+            "content": "## Git Config\n\n- shohu account for push\n",
+        }]
+        with mock.patch("reflect.read_all_memory_entries", return_value=memory_entries):
+            result = reflect.find_memory_update_candidates(corrections)
+        assert len(result) == 0
+
+    def test_skip_duplicates(self):
+        """duplicate_found=True の correction は除外される。"""
+        c = _make_correction(message="npm install instead of bun install for package management")
+        c["duplicate_found"] = True
+        corrections = [c]
+
+        memory_entries = [{
+            "tier": "auto-memory",
+            "path": "/memory/MEMORY.md",
+            "content": "## Package Management\n\n- bun install for package management\n",
+        }]
+        with mock.patch("reflect.read_all_memory_entries", return_value=memory_entries):
+            result = reflect.find_memory_update_candidates(corrections)
+        assert len(result) == 0
+
+    def test_below_min_keyword_match(self):
+        """共通キーワードが MIN_KEYWORD_MATCH 未満なら候補にならない。"""
+        c = _make_correction(message="hello world")
+        c["duplicate_found"] = False
+        corrections = [c]
+
+        memory_entries = [{
+            "tier": "auto-memory",
+            "path": "/memory/MEMORY.md",
+            "content": "## Notes\n\n- hello world example\n",
+        }]
+        with mock.patch("reflect.read_all_memory_entries", return_value=memory_entries):
+            result = reflect.find_memory_update_candidates(corrections)
+        # "hello" と "world" の2語のみ（ストップワード除外後）→ MIN_KEYWORD_MATCH=3 未満
+        assert len(result) == 0

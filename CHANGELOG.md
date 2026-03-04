@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.15.5] - 2026-03-05
+
+### Added
+- **audit Memory Health**: audit レポートに MEMORY ファイルの健康度セクションを追加（陳腐化参照検出・肥大化早期警告・改善提案）
+- **reflect memory_update_candidates**: corrections と既存 MEMORY エントリのキーワードマッチによる更新候補検出
+- `NEAR_LIMIT_RATIO` 定数（0.8）: MEMORY 行数上限の 80% で早期警告
+- `MIN_KEYWORD_MATCH` 定数（3）: MEMORY 更新候補の最低キーワードマッチ数
+- auto-memory ファイル（`~/.claude/projects/<encoded>/memory/`）を audit 検査対象に追加
+- `similarity.tokenize()` を reflect の MEMORY 更新候補検出で再利用
+- ユニットテスト 11 件追加（audit Memory Health 7 件 + reflect memory_update_candidates 4 件）
+
 ## [0.15.4] - 2026-03-04
 
 ### Added

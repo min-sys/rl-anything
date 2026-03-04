@@ -13,6 +13,9 @@ from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+sys.path.insert(0, str(_plugin_root / "scripts"))
+
+from reflect_utils import read_auto_memory
 
 # 行数制限
 LIMITS = {
@@ -24,6 +27,9 @@ LIMITS = {
 }
 
 DATA_DIR = Path.home() / ".claude" / "rl-anything"
+
+# 肥大化早期警告の閾値（行数上限に対する比率）
+NEAR_LIMIT_RATIO = 0.8
 
 
 # キャッシュ: プラグインがインストールしたスキル名のセット
@@ -183,6 +189,143 @@ def check_line_limits(artifacts: Dict[str, List[Path]]) -> List[Dict[str, Any]]:
             violations.append({"file": str(path), "lines": lines, "limit": limit})
 
     return violations
+
+
+def _extract_paths_outside_codeblocks(text: str) -> List[Tuple[int, str]]:
+    """テキストからコードブロック外のファイルパス参照を抽出する。
+
+    Returns:
+        [(line_number, path_string), ...] のリスト。行番号は1始まり。
+    """
+    import re
+
+    # コードブロックの行範囲を特定
+    lines = text.splitlines()
+    in_codeblock = False
+    codeblock_lines: set = set()
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_codeblock = not in_codeblock
+            codeblock_lines.add(i)
+            continue
+        if in_codeblock:
+            codeblock_lines.add(i)
+
+    # コードブロック外の行からパスを抽出
+    # 相対パス (skills/update/, scripts/lib/) または絶対パス (/path/to/file)
+    path_pattern = re.compile(r'(?:^|[\s`"\'])(/[a-zA-Z0-9_./-]{2,}|[a-zA-Z0-9_.-]+/[a-zA-Z0-9_./-]+)')
+    results = []
+    for i, line in enumerate(lines):
+        if i in codeblock_lines:
+            continue
+        for match in path_pattern.finditer(line):
+            path_str = match.group(1).rstrip("/.,;:)")
+            # 短すぎるパスやURL風のものを除外
+            if len(path_str) < 3 or path_str.startswith("http"):
+                continue
+            # スラッシュコマンド記法 (/plugin, /rl-anything:xxx) を除外
+            if path_str.startswith("/") and "/" not in path_str[1:]:
+                continue
+            # Python シンボル参照 (CONST/func) を除外 — 全大文字セグメントを含む場合
+            segments = path_str.split("/")
+            if not path_str.startswith("/") and any(s.isupper() for s in segments if s):
+                continue
+            results.append((i + 1, path_str))
+    return results
+
+
+def build_memory_health_section(
+    artifacts: Dict[str, List[Path]],
+    project_dir: Path,
+) -> List[str]:
+    """MEMORY ファイルの健康度を分析し、レポートセクションの行リストを返す。
+
+    検出項目:
+    - 陳腐化参照: MEMORY 内のパス参照がディスク上に存在しない
+    - 肥大化警告: NEAR_LIMIT_RATIO 以上の行数
+
+    問題がない場合は空リストを返す。
+    """
+    # project-local memory + auto-memory を統合
+    memory_files: List[Tuple[Path, str]] = []  # (path, content)
+
+    for path in artifacts.get("memory", []):
+        try:
+            content = path.read_text(encoding="utf-8")
+            memory_files.append((path, content))
+        except (OSError, UnicodeDecodeError) as e:
+            print(f"Warning: failed to read {path}: {e}", file=sys.stderr)
+
+    for entry in read_auto_memory(str(project_dir)):
+        entry_path = Path(entry["path"])
+        # project-local と重複しないように
+        if not any(p == entry_path for p, _ in memory_files):
+            memory_files.append((entry_path, entry["content"]))
+
+    stale_refs: List[Dict[str, Any]] = []
+    near_limits: List[Dict[str, Any]] = []
+
+    for path, content in memory_files:
+        # 陳腐化参照の検出
+        extracted = _extract_paths_outside_codeblocks(content)
+        for line_num, ref_path in extracted:
+            # 絶対パスはそのまま、相対パスは project_dir からの相対で確認
+            if ref_path.startswith("/"):
+                check_path = Path(ref_path)
+            else:
+                check_path = project_dir / ref_path
+            if not check_path.exists():
+                stale_refs.append({
+                    "file": str(path),
+                    "line": line_num,
+                    "path": ref_path,
+                })
+
+        # 肥大化警告
+        line_count = content.count("\n") + 1
+        limit = LIMITS["MEMORY.md"] if path.name == "MEMORY.md" else LIMITS["memory"]
+        threshold = int(limit * NEAR_LIMIT_RATIO)
+        if line_count >= threshold:
+            pct = int(line_count / limit * 100)
+            near_limits.append({
+                "file": str(path),
+                "lines": line_count,
+                "limit": limit,
+                "pct": pct,
+            })
+
+    # 問題なしなら空リスト
+    if not stale_refs and not near_limits:
+        return []
+
+    lines = ["## Memory Health", ""]
+
+    if stale_refs:
+        lines.append(f"### Stale References ({len(stale_refs)})")
+        for ref in stale_refs:
+            lines.append(f"- {ref['file']}:{ref['line']} — \"{ref['path']}\" not found on disk")
+        lines.append("")
+
+    if near_limits:
+        lines.append("### Near Limit")
+        for nl in near_limits:
+            lines.append(f"- {nl['file']}: {nl['lines']}/{nl['limit']} lines ({nl['pct']}%)")
+        lines.append("")
+
+    # Suggestions
+    suggestions = []
+    if stale_refs:
+        suggestions.append("Remove or update stale references")
+    if near_limits:
+        suggestions.append("Split large MEMORY.md entries into topic files")
+    if suggestions:
+        lines.append("### Suggestions")
+        for s in suggestions:
+            lines.append(f"- {s}")
+        lines.append("")
+
+    return lines
 
 
 def load_usage_data(days: int = 30) -> List[Dict[str, Any]]:
@@ -420,6 +563,7 @@ def generate_report(
     duplicates: List[Dict[str, Any]],
     advisories: List[Dict[str, Any]],
     quality_baselines: Optional[List[Dict[str, Any]]] = None,
+    project_dir: Optional[Path] = None,
 ) -> str:
     """1画面レポートを生成する。"""
     lines = ["# Environment Audit Report", ""]
@@ -437,6 +581,12 @@ def generate_report(
         for v in violations:
             lines.append(f"- {v['file']}: {v['lines']}/{v['limit']} lines")
         lines.append("")
+
+    # Memory Health（Line Limit Violations の直後）
+    if project_dir is not None:
+        memory_health = build_memory_health_section(artifacts, project_dir)
+        if memory_health:
+            lines.extend(memory_health)
 
     # 使用状況
     if usage:
@@ -499,7 +649,7 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False) -> 
     if baselines:
         quality_baselines = baselines
 
-    return generate_report(artifacts, violations, usage, duplicates, advisories, quality_baselines)
+    return generate_report(artifacts, violations, usage, duplicates, advisories, quality_baselines, project_dir=proj)
 
 
 if __name__ == "__main__":

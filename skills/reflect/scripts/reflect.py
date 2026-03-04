@@ -25,6 +25,7 @@ from reflect_utils import (
     suggest_claude_file,
 )
 from semantic_detector import detect_contradictions, validate_corrections
+from similarity import tokenize
 
 # hooks/common.py から偽陽性ユーティリティを import
 sys.path.insert(0, str(_plugin_root / "hooks"))
@@ -36,6 +37,20 @@ CORRECTIONS_FILE = Path.home() / ".claude" / "rl-anything" / "corrections.jsonl"
 # promotion 閾値
 PROMOTION_MIN_OCCURRENCES = 2
 PROMOTION_MIN_AGE_DAYS = 14
+
+# memory update candidates 閾値
+MIN_KEYWORD_MATCH = 3
+_MEMORY_STOP_WORDS = frozenset({
+    # 英語一般語
+    "the", "a", "an", "is", "are", "was", "were", "be", "been",
+    "to", "of", "in", "on", "at", "for", "with", "and", "or",
+    "not", "no", "it", "its", "that", "this", "these", "those",
+    "from", "by", "as", "if", "but", "so", "do", "does", "did",
+    "has", "have", "had", "will", "would", "can", "could",
+    "should", "may", "might", "shall",
+    # 短い技術汎用語
+    "file", "code", "run", "set", "get", "add", "use", "new",
+})
 
 
 def load_corrections(filepath: Path = CORRECTIONS_FILE) -> list[dict]:
@@ -251,6 +266,69 @@ def find_promotion_candidates(
     return candidates
 
 
+def find_memory_update_candidates(
+    corrections: list[dict],
+    project_root: Path | None = None,
+) -> list[dict]:
+    """corrections と既存 MEMORY エントリを照合し、更新候補を返す。
+
+    duplicate_found=True の correction は除外。
+    共通キーワード数が MIN_KEYWORD_MATCH 以上のペアを候補とする。
+    """
+    memory_entries = read_all_memory_entries(project_root)
+    if not memory_entries or not corrections:
+        return []
+
+    # MEMORY エントリごとにトークン集合を事前計算
+    memory_tokens = []
+    for entry in memory_entries:
+        content = entry.get("content", "")
+        # 行ごとにトークン化して保持（マッチした行を特定するため）
+        lines = content.splitlines()
+        for i, line in enumerate(lines):
+            tokens = tokenize(line) - _MEMORY_STOP_WORDS
+            if len(tokens) >= 2:  # 短すぎる行は対象外
+                memory_tokens.append({
+                    "tokens": tokens,
+                    "file": entry.get("path", ""),
+                    "line_num": i + 1,
+                    "line_text": line.strip(),
+                })
+
+    candidates = []
+    seen = set()  # (correction_message, memory_file, line_num) で重複排除
+
+    for c in corrections:
+        # duplicate_found は除外
+        if c.get("duplicate_found"):
+            continue
+
+        msg = c.get("message", "")
+        learning = c.get("extracted_learning") or msg
+        correction_tokens = tokenize(learning) - _MEMORY_STOP_WORDS
+
+        if len(correction_tokens) < MIN_KEYWORD_MATCH:
+            continue
+
+        for mt in memory_tokens:
+            common = correction_tokens & mt["tokens"]
+            if len(common) >= MIN_KEYWORD_MATCH:
+                key = (msg, mt["file"], mt["line_num"])
+                if key in seen:
+                    continue
+                seen.add(key)
+                candidates.append({
+                    "correction_message": msg,
+                    "memory_file": mt["file"],
+                    "memory_line": mt["line_text"],
+                    "memory_line_num": mt["line_num"],
+                    "common_keywords": sorted(common),
+                    "suggested_action": "update",
+                })
+
+    return candidates
+
+
 def apply_semantic_validation(
     corrections: list[dict],
     model: str = "sonnet",
@@ -351,10 +429,14 @@ def build_output(
     # promotion candidates
     promotion = find_promotion_candidates(all_records, project_root)
 
+    # memory update candidates
+    memory_updates = find_memory_update_candidates(pending, project_root)
+
     output = {
         "status": "has_pending",
         "corrections": corrections_out,
         "promotion_candidates": promotion,
+        "memory_update_candidates": memory_updates,
         "summary": {
             "total": len(corrections_out),
             "by_type": dict(by_type),

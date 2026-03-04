@@ -93,11 +93,12 @@ def find_claude_files(project_root: Optional[Path] = None) -> Dict[str, List[Pat
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR", str(root))
     # Claude Code の auto-memory パスは project_dir を "-" 区切りにエンコード
     encoded = project_dir.replace("/", "-")
-    if encoded.startswith("-"):
-        encoded = encoded[1:]  # 先頭の - を除去
-    memory_dir = home / ".claude" / "projects" / encoded / "memory"
-    if memory_dir.is_dir():
-        result["auto-memory"] = sorted(memory_dir.glob("*.md"))
+    # 先頭ハイフンあり/なし両方を試す（Claude Code バージョンにより異なる）
+    for candidate in [encoded, encoded.lstrip("-")]:
+        memory_dir = home / ".claude" / "projects" / candidate / "memory"
+        if memory_dir.is_dir():
+            result["auto-memory"] = sorted(memory_dir.glob("*.md"))
+            break
 
     # skill: ./.claude/commands/*/SKILL.md
     commands_dir = root / ".claude" / "commands"
@@ -171,8 +172,12 @@ def suggest_claude_file(
         topic = suggest_auto_memory_topic(message)
         project_dir = os.environ.get("CLAUDE_PROJECT_DIR", str(root))
         encoded = project_dir.replace("/", "-")
-        if encoded.startswith("-"):
-            encoded = encoded[1:]
+        # 先頭ハイフンあり/なし両方を試す（Claude Code バージョンにより異なる）
+        for candidate in [encoded, encoded.lstrip("-")]:
+            memory_dir = Path.home() / ".claude" / "projects" / candidate / "memory"
+            if memory_dir.is_dir():
+                return (str(memory_dir / f"{topic}.md"), 0.60)
+        # どちらも見つからない場合はハイフンあり版をデフォルトに
         memory_dir = Path.home() / ".claude" / "projects" / encoded / "memory"
         return (str(memory_dir / f"{topic}.md"), 0.60)
 
@@ -192,9 +197,15 @@ def read_auto_memory(project_path: Optional[str] = None) -> List[Dict[str, str]]
     """
     proj = project_path or os.environ.get("CLAUDE_PROJECT_DIR", str(Path.cwd()))
     encoded = proj.replace("/", "-")
-    if encoded.startswith("-"):
-        encoded = encoded[1:]
-    memory_dir = Path.home() / ".claude" / "projects" / encoded / "memory"
+    # 先頭ハイフンあり/なし両方を試す（Claude Code バージョンにより異なる）
+    memory_dir = None
+    for candidate in [encoded, encoded.lstrip("-")]:
+        candidate_dir = Path.home() / ".claude" / "projects" / candidate / "memory"
+        if candidate_dir.is_dir():
+            memory_dir = candidate_dir
+            break
+    if memory_dir is None:
+        memory_dir = Path.home() / ".claude" / "projects" / encoded / "memory"
 
     entries = []
     if not memory_dir.is_dir():

@@ -189,6 +189,130 @@ def test_load_quality_baselines_valid(tmp_path):
         assert len(result) == 2
 
 
+# ── Memory Health ──────────────────────────────────────
+
+
+def test_memory_health_stale_reference(tmp_path):
+    """存在しないパス参照を Stale References として検出する。"""
+    from audit import build_memory_health_section
+
+    mem_file = tmp_path / "MEMORY.md"
+    mem_file.write_text("# Memory\n\n- skills/update/ は非推奨\n- scripts/lib/ を参照\n")
+
+    # skills/update/ は存在しない、scripts/lib/ も存在しない
+    artifacts = {"memory": [mem_file]}
+    with patch("audit.read_auto_memory", return_value=[]):
+        lines = build_memory_health_section(artifacts, tmp_path)
+
+    text = "\n".join(lines)
+    assert "## Memory Health" in text
+    assert "Stale References" in text
+    assert "skills/update" in text
+
+
+def test_memory_health_near_limit(tmp_path):
+    """NEAR_LIMIT_RATIO 超過で Near Limit 警告が表示される。"""
+    from audit import build_memory_health_section, NEAR_LIMIT_RATIO
+
+    # 180 行の MEMORY.md（上限200行の90%、NEAR_LIMIT_RATIO=0.8 超過）
+    mem_file = tmp_path / "MEMORY.md"
+    content = "\n".join([f"line {i}" for i in range(180)])
+    mem_file.write_text(content)
+
+    artifacts = {"memory": [mem_file]}
+    with patch("audit.read_auto_memory", return_value=[]):
+        lines = build_memory_health_section(artifacts, tmp_path)
+
+    text = "\n".join(lines)
+    assert "Near Limit" in text
+    assert "180/200" in text
+
+
+def test_memory_health_no_issues(tmp_path):
+    """問題なしの場合は空リストを返す。"""
+    from audit import build_memory_health_section
+
+    mem_file = tmp_path / "MEMORY.md"
+    mem_file.write_text("# Memory\n\nシンプルな内容\n")
+
+    artifacts = {"memory": [mem_file]}
+    with patch("audit.read_auto_memory", return_value=[]):
+        lines = build_memory_health_section(artifacts, tmp_path)
+
+    assert lines == []
+
+
+def test_memory_health_codeblock_excluded(tmp_path):
+    """コードブロック内のパスは Stale References に含まれない。"""
+    from audit import build_memory_health_section
+
+    mem_file = tmp_path / "MEMORY.md"
+    mem_file.write_text("# Memory\n\n```\n/fake/example/path\n```\n")
+
+    artifacts = {"memory": [mem_file]}
+    with patch("audit.read_auto_memory", return_value=[]):
+        lines = build_memory_health_section(artifacts, tmp_path)
+
+    # コードブロック内のパスは検出されないので問題なし→空
+    assert lines == []
+
+
+def test_memory_health_split_suggestion(tmp_path):
+    """Near Limit 時に Suggestions にトピックファイル分割が含まれる。"""
+    from audit import build_memory_health_section
+
+    mem_file = tmp_path / "MEMORY.md"
+    content = "\n".join([f"line {i}" for i in range(170)])
+    mem_file.write_text(content)
+
+    artifacts = {"memory": [mem_file]}
+    with patch("audit.read_auto_memory", return_value=[]):
+        lines = build_memory_health_section(artifacts, tmp_path)
+
+    text = "\n".join(lines)
+    assert "Split large MEMORY.md entries into topic files" in text
+
+
+def test_generate_report_with_memory_health(tmp_path):
+    """Memory Health セクションがレポートに含まれる。"""
+    mem_file = tmp_path / "MEMORY.md"
+    content = "\n".join([f"line {i}" for i in range(180)])
+    mem_file.write_text(content)
+
+    with patch("audit.read_auto_memory", return_value=[]):
+        report = generate_report(
+            artifacts={"skills": [], "rules": [], "memory": [mem_file], "claude_md": []},
+            violations=[],
+            usage={},
+            duplicates=[],
+            advisories=[],
+            project_dir=tmp_path,
+        )
+
+    assert "## Memory Health" in report
+    assert "Near Limit" in report
+
+
+def test_memory_health_auto_memory(tmp_path):
+    """auto-memory ファイルも検査対象になる。"""
+    from audit import build_memory_health_section
+
+    # auto-memory エントリ（180行）
+    auto_content = "\n".join([f"auto line {i}" for i in range(180)])
+    auto_entry = {
+        "path": str(tmp_path / "auto-MEMORY.md"),
+        "topic": "MEMORY",
+        "content": auto_content,
+    }
+
+    artifacts = {"memory": []}
+    with patch("audit.read_auto_memory", return_value=[auto_entry]):
+        lines = build_memory_health_section(artifacts, tmp_path)
+
+    text = "\n".join(lines)
+    assert "Near Limit" in text
+
+
 # ── --skip-rescore テスト ──────────────────────────────
 
 
