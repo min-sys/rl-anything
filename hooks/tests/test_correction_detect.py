@@ -52,19 +52,19 @@ class TestDetectCorrection:
         result = common.detect_correction("no, don't use that approach")
         assert result is not None
         assert result[0] == "no"
-        assert result[1] == 0.75
+        assert result[1] == 0.70
 
     def test_dont_pattern(self):
         result = common.detect_correction("don't do that")
         assert result is not None
         assert result[0] == "dont"
-        assert result[1] == 0.75
+        assert result[1] == 0.70
 
     def test_stop_pattern(self):
         result = common.detect_correction("stop doing that")
         assert result is not None
         assert result[0] == "stop"
-        assert result[1] == 0.80
+        assert result[1] == 0.70
 
     def test_no_match(self):
         result = common.detect_correction("ありがとう、完璧です")
@@ -82,6 +82,200 @@ class TestDetectCorrection:
     def test_question_mark_ascii(self):
         result = common.detect_correction("no, is that right?")
         assert result is None
+
+
+class TestNewPatterns:
+    """claude-reflect 由来のパターン検出テスト。"""
+
+    def test_remember_explicit(self):
+        result = common.detect_correction("remember: always use bun")
+        assert result is not None
+        assert result[0] == "remember"
+        assert result[1] == 0.90
+
+    def test_guardrail_dont_unless(self):
+        result = common.detect_correction("don't add comments unless I ask")
+        assert result is not None
+        assert result[0] == "dont-unless-asked"
+        assert result[1] == 0.90
+
+    def test_guardrail_minimal_changes(self):
+        result = common.detect_correction("minimal changes please")
+        assert result is not None
+        assert result[0] == "minimal-changes"
+
+    def test_positive_perfect(self):
+        result = common.detect_correction("perfect! that's what I wanted")
+        assert result is not None
+        assert result[0] == "perfect"
+        assert result[1] == 0.70
+
+    def test_positive_excellent(self):
+        result = common.detect_correction("excellent work on this")
+        assert result is not None
+        assert result[0] == "keep-doing"
+
+    def test_thats_wrong(self):
+        result = common.detect_correction("that's wrong, use the other approach")
+        assert result is not None
+        assert result[0] == "thats-wrong"
+
+    def test_i_told_you(self):
+        result = common.detect_correction("I told you to use bun")
+        assert result is not None
+        assert result[0] == "I-told-you"
+        assert result[1] == 0.85
+
+    def test_use_x_not_y(self):
+        result = common.detect_correction("use Python not JavaScript")
+        assert result is not None
+        assert result[0] == "use-X-not-Y"
+
+    def test_actually_weak(self):
+        result = common.detect_correction("actually, try the other way")
+        assert result is not None
+        assert result[0] == "actually"
+        assert result[1] == 0.55
+
+    def test_i_meant(self):
+        result = common.detect_correction("I meant to use TypeScript")
+        assert result is not None
+        assert result[0] == "I-meant"
+
+
+class TestFalsePositiveFilters:
+    """偽陽性フィルタのテスト。"""
+
+    def test_please_filtered(self):
+        result = common.detect_correction("please help me fix this")
+        assert result is None
+
+    def test_can_you_filtered(self):
+        result = common.detect_correction("can you fix this error?")
+        assert result is None
+
+    def test_error_description_filtered(self):
+        result = common.detect_correction("error: could not connect to database")
+        assert result is None
+
+    def test_bug_report_filtered(self):
+        result = common.detect_correction("the test is not passing")
+        assert result is None
+
+    def test_i_need_filtered(self):
+        result = common.detect_correction("I need you to fix the API")
+        assert result is None
+
+    def test_ok_continuation_filtered(self):
+        result = common.detect_correction("okay, so let me try again")
+        assert result is None
+
+    def test_remember_bypass(self):
+        """remember: は偽陽性フィルタをバイパスする。"""
+        result = common.detect_correction("remember: always use bun for package management")
+        assert result is not None
+        assert result[0] == "remember"
+
+
+class TestShouldIncludeMessage:
+    """should_include_message() のテスト。"""
+
+    def test_normal_text(self):
+        assert common.should_include_message("いや、違うよ") is True
+
+    def test_xml_tag(self):
+        assert common.should_include_message("<system-reminder>test</system-reminder>") is False
+
+    def test_json(self):
+        assert common.should_include_message('{"key": "value"}') is False
+
+    def test_tool_result(self):
+        assert common.should_include_message("tool_result: success") is False
+
+    def test_session_continuation(self):
+        assert common.should_include_message("This session is being continued from a previous") is False
+
+    def test_empty(self):
+        assert common.should_include_message("") is False
+
+    def test_long_text_excluded(self):
+        assert common.should_include_message("x" * 501) is False
+
+    def test_remember_bypasses_length(self):
+        assert common.should_include_message("remember: " + "x" * 500) is True
+
+
+class TestCalculateConfidence:
+    """calculate_confidence() のテスト。"""
+
+    def test_short_text_boost(self):
+        conf, _ = common.calculate_confidence(0.70, "short")
+        assert conf == pytest.approx(0.80)  # +0.10
+
+    def test_long_text_penalty(self):
+        conf, _ = common.calculate_confidence(0.70, "x" * 301)
+        assert conf == pytest.approx(0.55)  # -0.15
+
+    def test_medium_text_penalty(self):
+        conf, _ = common.calculate_confidence(0.70, "x" * 200)
+        assert conf == pytest.approx(0.60)  # -0.10
+
+    def test_multiple_patterns_high(self):
+        conf, decay = common.calculate_confidence(0.70, "short", matched_count=3)
+        assert conf == pytest.approx(0.90)  # 0.85 + 0.10 short boost, capped at 0.90
+        assert decay == 120
+
+    def test_i_told_you_flag(self):
+        conf, decay = common.calculate_confidence(0.70, "short", has_i_told_you=True)
+        assert conf == pytest.approx(0.90)  # 0.85 + 0.10, capped
+        assert decay == 120
+
+    def test_single_strong(self):
+        conf, decay = common.calculate_confidence(0.55, "short", has_strong=True)
+        assert conf == pytest.approx(0.80)  # max(0.55, 0.70) + 0.10
+        assert decay == 60
+
+
+class TestDetectAllPatterns:
+    """detect_all_patterns() のテスト。"""
+
+    def test_single_match(self):
+        result = common.detect_all_patterns("いや、違うよ")
+        assert "iya" in result
+
+    def test_multiple_matches(self):
+        result = common.detect_all_patterns("don't use npm, use bun not npm")
+        assert "dont" in result
+        assert "use-X-not-Y" in result
+
+    def test_no_match(self):
+        result = common.detect_all_patterns("ありがとう")
+        assert result == []
+
+    def test_question_excluded(self):
+        result = common.detect_all_patterns("いや、それでいいの？")
+        assert result == []
+
+
+class TestDetectCorrectionReturnType:
+    """detect_correction() 戻り値型の互換テスト (Task 1.6)。"""
+
+    def test_tuple_return(self):
+        result = common.detect_correction("いや、違う")
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_unpack_backfill_style(self):
+        """backfill.py の correction_type, _ = result アンパック。"""
+        result = common.detect_correction("いや、違う")
+        correction_type, _ = result
+        assert correction_type == "iya"
+
+    def test_index_access(self):
+        """test_correction_detect.py の result[0] アクセス。"""
+        result = common.detect_correction("いや、違う")
+        assert result[0] == "iya"
+        assert isinstance(result[1], float)
 
 
 class TestLastSkill:
@@ -174,7 +368,7 @@ class TestCorrectionDetectHook:
         assert record["last_skill"] == "commit"
 
     def test_schema_compliance(self, patch_data_dir):
-        """レコードが正式スキーマに準拠する。"""
+        """レコードが拡張スキーマに準拠する。"""
         event = {
             "session_id": "sess-cd-schema",
             "message": {"content": "いや、そうじゃなくて"},
@@ -185,13 +379,20 @@ class TestCorrectionDetectHook:
         record = json.loads(corrections_file.read_text().strip())
         # 全必須フィールドの存在チェック
         assert "correction_type" in record
+        assert "matched_patterns" in record
         assert "message" in record
         assert "last_skill" in record
         assert "confidence" in record
+        assert "sentiment" in record
+        assert "decay_days" in record
+        assert "guardrail" in record
+        assert "reflect_status" in record
+        assert "project_path" in record
         assert "timestamp" in record
         assert "session_id" in record
-        # source フィールドはリアルタイム検出には付与しない
-        assert "source" not in record
+        # source フィールドは "hook" が MUST
+        assert record["source"] == "hook"
+        assert record["reflect_status"] == "pending"
 
     def test_silent_failure_on_bad_json(self, patch_data_dir, capsys):
         """不正 JSON でも exit 0（サイレント失敗）。"""

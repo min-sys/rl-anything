@@ -80,28 +80,136 @@ def classify_prompt(prompt: str) -> str:
     return "other"
 
 
-# 修正パターン: ユーザーのフィードバックを検出するための正規表現
-# (pattern, correction_type, confidence)
-CORRECTION_PATTERNS = [
-    (r"^いや[、,.\s]|^いや違", "iya", 0.85),
-    (r"^違う[、，,.\s]", "chigau", 0.85),
-    (r"そうじゃなく[てけ]", "souja-nakute", 0.80),
-    (r"^no[,. ]+", "no", 0.75),
-    (r"^don't\b|^do not\b", "dont", 0.75),
-    (r"^stop\b|^never\b", "stop", 0.80),
-]
+# 修正パターン: ユーザーのフィードバックを検出するための統一辞書
+# claude-reflect v3.0.1 の全パターンを統合
+CORRECTION_PATTERNS = {
+    # --- claude-reflect 由来: explicit（最高優先度） ---
+    "remember": {"pattern": r"(?i)^remember:", "confidence": 0.90, "type": "explicit", "decay_days": 120},
+    # --- claude-reflect 由来: guardrail（explicit の次に優先。correction より先に走査） ---
+    "dont-unless-asked": {"pattern": r"(?i)don't (?:add|include|create) .{1,40} unless", "confidence": 0.90, "type": "guardrail", "decay_days": 120},
+    "only-what-asked": {"pattern": r"(?i)only (?:change|modify|edit|touch) what I (?:asked|requested|said)", "confidence": 0.90, "type": "guardrail", "decay_days": 120},
+    "stop-unrelated": {"pattern": r"(?i)stop (?:refactoring|changing|modifying|editing) (?:unrelated|other|surrounding)", "confidence": 0.90, "type": "guardrail", "decay_days": 120},
+    "dont-over-engineer": {"pattern": r"(?i)don't (?:over-engineer|add extra|be too|make unnecessary)", "confidence": 0.85, "type": "guardrail", "decay_days": 90},
+    "dont-refactor-unless": {"pattern": r"(?i)don't (?:refactor|reorganize|restructure) (?:unless|without)", "confidence": 0.85, "type": "guardrail", "decay_days": 90},
+    "leave-alone": {"pattern": r"(?i)leave .{1,30} (?:alone|unchanged|as is)", "confidence": 0.85, "type": "guardrail", "decay_days": 90},
+    "dont-add-annotations": {"pattern": r"(?i)don't (?:add|include) (?:comments|docstrings|type hints|annotations) (?:unless|to code)", "confidence": 0.85, "type": "guardrail", "decay_days": 90},
+    "minimal-changes": {"pattern": r"(?i)(?:minimal|minimum|only necessary) changes", "confidence": 0.80, "type": "guardrail", "decay_days": 90},
+    # --- 既存 CJK ---
+    "iya": {"pattern": r"^いや[、,.\s]|^いや違", "confidence": 0.85, "type": "correction", "decay_days": 90},
+    "chigau": {"pattern": r"^違う[、，,.\s]", "confidence": 0.85, "type": "correction", "decay_days": 90},
+    "souja-nakute": {"pattern": r"そうじゃなく[てけ]", "confidence": 0.80, "type": "correction", "decay_days": 90},
+    # --- claude-reflect 由来: positive ---
+    "perfect": {"pattern": r"(?i)perfect!|exactly right|that's exactly", "confidence": 0.70, "type": "positive", "decay_days": 90},
+    "great-approach": {"pattern": r"(?i)that's what I wanted|great approach", "confidence": 0.70, "type": "positive", "decay_days": 90},
+    "keep-doing": {"pattern": r"(?i)keep doing this|love it|excellent|nailed it", "confidence": 0.70, "type": "positive", "decay_days": 90},
+    # --- claude-reflect 由来: correction (strong) ---
+    "no": {"pattern": r"^no[,. ]+", "confidence": 0.70, "type": "correction", "decay_days": 60, "strong": True},
+    "dont": {"pattern": r"(?i)^don't\b|^do not\b", "confidence": 0.70, "type": "correction", "decay_days": 60, "strong": True},
+    "stop": {"pattern": r"(?i)^stop\b|^never\b", "confidence": 0.70, "type": "correction", "decay_days": 60, "strong": True},
+    "thats-wrong": {"pattern": r"(?i)that's (wrong|incorrect)|that is (wrong|incorrect)", "confidence": 0.70, "type": "correction", "decay_days": 60, "strong": True},
+    "I-meant": {"pattern": r"(?i)^I meant\b|^I said\b", "confidence": 0.70, "type": "correction", "decay_days": 60, "strong": True},
+    "I-told-you": {"pattern": r"(?i)^I told you\b|^I already told\b", "confidence": 0.85, "type": "correction", "decay_days": 120, "strong": True},
+    "use-X-not-Y": {"pattern": r"(?i)use .{1,30} not\b", "confidence": 0.70, "type": "correction", "decay_days": 60, "strong": True},
+    # --- claude-reflect 由来: correction (weak) ---
+    "actually": {"pattern": r"(?i)^actually[,. ]", "confidence": 0.55, "type": "correction", "decay_days": 45},
+}
 
 # 偽陽性フィルター: マッチしたら correction 検出を無効化
 FALSE_POSITIVE_FILTERS = [
     r"[？\?]$",  # 末尾が疑問符
+    r"(?i)^(please|can you|could you|would you|help me)\b",  # タスクリクエスト
+    r"(?i)(help|fix|check|review|figure out|set up)\s+(this|that|it|the)\b",  # タスク動詞
+    r"(?i)(error|failed|could not|cannot|can't|unable to)\s+\w+",  # エラー記述
+    r"(?i)(is|was|are|were)\s+(not|broken|failing)",  # バグ報告
+    r"(?i)^I (need|want|would like)\b",  # タスクリクエスト
+    r"(?i)^(ok|okay|alright)[,.]?\s+(so|now|let)",  # タスク続行
 ]
+
+# メッセージ長の閾値
+_MAX_CAPTURE_PROMPT_LENGTH = 500
+_MIN_SHORT_CORRECTION_LENGTH = 80
+
+
+def should_include_message(text: str) -> bool:
+    """メッセージが correction 検出対象かどうかを判定する。
+
+    XMLタグ、JSON、ツール結果、セッション継続メッセージ等のシステムコンテンツを除外する。
+    "remember:" で始まるメッセージは長さに関わらずバイパスする。
+    """
+    if not text.strip():
+        return False
+
+    # "remember:" はバイパス（長さ制限を適用しない）
+    if re.search(r"(?i)^remember:", text.strip()):
+        return True
+
+    # 長すぎるメッセージはスキップ
+    if len(text.strip()) > _MAX_CAPTURE_PROMPT_LENGTH:
+        return False
+
+    skip_patterns = [
+        r"^<",  # XMLタグ
+        r"^\[",  # ブラケット
+        r"^\{",  # JSON
+        r"tool_result",
+        r"tool_use_id",
+        r"<command-",
+        r"<task-notification>",
+        r"<system-reminder>",
+        r"This session is being continued",
+        r"^Analysis:",
+        r"^\*\*",  # ボールドマークダウン
+        r"^   -",  # インデント済みリスト
+    ]
+
+    for pattern in skip_patterns:
+        if re.search(pattern, text.strip()):
+            return False
+
+    return True
+
+
+def calculate_confidence(base_confidence: float, text: str, matched_count: int = 1, has_strong: bool = False, has_i_told_you: bool = False) -> tuple[float, int]:
+    """信頼度を計算する（長さ調整、パターン数・強度による調整）。
+
+    Returns:
+        (adjusted_confidence, decay_days) のタプル。
+    """
+    # パターン数・強度に基づく信頼度
+    if has_i_told_you:
+        confidence = 0.85
+        decay_days = 120
+    elif matched_count >= 3:
+        confidence = 0.85
+        decay_days = 120
+    elif matched_count >= 2:
+        confidence = 0.75
+        decay_days = 90
+    elif has_strong:
+        confidence = max(base_confidence, 0.70)
+        decay_days = 60
+    else:
+        confidence = base_confidence
+        decay_days = 45
+
+    # メッセージ長による調整
+    text_length = len(text.strip())
+    if text_length < _MIN_SHORT_CORRECTION_LENGTH:
+        confidence = min(0.90, confidence + 0.10)
+    elif text_length > 300:
+        confidence = max(0.50, confidence - 0.15)
+    elif text_length > 150:
+        confidence = max(0.55, confidence - 0.10)
+
+    return (confidence, decay_days)
 
 
 def detect_correction(text: str):
-    """テキストから修正パターンを検出する。
+    """テキストから修正パターンを検出する（最初のマッチのみ）。
 
     Returns:
         (correction_type, confidence) のタプル、または None（検出なし）。
+        後方互換性のためタプルインターフェースを維持する。
     """
     text_stripped = text.strip()
     if not text_stripped:
@@ -109,15 +217,38 @@ def detect_correction(text: str):
 
     # 偽陽性チェック
     for fp in FALSE_POSITIVE_FILTERS:
-        if re.search(fp, text_stripped):
+        if re.search(fp, text_stripped) or re.search(fp, text_stripped.lower()):
             return None
 
-    text_lower = text_stripped.lower()
-    for pattern, correction_type, confidence in CORRECTION_PATTERNS:
-        if re.search(pattern, text_lower) or re.search(pattern, text_stripped):
-            return (correction_type, confidence)
+    for key, info in CORRECTION_PATTERNS.items():
+        pattern = info["pattern"]
+        if re.search(pattern, text_stripped) or re.search(pattern, text_stripped.lower()):
+            return (key, info["confidence"])
 
     return None
+
+
+def detect_all_patterns(text: str) -> list[str]:
+    """テキストから全マッチするパターンキーのリストを返す。
+
+    信頼度計算の入力（matched_patterns フィールド）に使用する。
+    """
+    text_stripped = text.strip()
+    if not text_stripped:
+        return []
+
+    # 偽陽性チェック
+    for fp in FALSE_POSITIVE_FILTERS:
+        if re.search(fp, text_stripped) or re.search(fp, text_stripped.lower()):
+            return []
+
+    matched = []
+    for key, info in CORRECTION_PATTERNS.items():
+        pattern = info["pattern"]
+        if re.search(pattern, text_stripped) or re.search(pattern, text_stripped.lower()):
+            matched.append(key)
+
+    return matched
 
 
 def last_skill_path(session_id: str) -> Path:

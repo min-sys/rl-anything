@@ -8,6 +8,7 @@ LLM 呼び出しは行わない（MUST NOT）。
 例外発生時は stderr に警告を出力し exit 0 で終了する（MUST）。
 """
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,23 +44,55 @@ def handle_user_prompt_submit(event: dict) -> None:
     if not message.strip():
         return
 
+    # should_include_message フィルタ
+    if not common.should_include_message(message):
+        return
+
     # 修正パターン検出
     result = common.detect_correction(message)
     if result is None:
         return
 
-    correction_type, confidence = result
+    correction_type, base_confidence = result
+
+    # 全マッチパターンを取得
+    matched_patterns = common.detect_all_patterns(message)
+
+    # パターン情報を取得
+    pattern_info = common.CORRECTION_PATTERNS.get(correction_type, {})
+    has_strong = any(
+        common.CORRECTION_PATTERNS.get(p, {}).get("strong", False)
+        for p in matched_patterns
+    )
+    has_i_told_you = "I-told-you" in matched_patterns
+
+    # 信頼度計算（長さ調整、パターン数・強度）
+    confidence, decay_days = common.calculate_confidence(
+        base_confidence, message,
+        matched_count=len(matched_patterns),
+        has_strong=has_strong,
+        has_i_told_you=has_i_told_you,
+    )
 
     # 直前スキルを取得
     last_skill = common.read_last_skill(session_id)
 
-    # corrections.jsonl に追記
+    # corrections.jsonl に拡張スキーマで追記
     now = datetime.now(timezone.utc).isoformat()
     record = {
         "correction_type": correction_type,
+        "matched_patterns": matched_patterns,
         "message": message.strip(),
         "last_skill": last_skill,
-        "confidence": confidence,
+        "confidence": round(confidence, 2),
+        "sentiment": pattern_info.get("type", "correction"),
+        "decay_days": decay_days,
+        "routing_hint": None,
+        "guardrail": pattern_info.get("type") == "guardrail",
+        "reflect_status": "pending",
+        "extracted_learning": None,
+        "project_path": os.environ.get("CLAUDE_PROJECT_DIR"),
+        "source": "hook",
         "timestamp": now,
         "session_id": session_id,
     }
