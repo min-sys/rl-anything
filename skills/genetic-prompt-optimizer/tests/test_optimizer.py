@@ -16,7 +16,7 @@ sys.path.insert(
     0, str(Path(__file__).parent.parent / "scripts")
 )
 
-from optimize import Individual, GeneticOptimizer, BACKUP_SUFFIX
+from optimize import Individual, GeneticOptimizer, BACKUP_SUFFIX, detect_scope
 
 
 # --- テスト用フィクスチャ ---
@@ -1044,6 +1044,78 @@ class TestWarningOutput:
         assert hint == ""
         captured = capsys.readouterr()
         assert "Warning: no workflow hints found in stats-only data" in captured.err
+
+
+# --- スコープ判定のテスト ---
+
+class TestScopeDetection:
+    """detect_scope() と _claude_cwd のテスト"""
+
+    def test_global_skills_dir(self, tmp_path):
+        """~/.claude/skills/ 配下は global"""
+        with patch("optimize.Path.home", return_value=tmp_path):
+            skill_path = tmp_path / ".claude" / "skills" / "commit" / "SKILL.md"
+            skill_path.parent.mkdir(parents=True)
+            skill_path.write_text("# test", encoding="utf-8")
+            assert detect_scope(skill_path) == "global"
+
+    def test_project_skills_dir(self, tmp_path):
+        """プロジェクト内は project"""
+        with patch("optimize.Path.home", return_value=tmp_path):
+            skill_path = tmp_path / "my-project" / ".claude" / "skills" / "my-skill" / "SKILL.md"
+            skill_path.parent.mkdir(parents=True)
+            skill_path.write_text("# test", encoding="utf-8")
+            assert detect_scope(skill_path) == "project"
+
+    def test_plugin_dir_is_global(self, tmp_path):
+        """~/.claude/ 配下のプラグインスキルは global"""
+        with patch("optimize.Path.home", return_value=tmp_path):
+            skill_path = tmp_path / ".claude" / "rl-anything" / "skills" / "optimize" / "SKILL.md"
+            skill_path.parent.mkdir(parents=True)
+            skill_path.write_text("# test", encoding="utf-8")
+            assert detect_scope(skill_path) == "global"
+
+    def test_claude_cwd_global(self, tmp_path):
+        """global スキルの場合 _claude_cwd はホームディレクトリ"""
+        with patch("optimize.Path.home", return_value=tmp_path):
+            skill_path = tmp_path / ".claude" / "skills" / "test" / "SKILL.md"
+            skill_path.parent.mkdir(parents=True)
+            skill_path.write_text("# test", encoding="utf-8")
+            optimizer = GeneticOptimizer(target_path=str(skill_path), dry_run=True)
+            assert optimizer.scope == "global"
+            assert optimizer._claude_cwd == str(tmp_path)
+
+    def test_claude_cwd_project(self, sample_skill):
+        """project スキルの場合 _claude_cwd は None"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill), dry_run=True)
+        assert optimizer.scope == "project"
+        assert optimizer._claude_cwd is None
+
+    def test_mutate_passes_cwd_for_global(self, tmp_path):
+        """global スキルの mutate() が cwd パラメータを subprocess.run に渡す"""
+        with patch("optimize.Path.home", return_value=tmp_path):
+            skill_path = tmp_path / ".claude" / "skills" / "test" / "SKILL.md"
+            skill_path.parent.mkdir(parents=True)
+            skill_path.write_text("# test\nテスト", encoding="utf-8")
+            optimizer = GeneticOptimizer(target_path=str(skill_path), dry_run=False)
+
+            ind = Individual("テスト", generation=0)
+            with patch("optimize.subprocess.run", side_effect=FileNotFoundError) as mock_run:
+                optimizer.mutate(ind, 1)
+
+            # cwd がホームディレクトリに設定されている
+            call_kwargs = mock_run.call_args
+            assert call_kwargs.kwargs.get("cwd") == str(tmp_path)
+
+    def test_mutate_no_cwd_for_project(self, sample_skill):
+        """project スキルの mutate() は cwd パラメータを渡さない"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill), dry_run=False)
+        ind = Individual("テスト", generation=0)
+        with patch("optimize.subprocess.run", side_effect=FileNotFoundError) as mock_run:
+            optimizer.mutate(ind, 1)
+
+        call_kwargs = mock_run.call_args
+        assert "cwd" not in call_kwargs.kwargs
 
 
 if __name__ == "__main__":

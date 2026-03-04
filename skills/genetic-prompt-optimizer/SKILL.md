@@ -28,6 +28,12 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep
 TARGET がスキル名（例: `my-skill`）の場合、`.claude/skills/{name}/SKILL.md` に解決する。
 ファイルパスが直接指定された場合はそのまま使用する。
 
+### スコープ判定
+
+ターゲット選択時、各候補に scope ラベルを表示する:
+- `[global]` — `~/.claude/skills/` 配下のスキル。汎用評価モードで最適化（プロジェクト CLAUDE.md を除外）
+- `[project]` — プロジェクト内のスキル。プロジェクトコンテキストを含めて最適化
+
 ### 2. スクリプトを実行する
 
 ```bash

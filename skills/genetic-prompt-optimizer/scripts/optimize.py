@@ -37,6 +37,25 @@ sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 from line_limit import MAX_RULE_LINES, MAX_SKILL_LINES, check_line_limit
 
 
+def detect_scope(target_path: Path) -> str:
+    """ターゲットスキルの scope を判定する。
+
+    ~/.claude/skills/ 配下、またはプラグインディレクトリ配下なら "global"、
+    それ以外は "project" を返す。
+    """
+    resolved = target_path.resolve()
+    home = Path.home()
+    global_skills_dir = home / ".claude" / "skills"
+    # ~/.claude/skills/ 配下
+    if str(resolved).startswith(str(global_skills_dir) + os.sep):
+        return "global"
+    # プラグインディレクトリ（~/.claude/ 配下のプラグインインストール先）
+    claude_dir = home / ".claude"
+    if str(resolved).startswith(str(claude_dir) + os.sep) and "/skills/" in str(resolved):
+        return "global"
+    return "project"
+
+
 class Individual:
     """最適化対象の個体（スキルのバリエーション）"""
 
@@ -77,6 +96,7 @@ class GeneticOptimizer:
         test_tasks: Optional[str] = None,
     ):
         self.target_path = Path(target_path)
+        self.scope = detect_scope(self.target_path)
         self.generations = generations
         self.population_size = population_size
         self.fitness_func = fitness_func
@@ -153,12 +173,17 @@ class GeneticOptimizer:
             )
 
             try:
-                exec_result = subprocess.run(
-                    ["claude", "-p", "--output-format", "text"],
+                exec_kwargs = dict(
                     input=exec_prompt,
                     capture_output=True,
                     text=True,
                     timeout=120,
+                )
+                if self._claude_cwd:
+                    exec_kwargs["cwd"] = self._claude_cwd
+                exec_result = subprocess.run(
+                    ["claude", "-p", "--output-format", "text"],
+                    **exec_kwargs,
                 )
                 if exec_result.returncode != 0:
                     scores.append(0.0)
@@ -174,12 +199,17 @@ class GeneticOptimizer:
                     f"出力:\n```\n{output}\n```\n\n"
                     f"数値のみ回答してください（例: 0.75）"
                 )
-                eval_result = subprocess.run(
-                    ["claude", "-p", "--output-format", "text"],
+                eval_kwargs = dict(
                     input=eval_prompt,
                     capture_output=True,
                     text=True,
                     timeout=60,
+                )
+                if self._claude_cwd:
+                    eval_kwargs["cwd"] = self._claude_cwd
+                eval_result = subprocess.run(
+                    ["claude", "-p", "--output-format", "text"],
+                    **eval_kwargs,
                 )
                 if eval_result.returncode == 0:
                     match = re.search(
@@ -203,9 +233,23 @@ class GeneticOptimizer:
 
         return sum(scores) / len(scores)
 
+    @property
+    def _claude_cwd(self) -> Optional[str]:
+        """claude -p 実行時の cwd。global スキルはホームディレクトリで実行。"""
+        if self.scope == "global":
+            return str(Path.home())
+        return None
+
     def run(self) -> Dict[str, Any]:
         """最適化ループを実行"""
-        # 0. 古い世代データをクリーンアップ
+        # 0. scope 通知
+        if self.scope == "global":
+            print(
+                "ℹ️ 汎用評価モードで最適化します"
+                "（プロジェクト固有のコンテキストは使用しません）"
+            )
+
+        # 0.5. 古い世代データをクリーンアップ
         self._cleanup_old_runs()
 
         # 1. バックアップ
@@ -374,17 +418,17 @@ class GeneticOptimizer:
         )
 
         try:
-            result = subprocess.run(
-                [
-                    "claude",
-                    "-p",
-                    "--output-format",
-                    "text",
-                ],
+            run_kwargs = dict(
                 input=prompt,
                 capture_output=True,
                 text=True,
                 timeout=120,
+            )
+            if self._claude_cwd:
+                run_kwargs["cwd"] = self._claude_cwd
+            result = subprocess.run(
+                ["claude", "-p", "--output-format", "text"],
+                **run_kwargs,
             )
             if result.returncode == 0:
                 content = self._extract_markdown(result.stdout)
@@ -432,17 +476,17 @@ class GeneticOptimizer:
         )
 
         try:
-            result = subprocess.run(
-                [
-                    "claude",
-                    "-p",
-                    "--output-format",
-                    "text",
-                ],
+            run_kwargs = dict(
                 input=prompt,
                 capture_output=True,
                 text=True,
                 timeout=120,
+            )
+            if self._claude_cwd:
+                run_kwargs["cwd"] = self._claude_cwd
+            result = subprocess.run(
+                ["claude", "-p", "--output-format", "text"],
+                **run_kwargs,
             )
             if result.returncode == 0:
                 content = self._extract_markdown(result.stdout)
@@ -652,17 +696,17 @@ class GeneticOptimizer:
         )
 
         try:
-            result = subprocess.run(
-                [
-                    "claude",
-                    "-p",
-                    "--output-format",
-                    "text",
-                ],
+            run_kwargs = dict(
                 input=prompt,
                 capture_output=True,
                 text=True,
                 timeout=60,
+            )
+            if self._claude_cwd:
+                run_kwargs["cwd"] = self._claude_cwd
+            result = subprocess.run(
+                ["claude", "-p", "--output-format", "text"],
+                **run_kwargs,
             )
             if result.returncode == 0:
                 score, cot = self._parse_cot_response(result.stdout.strip())
@@ -731,20 +775,30 @@ class GeneticOptimizer:
 
         try:
             # 1回目: a=A, b=B
-            result1 = subprocess.run(
-                ["claude", "-p", "--output-format", "text"],
+            pw_kwargs1 = dict(
                 input=prompt_template.format(first=a.content, second=b.content),
                 capture_output=True,
                 text=True,
                 timeout=60,
             )
-            # 2回目: b=A, a=B（入替）
-            result2 = subprocess.run(
+            if self._claude_cwd:
+                pw_kwargs1["cwd"] = self._claude_cwd
+            result1 = subprocess.run(
                 ["claude", "-p", "--output-format", "text"],
+                **pw_kwargs1,
+            )
+            # 2回目: b=A, a=B（入替）
+            pw_kwargs2 = dict(
                 input=prompt_template.format(first=b.content, second=a.content),
                 capture_output=True,
                 text=True,
                 timeout=60,
+            )
+            if self._claude_cwd:
+                pw_kwargs2["cwd"] = self._claude_cwd
+            result2 = subprocess.run(
+                ["claude", "-p", "--output-format", "text"],
+                **pw_kwargs2,
             )
 
             winner1 = None
