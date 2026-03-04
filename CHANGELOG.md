@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.13.0] - 2026-03-04
+
+### Breaking Changes
+- **scripts/ 二重管理の解消**: `scripts/discover.py`, `scripts/evolve.py`, `scripts/audit.py`, `scripts/aggregate_runs.py`, `scripts/fitness_evolution.py` を削除し、`skills/*/scripts/` に一本化。外部から `scripts/` を直接参照している場合は `skills/*/scripts/` に変更が必要
+
+### Added
+- **LLM 入力サニタイズ**: `sanitize_message()` で corrections データをサニタイズ（500文字切り詰め、制御文字除去、XML タグ除去）
+- **偽陽性フィードバック機構**: `false_positives.jsonl` で corrections の偽陽性を SHA-256 ハッシュで管理。`detect_correction()` で自動フィルタリング
+- **偽陽性自動クリーンアップ**: `reflect` 実行時に180日超エントリを自動削除
+- **ファイルパーミッション強化**: `ensure_data_dir()` で 700、`append_jsonl()` 新規作成時に 600 を設定
+
+### Changed
+- `classify_artifact_origin()` を `skills/audit/scripts/audit.py` に移動
+- テスト内の `importlib.util.spec_from_file_location` workaround を廃止し通常 import に簡素化
+- 全スクリプトの import パスを `skills/*/scripts/` ベースに更新
+
 ## [0.12.0] - 2026-03-04
 
 ### Added

@@ -22,22 +22,10 @@ import session_summary
 
 # discover/prune のパス
 _plugin_root = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(_plugin_root / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "prune" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "discover" / "scripts"))
 
-import importlib
-import importlib.util
-
-def _load_skills_discover():
-    discover_path = _plugin_root / "skills" / "discover" / "scripts" / "discover.py"
-    spec = importlib.util.spec_from_file_location("discover", str(discover_path))
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules["discover"] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-discover = _load_skills_discover()
+import discover
 
 
 def run_e2e():

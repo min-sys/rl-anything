@@ -76,7 +76,7 @@ claude plugin install rl-anything@rl-anything --scope user
 
 rl-anything は **3つの独立した柱** で構成される。
 
-### 柱1: 自律進化パイプライン (Observe → Discover → Prune → Evolve)
+### 柱1: 自律進化パイプライン (Observe → Discover → Evolve)
 
 日々の Claude Code 使用データを **自動観測** し、繰り返しパターンからスキル/ルール候補を **発見**、不要なものを **淘汰** し、全体を **進化** させる。
 
@@ -87,7 +87,19 @@ Backfill             過去セッションからデータを一括収集
     ↓
 Discover             パターン検出 → スキル/ルール候補を生成
     ↓
-Prune                未使用・重複アーティファクトをアーカイブ
+Enrich               既存スキルと照合 → 改善提案を生成
+    ↓
+Optimize             遺伝的アルゴリズムでスキルを最適化
+    ↓
+Reorganize           TF-IDF クラスタリングで統合/分割候補を提案
+    ↓
+Prune (+Merge)       未使用・重複アーティファクトをアーカイブ
+    ↓
+Fitness Evolution    評価関数自体の改善を提案
+    ↓
+Reflect              修正フィードバックを CLAUDE.md/rules に反映
+    ↓
+Report               結果レポートを出力
     ↓
 Evolve               上記を一括実行（日次運用）
 ```
@@ -489,6 +501,29 @@ CLAUDE.md からドメインを推定し、評価軸を自動切替。
 | スキル平均スコア | 0.58 | 0.79 |
 | 新メンバーの作業ミス率 | 週3件 | 週0-1件 |
 | スキル改善にかける時間 | 週4時間 | 週30分（レビューのみ） |
+
+### チュートリアル: 1つのスキルを evolve で改善する
+
+1. **現在のスコアを確認**:
+   ```
+   /rl-anything:optimize my-skill --dry-run
+   ```
+   → baseline score: 0.62
+
+2. **evolve で全フェーズを一括実行**:
+   ```
+   /rl-anything:evolve
+   ```
+   Discover → Enrich → Optimize → Reorganize → Prune(+Merge) → Fitness Evolution → Reflect → Report が順番に実行される。
+
+3. **改善後のスコアを確認**:
+   ```
+   /rl-anything:optimize my-skill --dry-run
+   ```
+   → baseline score: 0.84（+0.22 改善）
+
+4. **diff をレビューして承認**:
+   evolve は変更を提案するのみ。diff を確認して問題なければ承認する。
 
 ## テスト
 

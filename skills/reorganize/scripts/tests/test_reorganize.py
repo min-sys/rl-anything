@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent.parent
-sys.path.insert(0, str(_plugin_root / "scripts"))
+sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "reorganize" / "scripts"))
 
 import audit

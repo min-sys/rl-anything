@@ -7,11 +7,9 @@ from unittest import mock
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-
-# prune.py が audit を import するため scripts/ もパスに追加
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
+sys.path.insert(0, str(PLUGIN_ROOT / "skills" / "audit" / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import prune
 

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """hooks 共通ユーティリティ — DATA_DIR, ensure_data_dir, append_jsonl, read_workflow_context, classify_prompt を提供する。"""
+import hashlib
 import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 DATA_DIR = Path.home() / ".claude" / "rl-anything"
@@ -14,8 +15,12 @@ _WORKFLOW_CONTEXT_EXPIRE_SECONDS = 24 * 60 * 60  # 24時間
 
 
 def ensure_data_dir() -> None:
-    """ディレクトリが存在しない場合 MUST 自動作成する。"""
+    """ディレクトリが存在しない場合 MUST 自動作成する。パーミッション 700。"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+    try:
+        DATA_DIR.chmod(0o700)
+    except OSError as e:
+        print(f"[rl-anything] chmod data dir warning: {e}", file=sys.stderr)
 
 
 def workflow_context_path(session_id: str) -> Path:
@@ -129,6 +134,34 @@ FALSE_POSITIVE_FILTERS = [
 _MAX_CAPTURE_PROMPT_LENGTH = 500
 _MIN_SHORT_CORRECTION_LENGTH = 80
 
+# LLM 入力サニタイズ: 除去対象の XML タグ
+_SANITIZE_XML_TAGS = [
+    "<system>", "</system>",
+    "<system-reminder>", "</system-reminder>",
+    "<instructions>", "</instructions>",
+    "<context>", "</context>",
+    "<rules>", "</rules>",
+    "<Claude>", "</Claude>",
+]
+
+# 制御文字パターン（\n \t を除く）
+_CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
+def sanitize_message(text: str, max_length: int = 500) -> str:
+    """LLM に渡す corrections メッセージをサニタイズする。
+
+    1. 制御文字除去（\\n, \\t は保持）
+    2. XML タグ除去
+    3. max_length 文字に切り詰め（超過時は末尾に '...' 付与、結果は最大 max_length+3 文字）
+    """
+    result = _CONTROL_CHAR_PATTERN.sub("", text)
+    for tag in _SANITIZE_XML_TAGS:
+        result = result.replace(tag, "")
+    if len(result) > max_length:
+        result = result[:max_length] + "..."
+    return result
+
 
 def should_include_message(text: str) -> bool:
     """メッセージが correction 検出対象かどうかを判定する。
@@ -207,6 +240,8 @@ def calculate_confidence(base_confidence: float, text: str, matched_count: int =
 def detect_correction(text: str):
     """テキストから修正パターンを検出する（最初のマッチのみ）。
 
+    偽陽性として報告済みのメッセージ（SHA-256 ハッシュで照合）は除外する。
+
     Returns:
         (correction_type, confidence) のタプル、または None（検出なし）。
         後方互換性のためタプルインターフェースを維持する。
@@ -215,10 +250,15 @@ def detect_correction(text: str):
     if not text_stripped:
         return None
 
-    # 偽陽性チェック
+    # 偽陽性フィルタ（パターンベース）
     for fp in FALSE_POSITIVE_FILTERS:
         if re.search(fp, text_stripped) or re.search(fp, text_stripped.lower()):
             return None
+
+    # 偽陽性フィルタ（報告済みメッセージ: SHA-256 照合）
+    fp_hashes = load_false_positives()
+    if fp_hashes and message_hash(text_stripped) in fp_hashes:
+        return None
 
     for key, info in CORRECTION_PATTERNS.items():
         pattern = info["pattern"]
@@ -290,9 +330,97 @@ def project_name_from_dir(project_dir: str) -> str:
 
 
 def append_jsonl(filepath: Path, record: dict) -> None:
-    """JSONL ファイルに1行追記する。失敗時はサイレント。"""
+    """JSONL ファイルに1行追記する。新規作成時はパーミッション 600 を設定。失敗時はサイレント。"""
     try:
+        is_new = not filepath.exists()
         with open(filepath, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        if is_new:
+            try:
+                filepath.chmod(0o600)
+            except OSError as e:
+                print(f"[rl-anything] chmod file warning: {e}", file=sys.stderr)
     except OSError as e:
         print(f"[rl-anything] write failed: {e}", file=sys.stderr)
+
+
+# --- 偽陽性フィードバック ---
+
+FALSE_POSITIVES_FILE = DATA_DIR / "false_positives.jsonl"
+_FALSE_POSITIVE_EXPIRY_DAYS = 180
+
+
+def message_hash(text: str) -> str:
+    """メッセージの SHA-256 ハッシュを返す。"""
+    return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
+
+
+def load_false_positives() -> set[str]:
+    """false_positives.jsonl から message_hash のセットを読み込む。
+
+    読み込み失敗時は空セットを返し、フィルタリングをスキップする（サイレント続行）。
+    """
+    if not FALSE_POSITIVES_FILE.exists():
+        return set()
+    try:
+        hashes = set()
+        for line in FALSE_POSITIVES_FILE.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+                h = record.get("message_hash")
+                if h:
+                    hashes.add(h)
+            except json.JSONDecodeError:
+                continue
+        return hashes
+    except OSError as e:
+        print(f"[rl-anything] load_false_positives warning: {e}", file=sys.stderr)
+        return set()
+
+
+def add_false_positive(msg: str, correction_type: str) -> None:
+    """偽陽性をファイルに追記する。"""
+    ensure_data_dir()
+    record = {
+        "message_hash": message_hash(msg),
+        "original_type": correction_type,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    append_jsonl(FALSE_POSITIVES_FILE, record)
+
+
+def cleanup_false_positives() -> int:
+    """180日超のエントリを false_positives.jsonl から削除する。削除件数を返す。"""
+    if not FALSE_POSITIVES_FILE.exists():
+        return 0
+    try:
+        lines = FALSE_POSITIVES_FILE.read_text(encoding="utf-8").splitlines()
+        cutoff = datetime.now(timezone.utc) - timedelta(days=_FALSE_POSITIVE_EXPIRY_DAYS)
+        kept = []
+        removed = 0
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+                ts_str = record.get("timestamp", "")
+                if ts_str:
+                    ts = datetime.fromisoformat(ts_str)
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=timezone.utc)
+                    if ts < cutoff:
+                        removed += 1
+                        continue
+                kept.append(json.dumps(record, ensure_ascii=False))
+            except (json.JSONDecodeError, ValueError):
+                kept.append(line)
+        if removed > 0:
+            FALSE_POSITIVES_FILE.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
+        return removed
+    except OSError as e:
+        print(f"[rl-anything] cleanup_false_positives warning: {e}", file=sys.stderr)
+        return 0

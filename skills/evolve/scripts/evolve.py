@@ -10,11 +10,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "scripts"))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "skills" / "prune" / "scripts"))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "skills" / "evolve-fitness" / "scripts"))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "skills" / "enrich" / "scripts"))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "skills" / "reorganize" / "scripts"))
+_plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
+sys.path.insert(0, str(_plugin_root / "skills" / "discover" / "scripts"))
+sys.path.insert(0, str(_plugin_root / "skills" / "prune" / "scripts"))
+sys.path.insert(0, str(_plugin_root / "skills" / "evolve-fitness" / "scripts"))
+sys.path.insert(0, str(_plugin_root / "skills" / "enrich" / "scripts"))
+sys.path.insert(0, str(_plugin_root / "skills" / "reorganize" / "scripts"))
 
 DATA_DIR = Path.home() / ".claude" / "rl-anything"
 EVOLVE_STATE_FILE = DATA_DIR / "evolve-state.json"

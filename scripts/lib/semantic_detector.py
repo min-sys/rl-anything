@@ -8,7 +8,13 @@ import json
 import re
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# common.py の sanitize_message を利用
+_hooks_dir = Path(__file__).resolve().parent.parent.parent / "hooks"
+sys.path.insert(0, str(_hooks_dir))
+from common import sanitize_message
 
 BATCH_SIZE = 20
 
@@ -52,9 +58,9 @@ def semantic_analyze(
     for batch_start in range(0, len(corrections), BATCH_SIZE):
         batch = corrections[batch_start:batch_start + BATCH_SIZE]
 
-        # バッチ用の簡易リストを作成
+        # バッチ用の簡易リストを作成（サニタイズ済み）
         batch_items = [
-            {"index": i, "message": c.get("message", "")}
+            {"index": i, "message": sanitize_message(c.get("message", ""))}
             for i, c in enumerate(batch)
         ]
 

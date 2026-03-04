@@ -18,8 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import common
 import correction_detect
 
-# prune / analyze のパス
+# prune / audit / analyze のパス
 _plugin_root = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "prune" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "backfill" / "scripts"))
 

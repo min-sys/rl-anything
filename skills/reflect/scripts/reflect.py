@@ -26,6 +26,10 @@ from reflect_utils import (
 )
 from semantic_detector import validate_corrections
 
+# hooks/common.py から偽陽性ユーティリティを import
+sys.path.insert(0, str(_plugin_root / "hooks"))
+from common import cleanup_false_positives
+
 # corrections.jsonl のデフォルトパス
 CORRECTIONS_FILE = Path.home() / ".claude" / "rl-anything" / "corrections.jsonl"
 
@@ -407,6 +411,11 @@ def main():
     corrections_file = Path(args.corrections_file) if args.corrections_file else CORRECTIONS_FILE
     current_project = os.environ.get("CLAUDE_PROJECT_DIR")
     project_root = Path(current_project) if current_project else Path.cwd()
+
+    # 偽陽性の自動クリーンアップ（180日超）
+    cleaned = cleanup_false_positives()
+    if cleaned > 0:
+        print(json.dumps({"cleanup": f"{cleaned} expired false positives removed"}, ensure_ascii=False), file=sys.stderr)
 
     # 全レコード読み込み
     all_records = load_corrections(corrections_file)

@@ -6,7 +6,7 @@
 
 | 柱 | スキル | 説明 |
 |----|--------|------|
-| 自律進化 | backfill, discover, prune, evolve, audit | Observe→Discover→Prune→Evolve のデータ駆動パイプライン |
+| 自律進化 | backfill, discover, enrich, reorganize, prune, evolve, audit | Observe→Discover→Enrich→Optimize→Reorganize→Prune→Reflect→Report のデータ駆動パイプライン |
 | フィードバック | reflect | 修正パターン検出 → corrections.jsonl → CLAUDE.md/rules に反映 |
 | 遺伝的最適化 | optimize, rl-loop, generate-fitness, evolve-fitness | LLM でバリエーション生成 → 適応度評価 → 進化 |
 | ユーティリティ | feedback, update, version | フィードバック・更新・バージョン確認 |

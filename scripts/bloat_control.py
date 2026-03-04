@@ -10,7 +10,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_this_dir = Path(__file__).resolve().parent
+_plugin_root = _this_dir.parent
+sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
 
 from audit import DATA_DIR, find_artifacts, load_usage_registry
 

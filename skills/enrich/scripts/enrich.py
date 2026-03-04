@@ -11,7 +11,8 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent / "scripts"))
+_plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
 
 from audit import classify_artifact_origin, find_artifacts, load_usage_data
 
