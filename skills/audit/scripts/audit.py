@@ -204,11 +204,21 @@ def load_usage_data(days: int = 30) -> List[Dict[str, Any]]:
     return records
 
 
+_BUILTIN_TOOLS = {
+    "Agent:Explore",
+    "Agent:general-purpose",
+    "Agent:Plan",
+    "commit",
+}
+
+
 def aggregate_usage(records: List[Dict[str, Any]]) -> Dict[str, int]:
-    """スキル使用回数を集計する。"""
+    """スキル使用回数を集計する。基本ツールはノイズのため除外。"""
     counts: Dict[str, int] = {}
     for rec in records:
         skill = rec.get("skill_name", "unknown")
+        if skill in _BUILTIN_TOOLS:
+            continue
         counts[skill] = counts.get(skill, 0) + 1
     return dict(sorted(counts.items(), key=lambda x: x[1], reverse=True))
 
