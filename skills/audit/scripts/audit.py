@@ -15,7 +15,7 @@ _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 sys.path.insert(0, str(_plugin_root / "scripts"))
 
-from reflect_utils import read_auto_memory
+from reflect_utils import read_all_memory_entries, read_auto_memory, split_memory_sections
 
 # 行数制限
 LIMITS = {
@@ -27,6 +27,20 @@ LIMITS = {
 }
 
 DATA_DIR = Path.home() / ".claude" / "rl-anything"
+
+# セマンティック検証用ストップワード（英語冠詞・前置詞・助動詞 + 日本語助詞）
+_STOPWORDS = frozenset({
+    "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+    "should", "may", "might", "must", "can", "could",
+    "in", "on", "at", "to", "for", "of", "with", "by", "from", "as",
+    "into", "through", "during", "before", "after", "above", "below",
+    "and", "but", "or", "nor", "not", "so", "yet", "if", "then", "than",
+    "it", "its", "this", "that", "these", "those", "he", "she", "they",
+    "we", "you", "i", "me", "my", "your", "his", "her", "our", "their",
+    "の", "は", "が", "を", "に", "で", "と", "も", "や", "か",
+    "する", "した", "して", "です", "ます", "ある", "いる", "なる",
+})
 
 # 肥大化早期警告の閾値（行数上限に対する比率）
 NEAR_LIMIT_RATIO = 0.8
@@ -191,6 +205,62 @@ def check_line_limits(artifacts: Dict[str, List[Path]]) -> List[Dict[str, Any]]:
     return violations
 
 
+def _extract_section_keywords(text: str) -> List[str]:
+    """MEMORY セクションのテキストからキーワードを抽出する。
+
+    ストップワードと2文字以下の単語を除外して返す。
+    """
+    import re as _re
+
+    # コードブロック除去
+    cleaned = _re.sub(r"```[\s\S]*?```", "", text)
+    # Markdown 記法除去（リンク、強調等）
+    cleaned = _re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", cleaned)
+    cleaned = _re.sub(r"[*_`#>|]", " ", cleaned)
+    # トークン化: アルファベット/数字/CJK を含む単語（CJK句読点を除外）
+    tokens = _re.findall(r"[\w\u3040-\u309f\u30a0-\u30ff\u4e00-\u9fff\uf900-\ufaff]+", cleaned, _re.UNICODE)
+    # フィルタリング
+    keywords = []
+    seen: set = set()
+    for token in tokens:
+        lower = token.lower()
+        if len(token) <= 2 and not any("\u3040" <= c <= "\u9fff" for c in token):
+            continue
+        if lower in _STOPWORDS:
+            continue
+        if lower not in seen:
+            seen.add(lower)
+            keywords.append(token)
+    return keywords
+
+
+def _find_archive_mentions(
+    keywords: List[str],
+    project_dir: Path,
+) -> List[str]:
+    """OpenSpec archive ディレクトリ名とキーワードを照合しメンションを返す。"""
+    archive_dir = project_dir / "openspec" / "changes" / "archive"
+    if not archive_dir.is_dir():
+        return []
+    mentions = []
+    kw_lower = {kw.lower() for kw in keywords}
+    for entry in sorted(archive_dir.iterdir()):
+        if not entry.is_dir():
+            continue
+        # アーカイブ名は "YYYY-MM-DD-name" 形式 → 日付部分を除去
+        name = entry.name
+        parts = name.split("-", 3)
+        if len(parts) >= 4:
+            name_part = parts[3]
+        else:
+            name_part = name
+        # アーカイブ名のトークンとキーワードをマッチ
+        name_tokens = {t.lower() for t in name_part.replace("-", " ").split()}
+        if name_tokens & kw_lower:
+            mentions.append(entry.name)
+    return mentions
+
+
 def _extract_paths_outside_codeblocks(text: str) -> List[Tuple[int, str]]:
     """テキストからコードブロック外のファイルパス参照を抽出する。
 
@@ -233,6 +303,104 @@ def _extract_paths_outside_codeblocks(text: str) -> List[Tuple[int, str]]:
                 continue
             results.append((i + 1, path_str))
     return results
+
+
+def _is_project_specific_section(
+    section: Dict[str, Any],
+    project_dir: Path,
+) -> bool:
+    """global memory のセクションが PJ 固有の記述を含むか判定する。"""
+    project_name = project_dir.name
+    content_lower = section.get("content", "").lower()
+    heading_lower = section.get("heading", "").lower()
+    combined = f"{heading_lower} {content_lower}"
+    # PJ 名がセクション内に出現するか
+    if project_name.lower() in combined:
+        return True
+    # PJ ディレクトリ内の主要ファイル名がメンションされているか
+    for child in project_dir.iterdir():
+        if child.name.startswith("."):
+            continue
+        if child.name.lower() in combined:
+            return True
+    return False
+
+
+def build_memory_verification_context(
+    project_dir: Path,
+) -> Dict[str, Any]:
+    """MEMORY セクションの検証用コンテキストを構造化 JSON で返す。
+
+    セクション分割 → キーワード抽出 → grep → archive メンション を実行し、
+    LLM 検証ステップに渡す構造化データを生成する。
+    """
+    import subprocess
+
+    sections_out: List[Dict[str, Any]] = []
+
+    # 1. auto-memory の読み取り
+    for entry in read_auto_memory(str(project_dir)):
+        try:
+            sections = split_memory_sections(entry["content"], entry["path"])
+            sections_out.extend(sections)
+        except Exception as e:
+            print(f"Warning: failed to parse {entry['path']}: {e}", file=sys.stderr)
+
+    # 2. global memory（PJ 固有セクションのみ）
+    all_entries = read_all_memory_entries(project_dir)
+    for entry in all_entries:
+        if entry["tier"] != "global":
+            continue
+        try:
+            global_sections = split_memory_sections(entry["content"], entry["path"])
+            for sec in global_sections:
+                if _is_project_specific_section(sec, project_dir):
+                    sections_out.append(sec)
+        except Exception as e:
+            print(f"Warning: failed to parse global memory: {e}", file=sys.stderr)
+
+    if not sections_out:
+        return {"sections": []}
+
+    # 3. 各セクションにキーワード・codebase_evidence・archive_mentions を付与
+    for sec in sections_out:
+        keywords = _extract_section_keywords(sec["content"])
+        sec["keywords"] = keywords
+
+        # codebase grep（上位3キーワードで検索、各最大3件）
+        evidence: List[Dict[str, str]] = []
+        for kw in keywords[:3]:
+            try:
+                result = subprocess.run(
+                    ["grep", "-r", "-l", "--include=*.py", "--include=*.md",
+                     "--include=*.ts", "--include=*.js", "--include=*.yaml",
+                     "--include=*.yml", "--include=*.json",
+                     "-m", "3", kw, str(project_dir)],
+                    capture_output=True, text=True, timeout=10,
+                )
+                for fpath in result.stdout.strip().splitlines()[:3]:
+                    # MEMORY 自身は除外
+                    if "memory/" in fpath or ".claude/projects/" in fpath:
+                        continue
+                    # ファイルからスニペット取得
+                    try:
+                        snippet_result = subprocess.run(
+                            ["grep", "-n", "-m", "2", kw, fpath],
+                            capture_output=True, text=True, timeout=5,
+                        )
+                        snippet = snippet_result.stdout.strip()[:200]
+                    except (subprocess.TimeoutExpired, OSError):
+                        snippet = ""
+                    rel_path = str(Path(fpath).relative_to(project_dir)) if fpath.startswith(str(project_dir)) else fpath
+                    evidence.append({"file": rel_path, "snippet": snippet})
+            except (subprocess.TimeoutExpired, OSError):
+                continue
+        sec["codebase_evidence"] = evidence
+
+        # archive メンション
+        sec["archive_mentions"] = _find_archive_mentions(keywords, project_dir)
+
+    return {"sections": sections_out}
 
 
 def build_memory_health_section(
@@ -658,5 +826,11 @@ if __name__ == "__main__":
     _parser = _argparse.ArgumentParser(description="環境の健康診断")
     _parser.add_argument("project", nargs="?", default=None, help="プロジェクトディレクトリ")
     _parser.add_argument("--skip-rescore", action="store_true", help="品質計測をスキップ")
+    _parser.add_argument("--memory-context", action="store_true", help="MEMORY 検証コンテキストを JSON 出力")
     _args = _parser.parse_args()
-    print(run_audit(_args.project, skip_rescore=_args.skip_rescore))
+    if _args.memory_context:
+        proj = Path(_args.project) if _args.project else Path.cwd()
+        ctx = build_memory_verification_context(proj)
+        print(json.dumps(ctx, ensure_ascii=False, indent=2))
+    else:
+        print(run_audit(_args.project, skip_rescore=_args.skip_rescore))

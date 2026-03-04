@@ -12,6 +12,7 @@ from reflect_utils import (
     _parse_rule_frontmatter,
     find_claude_files,
     read_auto_memory,
+    split_memory_sections,
     suggest_auto_memory_topic,
     suggest_claude_file,
 )
@@ -321,3 +322,57 @@ def test_read_auto_memory_empty(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     entries = read_auto_memory("/nonexistent/path")
     assert entries == []
+
+
+# --- split_memory_sections ---
+
+
+def test_split_memory_sections_basic():
+    """基本的なセクション分割。"""
+    content = "## Section A\n\nContent A\n\n## Section B\n\nContent B\n"
+    sections = split_memory_sections(content, "test.md")
+    assert len(sections) == 2
+    assert sections[0]["heading"] == "Section A"
+    assert "Content A" in sections[0]["content"]
+    assert sections[1]["heading"] == "Section B"
+    assert "Content B" in sections[1]["content"]
+
+
+def test_split_memory_sections_header():
+    """見出しなし先頭が _header として扱われる。"""
+    content = "Preamble text\n\n## Section\n\nContent\n"
+    sections = split_memory_sections(content, "test.md")
+    assert len(sections) == 2
+    assert sections[0]["heading"] == "_header"
+    assert "Preamble" in sections[0]["content"]
+    assert sections[1]["heading"] == "Section"
+
+
+def test_split_memory_sections_empty():
+    """空コンテンツでは空リストを返す。"""
+    sections = split_memory_sections("", "test.md")
+    assert sections == []
+
+
+def test_split_memory_sections_no_headings():
+    """見出しがない場合は全体が _header セクションになる。"""
+    content = "Just some text\nwith multiple lines\n"
+    sections = split_memory_sections(content, "test.md")
+    assert len(sections) == 1
+    assert sections[0]["heading"] == "_header"
+
+
+def test_split_memory_sections_line_range():
+    """line_range が正しく設定される。"""
+    content = "## A\nLine 2\nLine 3\n## B\nLine 5\n"
+    sections = split_memory_sections(content, "test.md")
+    assert sections[0]["line_range"][0] == 1
+    assert sections[1]["line_range"][0] == 4
+
+
+def test_split_memory_sections_h3_not_split():
+    """### は分割境界にならない。"""
+    content = "## Main\n\n### Sub\n\nContent\n"
+    sections = split_memory_sections(content, "test.md")
+    assert len(sections) == 1
+    assert "Sub" in sections[0]["content"]

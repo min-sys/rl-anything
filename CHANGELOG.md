@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.15.6] - 2026-03-05
+
+### Added
+- **Memory Semantic Verification**: audit に LLM セマンティック検証ステップを追加。MEMORY の各セクションをコードベースと突合し、3段階判定（CONSISTENT / MISLEADING / STALE）で陳腐化・誤解リスクを検出
+- **archive Memory Sync**: openspec-archive スキルに Step 4.5（Memory Sync）を追加。change archive 時に MEMORY への影響を分析し更新ドラフトを提示
+- `split_memory_sections()` を reflect_utils.py に追加（`## ` 見出し単位でセクション分割）
+- `_extract_section_keywords()`: ストップワード除外付きキーワード抽出
+- `_find_archive_mentions()`: OpenSpec archive ディレクトリ名とキーワードの照合
+- `build_memory_verification_context()`: MEMORY セクションの検証用コンテキスト収集（JSON 出力）
+- `--memory-context` オプション: audit.py でセマンティック検証用コンテキストを JSON 出力
+- global memory の PJ 固有セクション判定（`_is_project_specific_section()`）
+- ユニットテスト 20 件追加（test_audit_memory_verification.py 14 件 + test_reflect_utils.py 6 件）
+
 ## [0.15.5] - 2026-03-05
 
 ### Added

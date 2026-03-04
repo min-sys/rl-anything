@@ -26,6 +26,33 @@ python3 <PLUGIN_DIR>/skills/audit/scripts/audit.py "$(pwd)"
 
 出力されるレポートをユーザーに表示する。
 
+### Step 1.5: Memory Semantic Verification
+
+MEMORY のセクション内容がコードベースの実態と整合しているかを LLM で検証する。
+
+1. 検証コンテキストを取得:
+```bash
+python3 <PLUGIN_DIR>/skills/audit/scripts/audit.py "$(pwd)" --memory-context
+```
+
+2. 出力 JSON が空（`sections` が空配列）の場合は「検証対象の MEMORY セクションがありません」と表示してスキップ。
+
+3. 各セクションについて、`content` と `codebase_evidence` を突合し3段階で判定:
+   - **CONSISTENT**: コードベースと整合。変更不要
+   - **MISLEADING**: 正確だが誤解を招く表現がある。書き換え案を提示
+   - **STALE**: コードベースと矛盾している。更新/削除を推奨
+
+判定基準チェックリスト:
+- [ ] セクションに記載されたツール名・コマンド名はコードベースに存在するか
+- [ ] 記載されたファイルパスは実在するか（Step 1 の Stale References と合わせて確認）
+- [ ] 記載された動作説明はコードの実装と一致するか
+- [ ] 記載が冒頭や目立つ位置にあり、実態と異なる印象を与えないか（MISLEADING 判定）
+- [ ] archive_mentions に関連する完了済み change があり、その変更が MEMORY に反映されているか
+
+4. 判定結果をレポートの Memory Health セクション内に「### Semantic Verification」サブセクションとして表示:
+   - 全セクションが CONSISTENT → 「全セクション整合」
+   - MISLEADING/STALE あり → セクション名・判定・修正提案を表示
+
 ### Step 2: クロスラン集計（オプション）
 
 optimize / rl-loop の実行履歴がある場合:

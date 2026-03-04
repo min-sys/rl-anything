@@ -272,3 +272,53 @@ def suggest_auto_memory_topic(text: str) -> str:
         return "general"
 
     return max(scores, key=scores.get)  # type: ignore[arg-type]
+
+
+def split_memory_sections(
+    content: str,
+    file_path: str = "",
+) -> List[Dict[str, Any]]:
+    """MEMORY コンテンツを ``## `` 見出し単位でセクション分割する。
+
+    Args:
+        content: MEMORY ファイルの全文。
+        file_path: ファイルパス（出力に含める）。
+
+    Returns:
+        各セクションの ``{file, heading, content, line_range}`` のリスト。
+        見出しの無い先頭部分は ``heading: "_header"`` として返す。
+    """
+    lines = content.splitlines()
+    sections: List[Dict[str, Any]] = []
+    current_heading = "_header"
+    current_lines: List[str] = []
+    start_line = 1
+
+    for i, line in enumerate(lines, start=1):
+        if line.startswith("## ") and not line.startswith("### "):
+            # 前のセクションを確定
+            body = "\n".join(current_lines).strip()
+            if body:
+                sections.append({
+                    "file": file_path,
+                    "heading": current_heading,
+                    "content": body,
+                    "line_range": [start_line, i - 1],
+                })
+            current_heading = line[3:].strip()
+            current_lines = []
+            start_line = i
+        else:
+            current_lines.append(line)
+
+    # 最後のセクションを確定
+    body = "\n".join(current_lines).strip()
+    if body:
+        sections.append({
+            "file": file_path,
+            "heading": current_heading,
+            "content": body,
+            "line_range": [start_line, len(lines)],
+        })
+
+    return sections

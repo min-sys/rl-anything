@@ -65,6 +65,20 @@ Archive a completed change in the experimental workflow.
 
    If user chooses sync, use Task tool (subagent_type: "general-purpose", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). Proceed to archive regardless of choice.
 
+4.5. **Memory Sync**
+
+   archive 対象の change が MEMORY（auto-memory / global memory）に影響するか分析し、更新ドラフトを提示する。
+
+   1. `openspec/changes/<name>/proposal.md` と `tasks.md` を読み取る
+   2. 現在の MEMORY（project auto-memory + global memory の PJ 固有セクション）を読み取る
+   3. 「この change の内容は MEMORY のどのセクションに影響するか」を判断する
+   4. **影響なし** → 「MEMORY への影響なし」と表示し、このステップをスキップ
+   5. **影響あり** → 更新ドラフト（diff 形式）を生成し、**AskUserQuestion** で提示:
+      - 「更新を適用」: MEMORY を更新ドラフトの内容で更新する
+      - 「スキップ」: MEMORY を更新せずに archive を続行する
+
+   MEMORY の更新は必ずユーザー承認を経る（MUST）。自動更新は行わない（MUST NOT）。
+
 5. **Perform the archive**
 
    Create the archive directory if it doesn't exist:
