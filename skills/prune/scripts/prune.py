@@ -15,6 +15,9 @@ from typing import Any, Dict, List, Optional
 
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
+sys.path.insert(0, str(_plugin_root / "scripts"))
+
+from lib.frontmatter import extract_description
 
 from audit import (
     DATA_DIR,
@@ -31,6 +34,77 @@ ZERO_INVOCATION_DAYS = 30
 DEFAULT_DECAY_DAYS = 90
 DEFAULT_DECAY_THRESHOLD = 0.2
 CORRECTION_PENALTY = 0.15
+
+
+def _count_triggers(skill_path: Path) -> int:
+    """SKILL.md の frontmatter から Trigger 数を取得する。"""
+    from lib.frontmatter import parse_frontmatter
+
+    p = Path(skill_path)
+    if p.name != "SKILL.md":
+        candidate = p.parent / "SKILL.md" if p.is_file() else p / "SKILL.md"
+        p = candidate
+    fm = parse_frontmatter(p)
+    desc = fm.get("description", "")
+    if not isinstance(desc, str):
+        return 0
+    # "Trigger:" 行のカンマ区切りアイテム数をカウント
+    for line in desc.split("\n"):
+        stripped = line.strip()
+        if stripped.lower().startswith("trigger"):
+            # "Trigger: a, b, c" → 3
+            parts = stripped.split(":", 1)
+            if len(parts) == 2:
+                return len([t.strip() for t in parts[1].split(",") if t.strip()])
+    return 0
+
+
+def _enrich_candidate(candidate: Dict[str, Any]) -> Dict[str, Any]:
+    """候補に description と recommendation を付与する。"""
+    path = Path(candidate["file"])
+    candidate["description"] = extract_skill_summary(path)
+    candidate["trigger_count"] = _count_triggers(path)
+    candidate["recommendation"] = suggest_recommendation(candidate)
+    return candidate
+
+
+def extract_skill_summary(skill_path: Path) -> str:
+    """SKILL.md の frontmatter から description を抽出する。
+
+    extract_description() のラッパー。skill_path が SKILL.md でない場合は
+    同ディレクトリの SKILL.md を探す。
+    """
+    p = Path(skill_path)
+    if p.name != "SKILL.md":
+        candidate = p.parent / "SKILL.md" if p.is_file() else p / "SKILL.md"
+        p = candidate
+    return extract_description(p)
+
+
+_ARCHIVE_KEYWORDS = ["debug", "temp", "hotfix", "workaround", "test-"]
+_KEEP_KEYWORDS = ["daily", "pipeline", "utility"]
+_KEEP_TRIGGER_THRESHOLD = 3
+
+
+def suggest_recommendation(skill_info: Dict[str, Any]) -> str:
+    """キーワードベースの一次推薦ラベルを返す。
+
+    Args:
+        skill_info: skill_name, description, trigger_count を含む辞書
+
+    Returns:
+        "archive推奨", "keep推奨", "要確認" のいずれか
+    """
+    name = skill_info.get("skill_name", "").lower()
+    desc = skill_info.get("description", "").lower()
+    trigger_count = skill_info.get("trigger_count", 0)
+    text = f"{name} {desc}"
+
+    if any(kw in text for kw in _ARCHIVE_KEYWORDS):
+        return "archive推奨"
+    if any(kw in text for kw in _KEEP_KEYWORDS) or trigger_count >= _KEEP_TRIGGER_THRESHOLD:
+        return "keep推奨"
+    return "要確認"
 
 
 def load_corrections() -> Dict[str, List[Dict]]:
@@ -268,12 +342,12 @@ def detect_zero_invocations(
                     "reason": "plugin_unused",
                 })
             else:
-                zero.append({
+                zero.append(_enrich_candidate({
                     "file": str(path),
                     "skill_name": skill_name,
                     "reason": "zero_invocation",
                     "days": days,
-                })
+                }))
 
     # rules は毎ターン system prompt に注入されるため使用回数を測定できない。
     # 淘汰対象にしない。
@@ -305,20 +379,20 @@ def safe_global_check(artifacts: Dict[str, List[Path]]) -> List[Dict[str, Any]]:
         projects.discard("")
 
         if len(projects) == 0:
-            candidates.append({
+            candidates.append(_enrich_candidate({
                 "file": str(path),
                 "skill_name": skill_name,
                 "reason": "no_usage_in_registry",
                 "project_count": 0,
-            })
+            }))
         elif len(projects) == 1:
-            candidates.append({
+            candidates.append(_enrich_candidate({
                 "file": str(path),
                 "skill_name": skill_name,
                 "reason": "single_project_only",
                 "project_count": 1,
                 "projects": list(projects),
-            })
+            }))
 
     return candidates
 
@@ -438,7 +512,7 @@ def detect_decay_candidates(
         correction_count = len(corrections_by_skill.get(skill_name, []))
         score = compute_decay_score(age_days, correction_count, decay_days)
         if score < threshold:
-            candidates.append({
+            candidates.append(_enrich_candidate({
                 "file": str(path),
                 "skill_name": skill_name,
                 "reason": "decay_below_threshold",
@@ -446,7 +520,7 @@ def detect_decay_candidates(
                 "age_days": round(age_days, 1),
                 "correction_count": correction_count,
                 "threshold": threshold,
-            })
+            }))
 
     return candidates
 

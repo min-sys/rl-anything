@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.14.0] - 2026-03-04
+
+### Added
+- **smart-prune-recommendation**: prune 候補に description + 推薦ラベル（archive推奨/keep推奨/要確認）を付与
+- **共通 frontmatter パーサー**: `scripts/lib/frontmatter.py` — YAML frontmatter の汎用パーサー + description 抽出
+- **キーワードベース一次判定**: `suggest_recommendation()` — スキル名/description のキーワードで推薦ラベルを自動分類
+- **2段階承認フロー**: AskUserQuestion の options 上限（4つ）を遵守した段階的承認 UI
+
+### Changed
+- `detect_zero_invocations()`, `detect_decay_candidates()`, `safe_global_check()` が description/recommendation フィールドを返すように拡張
+- `reflect_utils._parse_rule_frontmatter()` を `scripts/lib/frontmatter.parse_frontmatter()` に共通化（DRY）
+- `skills/prune/SKILL.md` Step 2-3 をチェックリスト判定 + 2段階フローに更新
+
 ## [0.13.0] - 2026-03-04
 
 ### Breaking Changes

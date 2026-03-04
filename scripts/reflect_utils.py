@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+from lib.frontmatter import parse_frontmatter as _parse_rule_frontmatter  # noqa: F401 — 共通化済み
+
 # Auto-memory トピック分類キーワード
 _AUTO_MEMORY_TOPICS = {
     "model-preferences": ["gpt-", "claude-", "gemini-", "o3", "o4", "model", "llm"],
@@ -26,38 +28,6 @@ _MODEL_KEYWORDS = [
     "gpt-", "claude-", "gemini-", "o3", "o4", "model", "llm",
     "sonnet", "opus", "haiku",
 ]
-
-
-def _parse_rule_frontmatter(filepath: Path) -> Dict[str, Any]:
-    """rule ファイルの YAML frontmatter (paths: 等) をパースする。
-
-    Args:
-        filepath: rule ファイルのパス
-
-    Returns:
-        frontmatter の辞書。frontmatter がなければ空辞書。
-    """
-    try:
-        text = filepath.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return {}
-
-    if not text.startswith("---"):
-        return {}
-
-    end = text.find("---", 3)
-    if end == -1:
-        return {}
-
-    yaml_str = text[3:end].strip()
-    if not yaml_str:
-        return {}
-
-    try:
-        parsed = yaml.safe_load(yaml_str)
-        return parsed if isinstance(parsed, dict) else {}
-    except yaml.YAMLError:
-        return {}
 
 
 def find_claude_files(project_root: Optional[Path] = None) -> Dict[str, List[Path]]:

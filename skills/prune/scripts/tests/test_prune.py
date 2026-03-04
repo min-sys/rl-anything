@@ -161,6 +161,82 @@ class TestClassifyArtifactOrigin:
             audit._plugin_skill_names_cache = None
 
 
+class TestExtractSkillSummary:
+    """extract_skill_summary のユニットテスト。"""
+
+    def test_extract_from_skill_md(self, tmp_path):
+        """SKILL.md から description を抽出する。"""
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        skill_md = skill_dir / "SKILL.md"
+        skill_md.write_text("---\nname: my-skill\ndescription: A useful skill\n---\n# Body")
+        assert prune.extract_skill_summary(skill_md) == "A useful skill"
+
+    def test_extract_from_directory(self, tmp_path):
+        """ディレクトリパスからも SKILL.md を見つけて抽出する。"""
+        skill_dir = tmp_path / "my-skill"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: Dir test\n---\n")
+        assert prune.extract_skill_summary(skill_dir) == "Dir test"
+
+    def test_extract_nonexistent(self, tmp_path):
+        """存在しないパスでは空文字を返す。"""
+        assert prune.extract_skill_summary(tmp_path / "nonexistent" / "SKILL.md") == ""
+
+    def test_extract_multiline_description(self, tmp_path):
+        """multiline description では1行目のみ返す。"""
+        skill_dir = tmp_path / "multi"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: multi\ndescription: |\n  Line one.\n  Line two.\n---\n"
+        )
+        assert prune.extract_skill_summary(skill_dir / "SKILL.md") == "Line one."
+
+
+class TestSuggestRecommendation:
+    """suggest_recommendation のユニットテスト。"""
+
+    def test_archive_keyword_debug(self):
+        """name に "debug" → archive推奨。"""
+        info = {"skill_name": "debug-helper", "description": "", "trigger_count": 0}
+        assert prune.suggest_recommendation(info) == "archive推奨"
+
+    def test_archive_keyword_temp(self):
+        """description に "temp" → archive推奨。"""
+        info = {"skill_name": "foo", "description": "A temp script", "trigger_count": 0}
+        assert prune.suggest_recommendation(info) == "archive推奨"
+
+    def test_archive_keyword_hotfix(self):
+        """name に "hotfix" → archive推奨。"""
+        info = {"skill_name": "hotfix-123", "description": "", "trigger_count": 0}
+        assert prune.suggest_recommendation(info) == "archive推奨"
+
+    def test_keep_keyword_daily(self):
+        """description に "daily" → keep推奨。"""
+        info = {"skill_name": "report", "description": "daily report generator", "trigger_count": 0}
+        assert prune.suggest_recommendation(info) == "keep推奨"
+
+    def test_keep_keyword_pipeline(self):
+        """description に "pipeline" → keep推奨。"""
+        info = {"skill_name": "ci", "description": "CI pipeline helper", "trigger_count": 0}
+        assert prune.suggest_recommendation(info) == "keep推奨"
+
+    def test_keep_by_trigger_count(self):
+        """Trigger が3個以上 → keep推奨。"""
+        info = {"skill_name": "foo", "description": "generic", "trigger_count": 3}
+        assert prune.suggest_recommendation(info) == "keep推奨"
+
+    def test_unknown(self):
+        """いずれにも該当しない → 要確認。"""
+        info = {"skill_name": "foo", "description": "something", "trigger_count": 1}
+        assert prune.suggest_recommendation(info) == "要確認"
+
+    def test_archive_takes_priority(self):
+        """archive と keep の両方のキーワードがある場合、archive が優先。"""
+        info = {"skill_name": "debug-daily", "description": "", "trigger_count": 0}
+        assert prune.suggest_recommendation(info) == "archive推奨"
+
+
 class TestMergeDuplicates:
     """merge_duplicates のユニットテスト。"""
 
