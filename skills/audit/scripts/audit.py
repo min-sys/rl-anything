@@ -46,43 +46,145 @@ _STOPWORDS = frozenset({
 NEAR_LIMIT_RATIO = 0.8
 
 
-# キャッシュ: プラグインがインストールしたスキル名のセット
-_plugin_skill_names_cache: Optional[frozenset] = None
+# キャッシュ: プラグインスキル名 → プラグイン名のマッピング
+_plugin_skill_map_cache: Optional[Dict[str, str]] = None
 
 
-def _load_plugin_skill_names() -> frozenset:
-    """installed_plugins.json を読み込み、各プラグインの installPath/.claude/skills/
-    配下のスキルディレクトリ名を収集して返す。
+def _load_plugin_skill_map() -> Dict[str, str]:
+    """installed_plugins.json → {skill_name: plugin_name} マッピングを構築。
 
+    .claude/skills/ と skills/ の両方のレイアウトに対応。
     結果はモジュールレベルでキャッシュされ、2回目以降は再読み込みしない。
-    ファイルが存在しない・不正な場合は空の frozenset を返す。
+    ファイルが存在しない・不正な場合は空の dict を返す。
     """
-    global _plugin_skill_names_cache
-    if _plugin_skill_names_cache is not None:
-        return _plugin_skill_names_cache
+    global _plugin_skill_map_cache
+    if _plugin_skill_map_cache is not None:
+        return _plugin_skill_map_cache
 
-    names: set = set()
+    mapping: Dict[str, str] = {}
     installed_plugins_path = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
     try:
         data = json.loads(installed_plugins_path.read_text(encoding="utf-8"))
         plugins = data.get("plugins", {})
-        for _key, entries in plugins.items():
+        for plugin_key, entries in plugins.items():
             if not isinstance(entries, list):
                 continue
+            plugin_name = plugin_key.split("@")[0]
             for entry in entries:
                 install_path = entry.get("installPath")
                 if not install_path:
                     continue
-                skills_dir = Path(install_path) / ".claude" / "skills"
-                if skills_dir.is_dir():
-                    for child in skills_dir.iterdir():
-                        if child.is_dir():
-                            names.add(child.name)
+                for skills_dir in [Path(install_path) / ".claude" / "skills",
+                                   Path(install_path) / "skills"]:
+                    if skills_dir.is_dir():
+                        for child in skills_dir.iterdir():
+                            if child.is_dir():
+                                mapping[child.name] = plugin_name
     except (OSError, json.JSONDecodeError, TypeError, KeyError):
         pass
 
-    _plugin_skill_names_cache = frozenset(names)
-    return _plugin_skill_names_cache
+    # prefix パターンをスキル名から自動推定し保存（classify_usage_skill で使用）
+    _build_plugin_prefixes(mapping)
+
+    _plugin_skill_map_cache = mapping
+    return _plugin_skill_map_cache
+
+
+# プラグイン名 → prefix パターンのキャッシュ
+_plugin_prefix_cache: Optional[Dict[str, List[str]]] = None
+
+
+def _build_plugin_prefixes(mapping: Dict[str, str]) -> None:
+    """インストール済みスキル名から各プラグインの prefix パターンを推定する。
+
+    例: {"openspec-propose": "rl-anything", "openspec-refine": "rl-anything"}
+    → prefixes["rl-anything"] に "openspec-" を追加（3個以上のスキルが共有する prefix）
+
+    これにより opsx:* のような旧スキル名は拾えないが、
+    classify_usage_skill() の prefix フォールバックで対応する。
+    """
+    global _plugin_prefix_cache
+    from collections import defaultdict
+
+    plugin_skills: Dict[str, List[str]] = defaultdict(list)
+    for skill_name, plugin_name in mapping.items():
+        plugin_skills[plugin_name].append(skill_name)
+
+    prefixes: Dict[str, List[str]] = {}
+    for plugin_name, skills in plugin_skills.items():
+        # 共通 prefix を探索（- or : で区切られた prefix）
+        prefix_counts: Dict[str, int] = defaultdict(int)
+        for skill in skills:
+            for sep in ("-", ":"):
+                idx = skill.find(sep)
+                if idx > 0:
+                    prefix_counts[skill[:idx + 1]] += 1
+        # 2個以上のスキルが共有する prefix を採用
+        found = [p for p, c in prefix_counts.items() if c >= 2]
+        if found:
+            prefixes[plugin_name] = found
+
+    _plugin_prefix_cache = prefixes
+
+
+def classify_usage_skill(skill_name: str) -> Optional[str]:
+    """usage レコードのスキル名をプラグインに分類する。
+
+    1. 完全一致（_load_plugin_skill_map）
+    2. prefix マッチ（自動推定 prefix）
+    3. plugin_name: prefix マッチ（例: rl-anything:audit）
+    4. Agent:plugin-agent パターン
+
+    Returns:
+        プラグイン名、またはマッチしない場合 None
+    """
+    plugin_map = _load_plugin_skill_map()
+
+    # 1. 完全一致
+    if skill_name in plugin_map:
+        return plugin_map[skill_name]
+
+    # 2. prefix マッチ（openspec- 等の自動推定 prefix）
+    if _plugin_prefix_cache:
+        for plugin_name, prefixes in _plugin_prefix_cache.items():
+            for prefix in prefixes:
+                if skill_name.startswith(prefix):
+                    return plugin_name
+
+    # 3. plugin_name: prefix マッチ（例: rl-anything:audit → rl-anything）
+    colon_idx = skill_name.find(":")
+    if colon_idx > 0 and not skill_name.startswith("Agent:"):
+        prefix_part = skill_name[:colon_idx]
+        # プラグイン名と完全一致
+        plugin_names = set(plugin_map.values())
+        if prefix_part in plugin_names:
+            return prefix_part
+        # prefix 部分がプラグインスキル名の共通 prefix に含まれるか
+        if _plugin_prefix_cache:
+            for plugin_name, prefixes in _plugin_prefix_cache.items():
+                for pfx in prefixes:
+                    # prefix_part が pfx のベース名と一致（例: "opsx" vs "openspec-"）
+                    pfx_base = pfx.rstrip("-:")
+                    if prefix_part == pfx_base or pfx_base.startswith(prefix_part):
+                        return plugin_name
+
+    # 4. Agent:plugin-agent パターン（例: Agent:openspec-uiux-reviewer）
+    if skill_name.startswith("Agent:"):
+        agent_name = skill_name[6:]
+        if agent_name in plugin_map:
+            return plugin_map[agent_name]
+        if _plugin_prefix_cache:
+            for plugin_name, prefixes in _plugin_prefix_cache.items():
+                for prefix in prefixes:
+                    if agent_name.startswith(prefix):
+                        return plugin_name
+
+    return None
+
+
+def _load_plugin_skill_names() -> frozenset:
+    """後方互換ラッパー。_load_plugin_skill_map() のキーセットを返す。"""
+    return frozenset(_load_plugin_skill_map().keys())
 
 
 def classify_artifact_origin(path: Path) -> str:
@@ -523,15 +625,61 @@ _BUILTIN_TOOLS = {
 }
 
 
-def aggregate_usage(records: List[Dict[str, Any]]) -> Dict[str, int]:
-    """スキル使用回数を集計する。基本ツールはノイズのため除外。"""
+def _is_plugin_skill(skill_name: str) -> bool:
+    """スキル名がプラグイン由来かどうかを判定する。
+
+    classify_usage_skill（完全一致 + prefix マッチ）と _is_openspec_skill（キーワード）を併用。
+    """
+    if classify_usage_skill(skill_name) is not None:
+        return True
+    if _is_openspec_skill(skill_name):
+        return True
+    return False
+
+
+def aggregate_usage(
+    records: List[Dict[str, Any]],
+    exclude_plugins: bool = False,
+) -> Dict[str, int]:
+    """スキル使用回数を集計する。基本ツールはノイズのため除外。
+
+    Args:
+        records: usage レコードのリスト
+        exclude_plugins: True の場合、プラグインスキルを除外して PJ 固有のみ返す
+    """
     counts: Dict[str, int] = {}
     for rec in records:
         skill = rec.get("skill_name", "unknown")
         if skill in _BUILTIN_TOOLS:
             continue
+        if exclude_plugins and _is_plugin_skill(skill):
+            continue
         counts[skill] = counts.get(skill, 0) + 1
     return dict(sorted(counts.items(), key=lambda x: x[1], reverse=True))
+
+
+def aggregate_plugin_usage(records: List[Dict[str, Any]]) -> Dict[str, int]:
+    """プラグイン別の使用回数を集計する。
+
+    classify_usage_skill でプラグイン名が判定できるものはプラグイン名で集計。
+    _is_openspec_skill でのみマッチするものは "openspec(legacy)" として集計。
+
+    Returns:
+        {plugin_name: total_count} の辞書（降順ソート）
+    """
+    plugin_counts: Dict[str, int] = {}
+    for rec in records:
+        skill = rec.get("skill_name", "unknown")
+        if skill in _BUILTIN_TOOLS:
+            continue
+        plugin_name = classify_usage_skill(skill)
+        if plugin_name:
+            plugin_counts[plugin_name] = plugin_counts.get(plugin_name, 0) + 1
+        elif _is_openspec_skill(skill):
+            # opsx:* 等の旧スキル名 → openspec として集計
+            key = "openspec(legacy)"
+            plugin_counts[key] = plugin_counts.get(key, 0) + 1
+    return dict(sorted(plugin_counts.items(), key=lambda x: x[1], reverse=True))
 
 
 def detect_duplicates_simple(artifacts: Dict[str, List[Path]]) -> List[Dict[str, Any]]:
@@ -724,6 +872,141 @@ def build_quality_trends_section(
     return lines
 
 
+# ---------- OpenSpec ワークフロー分析 ----------
+
+# OpenSpec ライフサイクルフェーズの順序
+_OPENSPEC_LIFECYCLE = ["propose", "refine", "apply", "verify", "archive"]
+
+
+def _match_openspec_phase(skill_name: str) -> Optional[str]:
+    """スキル名から OpenSpec ライフサイクルフェーズを推定する。
+
+    スキル名に openspec/opsx を含み、かつフェーズ名を含むものを判定。
+    """
+    name_lower = skill_name.lower()
+    for phase in _OPENSPEC_LIFECYCLE:
+        if phase in name_lower:
+            return phase
+    return None
+
+
+def _is_openspec_skill(skill_name: str) -> bool:
+    """スキル名が OpenSpec 関連かどうかを判定する。
+
+    openspec / opsx をキーワードとして判定。
+    """
+    name_lower = skill_name.lower()
+    base = name_lower[6:] if name_lower.startswith("agent:") else name_lower
+    return "openspec" in base or base.startswith("opsx:")
+
+
+def build_openspec_analytics_section(
+    records: List[Dict[str, Any]],
+) -> List[str]:
+    """OpenSpec ワークフロー分析セクションを構築する。
+
+    ファネル（セッション内ライフサイクル完走率）、フェーズ別効率、
+    品質トレンド、最適化候補を表示。
+    """
+    # _load_plugin_skill_map を呼んで prefix キャッシュを初期化
+    _load_plugin_skill_map()
+
+    # OpenSpec レコードのみ抽出
+    openspec_records = [r for r in records if _is_openspec_skill(r.get("skill_name", ""))]
+    if not openspec_records:
+        return []
+
+    # フェーズ別集計
+    phase_counts: Dict[str, int] = {}
+    phase_records: Dict[str, List[Dict[str, Any]]] = {}
+    for rec in openspec_records:
+        phase = _match_openspec_phase(rec.get("skill_name", ""))
+        if phase:
+            phase_counts[phase] = phase_counts.get(phase, 0) + 1
+            if phase not in phase_records:
+                phase_records[phase] = []
+            phase_records[phase].append(rec)
+
+    if not phase_counts:
+        return []
+
+    lines = ["## OpenSpec Workflow Analytics", ""]
+
+    # ファネル表示
+    funnel_parts = []
+    for phase in _OPENSPEC_LIFECYCLE:
+        count = phase_counts.get(phase, 0)
+        if count > 0:
+            funnel_parts.append(f"{phase}({count})")
+    if funnel_parts:
+        lines.append(f"Funnel: {' → '.join(funnel_parts)}")
+
+    # propose → archive 比率
+    propose_count = phase_counts.get("propose", 0)
+    archive_count = phase_counts.get("archive", 0)
+    if propose_count > 0:
+        ratio = archive_count / propose_count
+        if ratio <= 1.0:
+            lines.append(f"Completion rate: {int(ratio * 100)}% ({archive_count}/{propose_count})")
+        else:
+            lines.append(f"Propose→Archive ratio: {ratio:.1f}x ({archive_count}/{propose_count})")
+    lines.append("")
+
+    # フェーズ別効率テーブル
+    lines.append("Phase efficiency:")
+    for phase in _OPENSPEC_LIFECYCLE:
+        recs = phase_records.get(phase, [])
+        if not recs:
+            continue
+        count = len(recs)
+        # セッション別グルーピングで平均ステップ数を推定
+        sessions: Dict[str, int] = {}
+        for r in recs:
+            sid = r.get("session_id", "unknown")
+            sessions[sid] = sessions.get(sid, 0) + 1
+        avg_steps = sum(sessions.values()) / len(sessions) if sessions else 0
+        # スキル名のばらつき（一貫性指標）
+        skill_names = [r.get("skill_name", "") for r in recs]
+        unique_ratio = len(set(skill_names)) / len(skill_names) if skill_names else 1.0
+        consistency = 1.0 - unique_ratio  # 名前が統一されているほど高い
+        warn = " LOW" if consistency < 0.5 and count >= 5 else ""
+        lines.append(f"- {phase}: {count} runs, avg {avg_steps:.1f} steps/session, consistency {consistency:.2f}{warn}")
+
+    lines.append("")
+
+    # 品質トレンド（quality-baselines.jsonl から openspec スキルのみ）
+    baselines = load_quality_baselines()
+    if baselines:
+        openspec_baselines = [b for b in baselines if _is_openspec_skill(b.get("skill_name", ""))]
+        if openspec_baselines:
+            lines.append("Quality trends:")
+            skill_scores: Dict[str, float] = {}
+            for b in openspec_baselines:
+                skill_scores[b["skill_name"]] = b.get("score", 0.0)
+            for name, score in sorted(skill_scores.items(), key=lambda x: x[1], reverse=True):
+                lines.append(f"- {name}: {score:.2f}")
+            lines.append("")
+
+    # 最適化候補（一貫性が最も低いフェーズ）
+    worst_phase = None
+    worst_consistency = 1.0
+    for phase in _OPENSPEC_LIFECYCLE:
+        recs = phase_records.get(phase, [])
+        if len(recs) < 5:
+            continue
+        skill_names = [r.get("skill_name", "") for r in recs]
+        unique_ratio = len(set(skill_names)) / len(skill_names) if skill_names else 1.0
+        consistency = 1.0 - unique_ratio
+        if consistency < worst_consistency:
+            worst_consistency = consistency
+            worst_phase = phase
+    if worst_phase and worst_consistency < 0.5:
+        lines.append(f"Optimization candidate: {worst_phase} (consistency {worst_consistency:.2f})")
+        lines.append("")
+
+    return lines
+
+
 def generate_report(
     artifacts: Dict[str, List[Path]],
     violations: List[Dict[str, Any]],
@@ -732,6 +1015,8 @@ def generate_report(
     advisories: List[Dict[str, Any]],
     quality_baselines: Optional[List[Dict[str, Any]]] = None,
     project_dir: Optional[Path] = None,
+    plugin_usage: Optional[Dict[str, int]] = None,
+    openspec_analytics: Optional[List[str]] = None,
 ) -> str:
     """1画面レポートを生成する。"""
     lines = ["# Environment Audit Report", ""]
@@ -756,11 +1041,17 @@ def generate_report(
         if memory_health:
             lines.extend(memory_health)
 
-    # 使用状況
+    # 使用状況（PJ 固有のみ）
     if usage:
         lines.append("## Usage (last 30 days)")
         for skill, count in list(usage.items())[:15]:
             lines.append(f"- {skill}: {count} invocations")
+        lines.append("")
+
+    # プラグイン利用サマリ
+    if plugin_usage:
+        summary_parts = [f"{name}({count})" for name, count in plugin_usage.items()]
+        lines.append(f"Plugin usage: {' / '.join(summary_parts)}")
         lines.append("")
 
     # 品質推移
@@ -768,6 +1059,10 @@ def generate_report(
         trends = build_quality_trends_section(quality_baselines, usage)
         if trends:
             lines.extend(trends)
+
+    # OpenSpec ワークフロー分析
+    if openspec_analytics:
+        lines.extend(openspec_analytics)
 
     # 重複候補
     if duplicates:
@@ -795,7 +1090,8 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False) -> 
     artifacts = find_artifacts(proj)
     violations = check_line_limits(artifacts)
     usage_records = load_usage_data()
-    usage = aggregate_usage(usage_records)
+    usage = aggregate_usage(usage_records, exclude_plugins=True)
+    plugin_usage = aggregate_plugin_usage(usage_records)
     duplicates = detect_duplicates_simple(artifacts)
     registry = load_usage_registry()
     advisories = scope_advisory(registry)
@@ -817,7 +1113,15 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False) -> 
     if baselines:
         quality_baselines = baselines
 
-    return generate_report(artifacts, violations, usage, duplicates, advisories, quality_baselines, project_dir=proj)
+    # OpenSpec ワークフロー分析
+    openspec_analytics = build_openspec_analytics_section(usage_records)
+
+    return generate_report(
+        artifacts, violations, usage, duplicates, advisories,
+        quality_baselines, project_dir=proj,
+        plugin_usage=plugin_usage if plugin_usage else None,
+        openspec_analytics=openspec_analytics if openspec_analytics else None,
+    )
 
 
 if __name__ == "__main__":

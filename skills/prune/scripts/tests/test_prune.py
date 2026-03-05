@@ -74,14 +74,13 @@ class TestClassifyArtifactOrigin:
             },
         }
         # キャッシュをリセット
-        audit._plugin_skill_names_cache = None
+        audit._plugin_skill_map_cache = None
         installed_path = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
         with mock.patch.object(Path, "read_text", return_value=json.dumps(installed_plugins)):
             with mock.patch.object(Path, "is_dir", return_value=True):
-                # _load_plugin_skill_names を直接モックして確実にテスト
-                audit._plugin_skill_names_cache = None
-        # 直接 _load_plugin_skill_names をモックしてテスト
-        audit._plugin_skill_names_cache = frozenset({"plugin-skill-a", "plugin-skill-b"})
+                audit._plugin_skill_map_cache = None
+        # 直接キャッシュに dict をセット
+        audit._plugin_skill_map_cache = {"plugin-skill-a": "my-plugin", "plugin-skill-b": "my-plugin"}
         try:
             # プロジェクト .claude/skills/ 配下のスキルが plugin 判定される
             project_skill = Path("/Users/user/my-project/.claude/skills/plugin-skill-a/SKILL.md")
@@ -91,46 +90,46 @@ class TestClassifyArtifactOrigin:
             custom_skill = Path("/Users/user/my-project/.claude/skills/my-custom-skill/SKILL.md")
             assert audit.classify_artifact_origin(custom_skill) == "custom"
         finally:
-            audit._plugin_skill_names_cache = None
+            audit._plugin_skill_map_cache = None
 
     def test_plugin_installed_skill_name_matching_only_in_claude_skills(self):
         """プラグインスキル名マッチは .claude/skills/ 配下のパスにのみ適用される。"""
-        audit._plugin_skill_names_cache = frozenset({"optimize"})
+        audit._plugin_skill_map_cache = {"optimize": "some-plugin"}
         try:
             # .claude/skills/ 配下でない場所にある同名ディレクトリは custom のまま
             random_path = Path("/Users/user/project/src/optimize/SKILL.md")
             assert audit.classify_artifact_origin(random_path) == "custom"
         finally:
-            audit._plugin_skill_names_cache = None
+            audit._plugin_skill_map_cache = None
 
     def test_installed_plugins_json_missing(self):
         """installed_plugins.json が存在しない場合、フォールバックで空セットを返す。"""
-        audit._plugin_skill_names_cache = None
+        audit._plugin_skill_map_cache = None
         with mock.patch("pathlib.Path.read_text", side_effect=OSError("No such file")):
             names = audit._load_plugin_skill_names()
             assert names == frozenset()
-        audit._plugin_skill_names_cache = None
+        audit._plugin_skill_map_cache = None
 
     def test_installed_plugins_json_malformed(self):
         """installed_plugins.json が不正な JSON の場合、フォールバックで空セットを返す。"""
-        audit._plugin_skill_names_cache = None
+        audit._plugin_skill_map_cache = None
         with mock.patch("pathlib.Path.read_text", return_value="not valid json"):
             names = audit._load_plugin_skill_names()
             assert names == frozenset()
-        audit._plugin_skill_names_cache = None
+        audit._plugin_skill_map_cache = None
 
     def test_plugin_skill_names_cache(self):
         """_load_plugin_skill_names のキャッシュが動作する。"""
-        audit._plugin_skill_names_cache = frozenset({"cached-skill"})
+        audit._plugin_skill_map_cache = {"cached-skill": "cached-plugin"}
         try:
             names = audit._load_plugin_skill_names()
             assert "cached-skill" in names
         finally:
-            audit._plugin_skill_names_cache = None
+            audit._plugin_skill_map_cache = None
 
     def test_project_skill_with_plugin_name_classified_as_plugin_in_prune(self, tmp_path):
         """プロジェクト .claude/skills/ 配下のプラグインインストール済みスキルが prune で plugin_unused に分類される。"""
-        audit._plugin_skill_names_cache = frozenset({"openspec-apply-change"})
+        audit._plugin_skill_map_cache = {"openspec-apply-change": "openspec"}
         data_dir = tmp_path / "rl-anything"
         data_dir.mkdir()
         try:
@@ -158,7 +157,7 @@ class TestClassifyArtifactOrigin:
                 assert "my-custom-skill" in zero_names
                 assert "openspec-apply-change" not in zero_names
         finally:
-            audit._plugin_skill_names_cache = None
+            audit._plugin_skill_map_cache = None
 
 
 class TestExtractSkillSummary:
@@ -328,7 +327,7 @@ class TestMergeDuplicates:
         """プラグイン由来スキルのペアは skipped_plugin になる。"""
         self._write_usage(patch_data_dir, [])
 
-        audit._plugin_skill_names_cache = frozenset({"alpha"})
+        audit._plugin_skill_map_cache = {"alpha": "some-plugin"}
         try:
             duplicate_candidates = [
                 {
@@ -344,7 +343,7 @@ class TestMergeDuplicates:
             assert len(result["merge_proposals"]) == 1
             assert result["merge_proposals"][0]["status"] == "skipped_plugin"
         finally:
-            audit._plugin_skill_names_cache = None
+            audit._plugin_skill_map_cache = None
 
     def test_reorganize_dedup(self, patch_data_dir, project_with_skills):
         """同じペアが duplicate_candidates と reorganize の両方に含まれる場合、1回だけ処理される。"""

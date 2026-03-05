@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.16.0] - 2026-03-05
+
+### Added
+- **usage-scope-classification**: プラグインスキルの動的検出とレポート分離表示
+- `_load_plugin_skill_map()`: `installed_plugins.json` から `{skill_name: plugin_name}` マッピングを動的構築（`.claude/skills/` と `skills/` 両レイアウト対応）
+- `classify_usage_skill()`: 完全一致 + prefix マッチ + プラグイン名マッチの多段階スキル分類
+- `_is_openspec_skill()` / `_is_plugin_skill()`: OpenSpec 旧スキル名（`opsx:*`）を含むキーワードベース判定
+- `aggregate_plugin_usage()`: プラグイン別使用回数の集計
+- `build_openspec_analytics_section()`: OpenSpec ワークフロー分析（ファネル・完走率・フェーズ別効率・品質トレンド・最適化候補）
+- `detect_behavior_patterns()` でプラグインスキルをメインランキングから除外し `plugin_summary` エントリに集約
+- evolve SKILL.md Step 7 に Plugin usage / OpenSpec Workflow Analytics の表示指示追加
+- `scoped-report-filtering` / `usage-scope-tagging` spec を main specs に同期
+- ユニットテスト 17 件追加（`test_usage_scope.py`）
+
+### Changed
+- `aggregate_usage(exclude_plugins=True)` でプラグインスキルをメインランキングから除外
+- `generate_report()` に `plugin_usage` / `openspec_analytics` パラメータ追加
+- 既存テスト 2 ファイルのキャッシュ変数を `_plugin_skill_map_cache` に移行
+
 ## [0.15.6] - 2026-03-05
 
 ### Added

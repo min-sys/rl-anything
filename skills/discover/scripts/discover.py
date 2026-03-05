@@ -83,22 +83,46 @@ def add_to_suppression_list(pattern: str) -> None:
         f.write(json.dumps({"pattern": pattern}, ensure_ascii=False) + "\n")
 
 
+def _load_classify_usage_skill():
+    """audit.py の _is_plugin_skill と classify_usage_skill を遅延インポートで取得する。
+
+    Returns:
+        _is_plugin_skill 関数（classify_usage_skill + _is_openspec_skill の併用）
+    """
+    import sys as _sys
+    _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+    _audit_scripts = _plugin_root / "skills" / "audit" / "scripts"
+    if str(_audit_scripts) not in _sys.path:
+        _sys.path.insert(0, str(_audit_scripts))
+    from audit import _is_plugin_skill, classify_usage_skill
+    return _is_plugin_skill, classify_usage_skill
+
+
 def detect_behavior_patterns(threshold: int = BEHAVIOR_THRESHOLD) -> List[Dict[str, Any]]:
     """繰り返し行動パターンの検出（usage + sessions、5+閾値）。
 
     parent_skill の有無で contextualized / ad-hoc / unknown を分類し、
     ad-hoc パターンのみをスキル候補として提案する。
+    プラグインスキルはメインランキングから除外し、plugin_summary に集約する。
     """
     usage = load_jsonl(DATA_DIR / "usage.jsonl")
+    _is_plugin, _classify = _load_classify_usage_skill()
 
     # ad-hoc レコードのみカウント（contextualized/unknown を除外）
     ad_hoc_counter: Counter = Counter()
     all_counter: Counter = Counter()
+    plugin_counter: Counter = Counter()  # プラグイン別集計
     for rec in usage:
         skill = rec.get("skill_name", "")
         if not skill:
             continue
         all_counter[skill] += 1
+
+        # プラグインスキルは別集計
+        if _is_plugin(skill):
+            plugin_name = _classify(skill) or "openspec(legacy)"
+            plugin_counter[plugin_name] += 1
+            continue
 
         parent_skill = rec.get("parent_skill")
         source = rec.get("source", "")
@@ -136,6 +160,16 @@ def detect_behavior_patterns(threshold: int = BEHAVIOR_THRESHOLD) -> List[Dict[s
                 if subcategories:
                     pattern["subcategories"] = subcategories
             patterns.append(pattern)
+
+    # プラグイン利用サマリを末尾に付加
+    if plugin_counter:
+        patterns.append({
+            "type": "plugin_summary",
+            "pattern": "plugin_usage",
+            "count": sum(plugin_counter.values()),
+            "suggestion": "info_only",
+            "plugin_breakdown": dict(plugin_counter.most_common()),
+        })
     return patterns
 
 
