@@ -25,10 +25,19 @@ def is_global_skill(skill_name: str, tool_input: dict) -> bool:
     return skill_path.startswith(GLOBAL_SKILLS_PREFIX) or skill_path.startswith("~/.claude/skills/")
 
 
+def _get_project() -> str | None:
+    """CLAUDE_PROJECT_DIR から末尾ディレクトリ名を取得する。未設定・空文字列時は None。"""
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if not project_dir:
+        return None
+    return common.project_name_from_dir(project_dir)
+
+
 def handle_post_tool_use(event: dict) -> None:
     """PostToolUse イベントを処理する。"""
     common.ensure_data_dir()
     now = datetime.now(timezone.utc).isoformat()
+    project = _get_project()
 
     tool_name = event.get("tool_name", "")
     tool_input = event.get("tool_input", {})
@@ -43,6 +52,7 @@ def handle_post_tool_use(event: dict) -> None:
             "timestamp": now,
             "session_id": session_id,
             "file_path": tool_input.get("args", ""),
+            "project": project,
         }
         common.append_jsonl(common.DATA_DIR / "usage.jsonl", usage_record)
 
@@ -74,6 +84,7 @@ def handle_post_tool_use(event: dict) -> None:
             "timestamp": now,
             "parent_skill": wf_ctx["parent_skill"],
             "workflow_id": wf_ctx["workflow_id"],
+            "project": project,
         }
         common.append_jsonl(common.DATA_DIR / "usage.jsonl", usage_record)
 
@@ -86,6 +97,7 @@ def handle_post_tool_use(event: dict) -> None:
             "error": str(tool_result.get("content", ""))[:500],
             "timestamp": now,
             "session_id": session_id,
+            "project": project,
         }
         common.append_jsonl(common.DATA_DIR / "errors.jsonl", error_record)
 

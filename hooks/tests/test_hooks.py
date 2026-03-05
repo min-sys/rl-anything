@@ -342,6 +342,53 @@ class TestObserve:
         assert record["skill_name"] == "my-skill"
         assert record["session_id"] == "sess-001"
 
+    def test_skill_usage_project_field(self, patch_data_dir):
+        """Skill usage にプロジェクト名が記録される。"""
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "/Users/foo/atlas-breeaders"}):
+            event = {
+                "tool_name": "Skill",
+                "tool_input": {"skill": "my-skill", "args": ""},
+                "tool_result": {},
+                "session_id": "sess-proj-001",
+            }
+            observe.handle_post_tool_use(event)
+
+        usage_file = patch_data_dir / "usage.jsonl"
+        record = json.loads(usage_file.read_text().strip())
+        assert record["project"] == "atlas-breeaders"
+
+    def test_skill_usage_project_null_when_unset(self, patch_data_dir):
+        """CLAUDE_PROJECT_DIR 未設定時は project が null。"""
+        with mock.patch.dict(os.environ, {}, clear=True):
+            # CLAUDE_PROJECT_DIR を確実に削除
+            os.environ.pop("CLAUDE_PROJECT_DIR", None)
+            event = {
+                "tool_name": "Skill",
+                "tool_input": {"skill": "my-skill", "args": ""},
+                "tool_result": {},
+                "session_id": "sess-proj-002",
+            }
+            observe.handle_post_tool_use(event)
+
+        usage_file = patch_data_dir / "usage.jsonl"
+        record = json.loads(usage_file.read_text().strip())
+        assert record["project"] is None
+
+    def test_skill_usage_project_null_when_empty(self, patch_data_dir):
+        """CLAUDE_PROJECT_DIR が空文字列の場合は project が null。"""
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": ""}):
+            event = {
+                "tool_name": "Skill",
+                "tool_input": {"skill": "my-skill", "args": ""},
+                "tool_result": {},
+                "session_id": "sess-proj-003",
+            }
+            observe.handle_post_tool_use(event)
+
+        usage_file = patch_data_dir / "usage.jsonl"
+        record = json.loads(usage_file.read_text().strip())
+        assert record["project"] is None
+
     def test_global_skill_registers(self, patch_data_dir):
         global_prefix = str(Path.home() / ".claude" / "skills")
         event = {
@@ -370,6 +417,21 @@ class TestObserve:
         assert errors_file.exists()
         record = json.loads(errors_file.read_text().strip())
         assert record["tool_name"] == "Bash"
+
+    def test_error_project_field(self, patch_data_dir):
+        """errors にプロジェクト名が記録される。"""
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "/Users/foo/error-proj"}):
+            event = {
+                "tool_name": "Bash",
+                "tool_input": {"command": "false"},
+                "tool_result": {"is_error": True, "content": "fail"},
+                "session_id": "sess-proj-003",
+            }
+            observe.handle_post_tool_use(event)
+
+        errors_file = patch_data_dir / "errors.jsonl"
+        record = json.loads(errors_file.read_text().strip())
+        assert record["project"] == "error-proj"
 
     def test_non_skill_tool_no_usage(self, patch_data_dir):
         event = {
@@ -432,6 +494,21 @@ class TestObserve:
         assert record["subagent_type"] == "Explore"
         assert record["prompt"] == "codebase を探索してください"
         assert record["session_id"] == "sess-100"
+
+    def test_agent_usage_project_field(self, patch_data_dir):
+        """Agent usage にプロジェクト名が記録される。"""
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "/Users/foo/my-project"}):
+            event = {
+                "tool_name": "Agent",
+                "tool_input": {"subagent_type": "Explore", "prompt": "explore"},
+                "tool_result": {},
+                "session_id": "sess-proj-100",
+            }
+            observe.handle_post_tool_use(event)
+
+        usage_file = patch_data_dir / "usage.jsonl"
+        record = json.loads(usage_file.read_text().strip())
+        assert record["project"] == "my-project"
 
     def test_agent_tool_prompt_truncated(self, patch_data_dir):
         """Agent ツールの prompt が 200 文字に切り詰められる。"""
@@ -852,7 +929,10 @@ class TestDiscoverContextualization:
     """discover.py の contextualized/ad-hoc 分類テスト。"""
 
     def test_ad_hoc_only_counted(self, patch_data_dir):
-        """ad-hoc レコードのみがスキル候補としてカウントされる。"""
+        """ad-hoc レコードのみがスキル候補としてカウントされる。
+
+        Agent:Explore は組み込み Agent のため agent_usage_summary に分類される。
+        """
         discover = _load_skills_discover()
 
         usage_file = patch_data_dir / "usage.jsonl"
@@ -879,9 +959,10 @@ class TestDiscoverContextualization:
             with mock.patch.object(discover, "SUPPRESSION_FILE", patch_data_dir / "suppress.jsonl"):
                 patterns = discover.detect_behavior_patterns(threshold=5)
 
-        assert len(patterns) == 1
-        assert patterns[0]["count"] == 6  # ad-hoc のみ
-        assert patterns[0]["total_count"] == 21  # 全体
+        # Agent:Explore は組み込み Agent → agent_usage_summary に分離
+        summary = [p for p in patterns if p["type"] == "agent_usage_summary"]
+        assert len(summary) == 1
+        assert summary[0]["count"] == 6  # ad-hoc のみ
 
     def test_backfill_excluded_as_unknown(self, patch_data_dir):
         """backfill データは unknown として除外される。"""

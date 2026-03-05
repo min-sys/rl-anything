@@ -50,6 +50,10 @@ claude plugin install rl-anything@rl-anything --scope user
 
 # 過去セッションからデータを一括収集
 /rl-anything:backfill
+
+# 既存データに project フィールドを付与（discover/audit の --project-dir フィルタに必要）
+python3 <PLUGIN_DIR>/scripts/migrate_project_field.py --dry-run  # プレビュー
+python3 <PLUGIN_DIR>/scripts/migrate_project_field.py            # 本実行
 ```
 
 ### 日次運用

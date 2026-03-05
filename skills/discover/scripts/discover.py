@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 DATA_DIR = Path.home() / ".claude" / "rl-anything"
+
 HISTORY_DIR = (
     Path(__file__).parent.parent
     / "skills"
@@ -103,6 +104,7 @@ def detect_behavior_patterns(
     threshold: int = BEHAVIOR_THRESHOLD,
     *,
     project_root: Optional[Path] = None,
+    include_unknown: bool = False,
 ) -> List[Dict[str, Any]]:
     """繰り返し行動パターンの検出（usage + sessions、5+閾値）。
 
@@ -113,7 +115,14 @@ def detect_behavior_patterns(
     2. 組み込み Agent は agent_usage_summary に分離
     3. カスタム Agent はメインランキングに残留
     """
-    usage = load_jsonl(DATA_DIR / "usage.jsonl")
+    from telemetry_query import query_usage
+
+    project_name = project_root.name if project_root else None
+    usage = query_usage(
+        project=project_name,
+        include_unknown=include_unknown,
+        usage_file=DATA_DIR / "usage.jsonl",
+    )
     _is_plugin, _classify = _load_classify_usage_skill()
 
     # ad-hoc レコードのみカウント（contextualized/unknown を除外）
@@ -261,9 +270,21 @@ def _classify_agent_prompts(prompts: List[str]) -> List[Dict[str, Any]]:
     return results
 
 
-def detect_error_patterns(threshold: int = ERROR_THRESHOLD) -> List[Dict[str, Any]]:
+def detect_error_patterns(
+    threshold: int = ERROR_THRESHOLD,
+    *,
+    project_root: Optional[Path] = None,
+    include_unknown: bool = False,
+) -> List[Dict[str, Any]]:
     """繰り返しエラーパターンの検出（errors、3+閾値）。"""
-    errors = load_jsonl(DATA_DIR / "errors.jsonl")
+    from telemetry_query import query_errors
+
+    project_name = project_root.name if project_root else None
+    errors = query_errors(
+        project=project_name,
+        include_unknown=include_unknown,
+        errors_file=DATA_DIR / "errors.jsonl",
+    )
     counter: Counter = Counter()
     for rec in errors:
         error = rec.get("error", "")[:200]
@@ -427,10 +448,19 @@ def detect_session_patterns(
     return patterns
 
 
-def run_discover(session_scan: bool = False) -> Dict[str, Any]:
+def run_discover(
+    session_scan: bool = False,
+    *,
+    project_root: Optional[Path] = None,
+    include_unknown: bool = False,
+) -> Dict[str, Any]:
     """Discover を実行して候補を返す。"""
-    behavior = detect_behavior_patterns()
-    errors = detect_error_patterns()
+    behavior = detect_behavior_patterns(
+        project_root=project_root, include_unknown=include_unknown,
+    )
+    errors = detect_error_patterns(
+        project_root=project_root, include_unknown=include_unknown,
+    )
     rejections = detect_rejection_patterns()
     reflect_data = load_claude_reflect_data()
 
@@ -464,9 +494,24 @@ def main() -> None:
         action="store_true",
         help="セッション JSONL のユーザーメッセージテキストを直接分析して繰り返しパターンを検出する",
     )
+    parser.add_argument(
+        "--project-dir",
+        default=None,
+        help="プロジェクトディレクトリ（指定時はそのプロジェクトのレコードのみ集計）",
+    )
+    parser.add_argument(
+        "--include-unknown",
+        action="store_true",
+        help="project が null のレコードも集計に含める",
+    )
     args = parser.parse_args()
 
-    result = run_discover(session_scan=args.session_scan)
+    project_root = Path(args.project_dir) if args.project_dir else None
+    result = run_discover(
+        session_scan=args.session_scan,
+        project_root=project_root,
+        include_unknown=args.include_unknown,
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

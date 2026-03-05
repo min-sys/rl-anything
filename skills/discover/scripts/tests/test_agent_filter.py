@@ -27,10 +27,10 @@ def _make_usage_jsonl(tmp_path: Path, records: list[dict]) -> Path:
     return filepath
 
 
-def _usage_record(skill: str, count: int = 1, parent_skill=None) -> list[dict]:
+def _usage_record(skill: str, count: int = 1, parent_skill=None, project=None) -> list[dict]:
     """指定スキルの usage レコードを count 個生成。"""
     return [
-        {"skill_name": skill, "parent_skill": parent_skill, "prompt": f"do {skill} #{i}"}
+        {"skill_name": skill, "parent_skill": parent_skill, "prompt": f"do {skill} #{i}", "project": project}
         for i in range(count)
     ]
 
@@ -79,7 +79,7 @@ class TestCustomAgentInMainRanking:
 
     def test_custom_project_agent_in_main(self, tmp_path):
         """カスタム project Agent はメインランキングに skill_candidate として含まれる。"""
-        records = _usage_record("Agent:my-custom", 7)
+        records = _usage_record("Agent:my-custom", 7, project="project")
         _make_usage_jsonl(tmp_path, records)
 
         # カスタム Agent ディレクトリをセットアップ
@@ -98,7 +98,7 @@ class TestCustomAgentInMainRanking:
 
     def test_custom_agent_has_agent_type_field(self, tmp_path):
         """カスタム Agent の pattern に agent_type フィールドが付与される。"""
-        records = _usage_record("Agent:my-custom", 7)
+        records = _usage_record("Agent:my-custom", 7, project="project")
         _make_usage_jsonl(tmp_path, records)
 
         project_root = tmp_path / "project"

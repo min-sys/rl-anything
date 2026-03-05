@@ -598,23 +598,31 @@ def build_memory_health_section(
     return lines
 
 
-def load_usage_data(days: int = 30) -> List[Dict[str, Any]]:
-    """usage.jsonl から直近N日のデータを読み込む。"""
-    usage_file = DATA_DIR / "usage.jsonl"
-    if not usage_file.exists():
-        return []
+def load_usage_data(
+    days: int = 30,
+    *,
+    project_root: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """usage.jsonl から直近N日のデータを読み込む。
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    records = []
-    for line in usage_file.read_text(encoding="utf-8").splitlines():
-        try:
-            rec = json.loads(line)
-            ts = rec.get("timestamp", "")
-            if ts and ts >= cutoff.isoformat():
-                records.append(rec)
-        except json.JSONDecodeError:
-            continue
-    return records
+    Args:
+        days: 直近何日分のデータを読み込むか。
+        project_root: 指定時は該当プロジェクトのレコードのみ返す。
+    """
+    from telemetry_query import query_usage
+
+    project_name = project_root.name if project_root else None
+    # project_root 未指定時は全レコードを対象（グローバル集計）
+    include_unknown = project_root is None
+    records = query_usage(
+        project=project_name,
+        include_unknown=include_unknown,
+        usage_file=DATA_DIR / "usage.jsonl",
+    )
+
+    # 日数フィルタ
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    return [r for r in records if r.get("timestamp", "") >= cutoff]
 
 
 from agent_classifier import BUILTIN_AGENT_NAMES
@@ -1086,7 +1094,7 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False) -> 
     proj = Path(project_dir) if project_dir else Path.cwd()
     artifacts = find_artifacts(proj)
     violations = check_line_limits(artifacts)
-    usage_records = load_usage_data()
+    usage_records = load_usage_data(project_root=proj)
     usage = aggregate_usage(usage_records, exclude_plugins=True)
     plugin_usage = aggregate_plugin_usage(usage_records)
     duplicates = detect_duplicates_simple(artifacts)
