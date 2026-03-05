@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.19.0] - 2026-03-06
+
+### Added
+- **missed-skill-detection**: sessions.jsonl の user_prompts × CLAUDE.md のスキルトリガーワードを突合し、「スキルが存在するのに使われなかった」パターンを検出・レポート
+- `scripts/lib/skill_triggers.py`: CLAUDE.md Skills セクションからスキル名+トリガーワード抽出、`normalize_skill_name()`（`/` 除去、`plugin-name:` prefix 除去）
+- `telemetry_query.py` に `query_sessions()` 追加（sessions.jsonl クエリ、project フィルタ対応）
+- `discover.py` に `detect_missed_skills()` 追加（閾値 `MISSED_SKILL_THRESHOLD=2`、sessions.jsonl 未生成時スキップ）
+- discover レポートに `missed_skill_opportunities` セクション追加
+- **scope-aware-routing**: `reflect_utils.py` に `detect_project_signals()` 追加（CLAUDE.md スキル名照合 + 実在パスチェック）
+- `suggest_claude_file()` ルーティング優先順位変更: guardrail → プロジェクト固有シグナル → モデル名 → always/never/prefer
+- テスト追加: skill_triggers 7件 + missed_skills 8件 + reflect_utils 6件（計21件）
+- OpenSpec specs 追加: missed-skill-detection（新規）、scope-aware-routing（新規）、reflect/scoped-report-filtering（更新）
+
 ## [0.18.1] - 2026-03-06
 
 ### Fixed

@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from reflect_utils import (
     _parse_rule_frontmatter,
+    detect_project_signals,
     find_claude_files,
     read_auto_memory,
     split_memory_sections,
@@ -376,3 +377,61 @@ def test_split_memory_sections_h3_not_split():
     sections = split_memory_sections(content, "test.md")
     assert len(sections) == 1
     assert "Sub" in sections[0]["content"]
+
+
+# --- detect_project_signals ---
+
+
+def test_project_signal_skill_name(tmp_path):
+    """プロジェクト固有スキル名がメッセージに含まれる場合 True。"""
+    (tmp_path / "CLAUDE.md").write_text("## Skills\n\n- /channel-routing: Bot設定。Trigger: チャンネル\n")
+    assert detect_project_signals("/channel-routing スキルを使うべきだった", project_root=tmp_path) is True
+
+
+def test_project_signal_path_exists(tmp_path):
+    """プロジェクト内の実在パスがメッセージに含まれる場合 True。"""
+    (tmp_path / "CLAUDE.md").write_text("## Skills\n\n- /test: test\n")
+    src_dir = tmp_path / "src" / "api"
+    src_dir.mkdir(parents=True)
+    assert detect_project_signals("src/api/ のファイルを変更する際は", project_root=tmp_path) is True
+
+
+def test_project_signal_generic(tmp_path):
+    """プロジェクト固有シグナルがない場合 False。"""
+    (tmp_path / "CLAUDE.md").write_text("## Skills\n\n- /test: test\n")
+    assert detect_project_signals("タスクが変わったらスキルを確認する", project_root=tmp_path) is False
+
+
+# --- suggest_claude_file with project signals ---
+
+
+def test_suggest_project_specific_skill(tmp_path, monkeypatch):
+    """プロジェクト固有スキル名を含む correction が .claude/rules/ にルーティングされる。"""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "CLAUDE.md").write_text("## Skills\n\n- /channel-routing: Bot設定。Trigger: チャンネル\n")
+    correction = {"message": "/channel-routing は always 使うべき", "correction_type": "correction", "confidence": 0.90}
+    result = suggest_claude_file(correction, project_root=tmp_path)
+    assert result is not None
+    # プロジェクト固有シグナルにより .claude/rules/ にルーティング（always キーワードより優先）
+    assert ".claude/rules/" in result[0]
+
+
+def test_suggest_generic_always_no_project_signal(tmp_path, monkeypatch):
+    """プロジェクト固有シグナルなし + always → global にルーティング。"""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "CLAUDE.md").write_text("## Skills\n\n- /test: test\n")
+    correction = {"message": "タスクが変わったら always スキルを確認する", "correction_type": "explicit", "confidence": 0.90}
+    result = suggest_claude_file(correction, project_root=tmp_path)
+    assert result is not None
+    assert "CLAUDE.md" in result[0]
+    assert result[1] == 0.80
+
+
+def test_suggest_guardrail_overrides_project_signal(tmp_path, monkeypatch):
+    """guardrail は project signal より優先。"""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "CLAUDE.md").write_text("## Skills\n\n- /channel-routing: Bot設定。Trigger: チャンネル\n")
+    correction = {"message": "/channel-routing は使わない", "correction_type": "guardrail", "guardrail": True, "confidence": 0.90}
+    result = suggest_claude_file(correction, project_root=tmp_path)
+    assert result is not None
+    assert "guardrails.md" in result[0]

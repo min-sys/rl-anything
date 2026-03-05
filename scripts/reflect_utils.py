@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import yaml
 
 from lib.frontmatter import parse_frontmatter as _parse_rule_frontmatter  # noqa: F401 — 共通化済み
+from lib.skill_triggers import extract_skill_triggers
 
 # Auto-memory トピック分類キーワード
 _AUTO_MEMORY_TOPICS = {
@@ -111,6 +112,45 @@ def find_claude_files(project_root: Optional[Path] = None) -> Dict[str, List[Pat
     return result
 
 
+def detect_project_signals(
+    message: str,
+    project_root: Optional[Path] = None,
+) -> bool:
+    """correction テキストにプロジェクト固有のシグナルが含まれるかを判定する。
+
+    シグナル:
+    - CLAUDE.md の Skills セクションに記載されたスキル名
+    - correction テキスト内のパスがプロジェクトルートに実在するディレクトリ
+
+    Args:
+        message: correction テキスト。
+        project_root: プロジェクトルート。
+
+    Returns:
+        プロジェクト固有シグナルが検出された場合 True。
+    """
+    root = project_root or Path.cwd()
+    msg_lower = message.lower()
+
+    # 1. CLAUDE.md のスキル名との照合
+    skill_triggers = extract_skill_triggers(project_root=root)
+    for entry in skill_triggers:
+        skill_name = entry["skill"]
+        # スキル名がメッセージに含まれるかチェック
+        if skill_name.lower() in msg_lower or f"/{skill_name}".lower() in msg_lower:
+            return True
+
+    # 2. プロジェクト内の実在パスとの照合
+    # メッセージ内のパスらしい文字列を抽出
+    path_candidates = re.findall(r"(?:^|\s)([\w./\-]+/)", message)
+    for candidate in path_candidates:
+        candidate_path = root / candidate
+        if candidate_path.is_dir():
+            return True
+
+    return False
+
+
 def suggest_claude_file(
     correction: Dict[str, Any],
     project_root: Optional[Path] = None,
@@ -134,7 +174,11 @@ def suggest_claude_file(
     if correction.get("guardrail") or ctype == "guardrail" or correction.get("sentiment") == "guardrail":
         return (str(root / ".claude" / "rules" / "guardrails.md"), 0.90)
 
-    # 2. モデル名キーワード → ~/.claude/CLAUDE.md or model-preferences rule
+    # 2. プロジェクト固有シグナル → .claude/rules/
+    if detect_project_signals(message, project_root=root):
+        return (str(root / ".claude" / "rules" / "project-specific.md"), 0.85)
+
+    # 3. モデル名キーワード → ~/.claude/CLAUDE.md or model-preferences rule
     if any(kw in msg_lower for kw in _MODEL_KEYWORDS):
         # model-preferences rule があればそちらを優先
         model_rule = root / ".claude" / "rules" / "model-preferences.md"
@@ -142,7 +186,7 @@ def suggest_claude_file(
             return (str(model_rule), 0.85)
         return (str(Path.home() / ".claude" / "CLAUDE.md"), 0.85)
 
-    # 3. "always/never/prefer" → ~/.claude/CLAUDE.md (global behavior)
+    # 4. "always/never/prefer" → ~/.claude/CLAUDE.md (global behavior)
     if re.search(r"\b(always|never|prefer)\b", msg_lower):
         return (str(Path.home() / ".claude" / "CLAUDE.md"), 0.80)
 

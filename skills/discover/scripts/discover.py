@@ -25,12 +25,14 @@ HISTORY_DIR = (
 BEHAVIOR_THRESHOLD = 5   # 行動パターン検出閾値
 ERROR_THRESHOLD = 3       # エラーパターン検出閾値
 REJECTION_THRESHOLD = 3   # 却下理由検出閾値
+MISSED_SKILL_THRESHOLD = 2  # missed skill 検出閾値（セッション数）
 
 # 構造的制約は共通モジュールから取得
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 from agent_classifier import classify_agent_type
 from line_limit import MAX_RULE_LINES, MAX_SKILL_LINES
+from skill_triggers import extract_skill_triggers, normalize_skill_name
 
 # Discover 振動防止用抑制リスト
 SUPPRESSION_FILE = DATA_DIR / "discover-suppression.jsonl"
@@ -270,6 +272,91 @@ def _classify_agent_prompts(prompts: List[str]) -> List[Dict[str, Any]]:
     return results
 
 
+def detect_missed_skills(
+    threshold: int = MISSED_SKILL_THRESHOLD,
+    *,
+    project_root: Optional[Path] = None,
+    include_unknown: bool = False,
+) -> Dict[str, Any]:
+    """スキルのトリガーワードにマッチしたがスキルが使われなかったセッションを検出する。
+
+    Returns:
+        {"missed": [...], "message": str or None}
+        missed: [{"skill": str, "triggers_matched": [str], "session_count": int}, ...]
+    """
+    from telemetry_query import query_sessions, query_usage
+
+    # CLAUDE.md からスキルトリガーを取得
+    skill_triggers = extract_skill_triggers(project_root=project_root)
+    if not skill_triggers:
+        return {"missed": [], "message": "No CLAUDE.md found, skipping missed skill detection"}
+
+    project_name = project_root.name if project_root else None
+
+    # sessions.jsonl からセッションデータを取得
+    sessions_file = DATA_DIR / "sessions.jsonl"
+    sessions = query_sessions(
+        project=project_name,
+        include_unknown=include_unknown,
+        sessions_file=sessions_file,
+    )
+    if not sessions:
+        if not sessions_file.exists():
+            return {"missed": [], "message": "No sessions.jsonl found (run backfill first), skipping missed skill detection"}
+        return {"missed": [], "message": None}
+
+    # usage.jsonl からスキル使用実績を取得
+    usage = query_usage(
+        project=project_name,
+        include_unknown=include_unknown,
+        usage_file=DATA_DIR / "usage.jsonl",
+    )
+
+    # session_id ごとに使用されたスキル名を集約
+    used_skills_by_session: Dict[str, set] = defaultdict(set)
+    for rec in usage:
+        sid = rec.get("session_id", "")
+        skill = rec.get("skill_name", "")
+        if sid and skill:
+            used_skills_by_session[sid].add(normalize_skill_name(skill))
+
+    # セッションごとにトリガーマッチ → スキル使用チェック
+    # skill -> {triggers_matched: set, sessions: set}
+    missed_map: Dict[str, Dict[str, Any]] = defaultdict(lambda: {"triggers_matched": set(), "sessions": set()})
+
+    for session in sessions:
+        sid = session.get("session_id", "")
+        user_prompts = session.get("user_prompts", [])
+        if not sid or not user_prompts:
+            continue
+
+        prompts_text = " ".join(user_prompts).lower()
+        used_in_session = used_skills_by_session.get(sid, set())
+
+        for skill_entry in skill_triggers:
+            skill_name = skill_entry["skill"]
+            if skill_name in used_in_session:
+                continue
+
+            for trigger in skill_entry["triggers"]:
+                if trigger.lower() in prompts_text:
+                    missed_map[skill_name]["triggers_matched"].add(trigger)
+                    missed_map[skill_name]["sessions"].add(sid)
+
+    # 閾値フィルタリング
+    missed = []
+    for skill, data in sorted(missed_map.items(), key=lambda x: len(x[1]["sessions"]), reverse=True):
+        session_count = len(data["sessions"])
+        if session_count >= threshold:
+            missed.append({
+                "skill": skill,
+                "triggers_matched": sorted(data["triggers_matched"]),
+                "session_count": session_count,
+            })
+
+    return {"missed": missed, "message": None}
+
+
 def detect_error_patterns(
     threshold: int = ERROR_THRESHOLD,
     *,
@@ -464,12 +551,24 @@ def run_discover(
     rejections = detect_rejection_patterns()
     reflect_data = load_claude_reflect_data()
 
+    # missed skill 検出
+    missed_result = detect_missed_skills(
+        project_root=project_root,
+        include_unknown=include_unknown,
+    )
+
     result: Dict[str, Any] = {
         "behavior_patterns": behavior,
         "error_patterns": errors,
         "rejection_patterns": rejections,
         "reflect_data_count": len(reflect_data),
     }
+
+    # missed skill opportunities をレポートに含める
+    if missed_result["missed"]:
+        result["missed_skill_opportunities"] = missed_result["missed"]
+    if missed_result["message"]:
+        result["missed_skill_message"] = missed_result["message"]
 
     if session_scan:
         session_patterns = detect_session_patterns()

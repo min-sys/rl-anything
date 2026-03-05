@@ -134,6 +134,31 @@ def query_skill_counts(
     ]
 
 
+def query_sessions(
+    *,
+    project: Optional[str] = None,
+    include_unknown: bool = False,
+    sessions_file: Optional[Path] = None,
+) -> List[Dict[str, Any]]:
+    """sessions.jsonl をクエリして結果を返す。
+
+    Args:
+        project: フィルタするプロジェクト名。None の場合は全レコード。
+        include_unknown: True の場合、project が null のレコードも含める。
+        sessions_file: sessions.jsonl のパス（テスト用）。
+    """
+    filepath = sessions_file or (DATA_DIR / "sessions.jsonl")
+    if not filepath.exists():
+        return []
+
+    if HAS_DUCKDB:
+        return _duckdb_query_file(filepath, project=project, include_unknown=include_unknown)
+
+    _warn_no_duckdb()
+    records = _load_jsonl(filepath)
+    return _filter_by_project(records, project, include_unknown)
+
+
 def _duckdb_query_file(
     filepath: Path,
     *,
