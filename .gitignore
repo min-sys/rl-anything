@@ -8,3 +8,4 @@ generations/
 .rl-loop/
 .claude/session-context.md
 .claude/settings.json
+docs/slides/
