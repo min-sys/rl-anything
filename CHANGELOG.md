@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.19.2] - 2026-03-06
+
+### Added
+- **remediation-engine**: evolve パイプラインに Remediation フェーズ（Step 7.5）を追加
+  - `audit.py` に `collect_issues()` — 既存検出結果を統一フォーマット `{type, file, detail, source}` の issue リストとして構造化出力
+  - `skills/evolve/scripts/remediation.py` 新規作成 — confidence_score / impact_scope ベースの動的3カテゴリ分類（auto_fixable / proposable / manual_required）
+  - `generate_rationale()`: 修正理由テキスト生成（テンプレートベース）
+  - `fix_stale_references()`: 陳腐化参照の行削除 + ロールバック用 original 保持
+  - `generate_proposals()`: 行数超過・肥大化に対する rationale 付き修正案生成
+- **remediation-verification**: 修正後の2段階検証エンジン
+  - `verify_fix()`: 該当検出関数を再実行し元問題の解消を確認
+  - `check_regression()`: 見出し構造保持・コードブロック対応・空ファイルチェック
+  - `rollback_fix()`: regression 検出時に修正前内容へ復元
+- `record_outcome()`: `remediation-outcomes.jsonl` への修正結果記録（dry-run 時スキップ）
+- `evolve.py` に Remediation フェーズ追加（audit の後、collect_issues → classify_issues → result に格納）
+- `SKILL.md` に Step 7.5 フロー記述追加
+- OpenSpec specs 追加: remediation-engine（新規）、remediation-verification（新規）
+- テスト追加: collect_issues 6件 + remediation 分類/修正/検証/テレメトリ 19件（計25件）
+
 ## [0.19.1] - 2026-03-06
 
 ### Added

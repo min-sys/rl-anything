@@ -1041,6 +1041,78 @@ def detect_untagged_reference_candidates(
     return candidates
 
 
+def collect_issues(project_dir: Path) -> List[Dict[str, Any]]:
+    """既存の検出関数の結果を統一フォーマットの issue リストとして返す。
+
+    各 issue は {"type": str, "file": str, "detail": dict, "source": str} 形式。
+    generate_report() には影響しない。
+    """
+    artifacts = find_artifacts(project_dir)
+    issues: List[Dict[str, Any]] = []
+
+    # violations（行数超過）
+    violations = check_line_limits(artifacts)
+    for v in violations:
+        issues.append({
+            "type": "line_limit_violation",
+            "file": v["file"],
+            "detail": {"lines": v["lines"], "limit": v["limit"]},
+            "source": "check_line_limits",
+        })
+
+    # stale_refs（陳腐化参照）と near_limits（肥大化警告）
+    memory_files: List[Tuple[Path, str]] = []
+    for path in artifacts.get("memory", []):
+        try:
+            content = path.read_text(encoding="utf-8")
+            memory_files.append((path, content))
+        except (OSError, UnicodeDecodeError):
+            continue
+    for entry in read_auto_memory(str(project_dir)):
+        entry_path = Path(entry["path"])
+        if not any(p == entry_path for p, _ in memory_files):
+            memory_files.append((entry_path, entry["content"]))
+
+    for path, content in memory_files:
+        extracted = _extract_paths_outside_codeblocks(content)
+        for line_num, ref_path in extracted:
+            if ref_path.startswith("/"):
+                check_path = Path(ref_path)
+            else:
+                check_path = project_dir / ref_path
+            if not check_path.exists():
+                issues.append({
+                    "type": "stale_ref",
+                    "file": str(path),
+                    "detail": {"line": line_num, "path": ref_path},
+                    "source": "build_memory_health_section",
+                })
+
+        line_count = content.count("\n") + 1
+        limit = LIMITS["MEMORY.md"] if path.name == "MEMORY.md" else LIMITS["memory"]
+        threshold = int(limit * NEAR_LIMIT_RATIO)
+        if line_count >= threshold:
+            pct = int(line_count / limit * 100)
+            issues.append({
+                "type": "near_limit",
+                "file": str(path),
+                "detail": {"lines": line_count, "limit": limit, "pct": pct},
+                "source": "build_memory_health_section",
+            })
+
+    # duplicates（重複候補）
+    duplicates = detect_duplicates_simple(artifacts)
+    for d in duplicates:
+        issues.append({
+            "type": "duplicate",
+            "file": d["paths"][0] if d["paths"] else "",
+            "detail": {"name": d["name"], "paths": d["paths"]},
+            "source": "detect_duplicates_simple",
+        })
+
+    return issues
+
+
 def generate_report(
     artifacts: Dict[str, List[Path]],
     violations: List[Dict[str, Any]],

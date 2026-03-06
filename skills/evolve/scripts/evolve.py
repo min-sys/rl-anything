@@ -17,6 +17,7 @@ sys.path.insert(0, str(_plugin_root / "skills" / "prune" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "evolve-fitness" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "enrich" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "reorganize" / "scripts"))
+sys.path.insert(0, str(_plugin_root / "skills" / "evolve" / "scripts"))
 
 DATA_DIR = Path.home() / ".claude" / "rl-anything"
 EVOLVE_STATE_FILE = DATA_DIR / "evolve-state.json"
@@ -221,7 +222,25 @@ def run_evolve(
     except Exception as e:
         result["phases"]["audit"] = {"error": str(e)}
 
-    # Phase 3.5: Reorganize（Prune の前）
+    # Phase 3.5: Remediation（audit の後）
+    try:
+        from audit import collect_issues
+        from remediation import classify_issues as classify_remediation_issues
+        proj = Path(project_dir) if project_dir else Path.cwd()
+        issues = collect_issues(proj)
+        classified = classify_remediation_issues(issues)
+        remediation_data = {
+            "total_issues": len(issues),
+            "auto_fixable": len(classified["auto_fixable"]),
+            "proposable": len(classified["proposable"]),
+            "manual_required": len(classified["manual_required"]),
+            "classified": classified,
+        }
+        result["phases"]["remediation"] = remediation_data
+    except Exception as e:
+        result["phases"]["remediation"] = {"error": str(e)}
+
+    # Phase 3.7: Reorganize（Prune の前）
     try:
         from reorganize import run_reorganize
         reorganize_result = run_reorganize(project_dir)
