@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.3] - 2026-03-06
+
+### Added
+- **tool-usage-analysis**: discover にツール利用分析フェーズを追加
+  - セッション JSONL からツール呼び出しを抽出し、Bash コマンドを3カテゴリに分類（builtin_replaceable / repeating_pattern / cli_legitimate）
+  - `--tool-usage` フラグで有効化、evolve 経由では自動有効化
+  - builtin_replaceable をルール候補、repeating_pattern をスキル候補として出力
+
 ## [0.19.2] - 2026-03-06
 
 ### Added

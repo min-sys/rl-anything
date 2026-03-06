@@ -540,6 +540,7 @@ def run_discover(
     *,
     project_root: Optional[Path] = None,
     include_unknown: bool = False,
+    tool_usage: bool = False,
 ) -> Dict[str, Any]:
     """Discover を実行して候補を返す。"""
     behavior = detect_behavior_patterns(
@@ -583,6 +584,12 @@ def run_discover(
 
     result["total_candidates"] = len(all_patterns)
 
+    if tool_usage:
+        from tool_usage_analyzer import analyze_tool_usage
+        tool_result = analyze_tool_usage(project_root=project_root)
+        if tool_result["total_tool_calls"] > 0:
+            result["tool_usage_patterns"] = tool_result
+
     return result
 
 
@@ -603,6 +610,11 @@ def main() -> None:
         action="store_true",
         help="project が null のレコードも集計に含める",
     )
+    parser.add_argument(
+        "--tool-usage",
+        action="store_true",
+        help="セッション JSONL からツール利用パターンを分析する",
+    )
     args = parser.parse_args()
 
     project_root = Path(args.project_dir) if args.project_dir else None
@@ -610,6 +622,7 @@ def main() -> None:
         session_scan=args.session_scan,
         project_root=project_root,
         include_unknown=args.include_unknown,
+        tool_usage=args.tool_usage,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

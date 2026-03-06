@@ -200,7 +200,7 @@ def run_evolve(
     try:
         from discover import run_discover
         project_root = Path(project_dir) if project_dir else None
-        discover_result = run_discover(project_root=project_root)
+        discover_result = run_discover(project_root=project_root, tool_usage=True)
         result["phases"]["discover"] = discover_result
     except Exception as e:
         result["phases"]["discover"] = {"error": str(e)}
