@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.20.0] - 2026-03-06
+## [0.19.1] - 2026-03-06
 
 ### Added
 - **reference-skill-classification**: `is_reference_skill()` で参照型スキルを判定（frontmatter `type: reference` → `skill_type_cache` → LLM キーワード推定の3段階優先順位）
