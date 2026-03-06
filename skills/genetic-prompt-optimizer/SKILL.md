@@ -50,9 +50,11 @@ python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py \
 
 ### 4. accept/reject を確認する（`--dry-run`・`--restore` 以外）
 
-最適化が正常に完了した場合（`--dry-run` および `--restore` を除く）、AskUserQuestion で結果の採否を確認する。
+最適化が正常に完了した場合（`--dry-run` および `--restore` を除く）、結果サマリを表示してから AskUserQuestion で採否を確認する。
 
-1. AskUserQuestion で「この最適化結果を採用しますか？」と確認する（options: 「Accept（結果を採用）」「Reject（却下して理由を記録）」）
+1. スクリプト出力のサマリ（スコア推移テーブル、CoT 評価内訳、変更サマリ）をユーザーに表示する
+2. `score_delta == 0` の場合は「改善なし: ベースラインからの変更はありません」と明示する
+3. AskUserQuestion で「この最適化結果を採用しますか？」と確認する（options: 「Accept（結果を採用）」「Reject（却下して理由を記録）」）
 2. **Accept の場合**: 以下を実行して `history.jsonl` に `human_accepted: true` を記録する
    ```bash
    python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py --target <TARGET> --accept

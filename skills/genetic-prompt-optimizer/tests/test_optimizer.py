@@ -1118,5 +1118,157 @@ class TestScopeDetection:
         assert "cwd" not in call_kwargs.kwargs
 
 
+# --- _generate_summary / _compute_diff_stats のテスト ---
+
+class TestGenerateSummary:
+    """_generate_summary() のテスト"""
+
+    def _make_history(self, fitnesses_per_gen, strategies=None):
+        """テスト用の history リストを生成"""
+        history = []
+        for gen_idx, fitnesses in enumerate(fitnesses_per_gen):
+            individuals = []
+            for i, f in enumerate(fitnesses):
+                ind_dict = {
+                    "id": f"gen{gen_idx}_{i}",
+                    "generation": gen_idx,
+                    "fitness": f,
+                    "strategy": (strategies or {}).get((gen_idx, i), "elite" if i == 0 else "mutation"),
+                    "cot_reasons": None,
+                    "content": f"content_{gen_idx}_{i}",
+                    "content_length": 10,
+                    "parent_ids": [],
+                }
+                individuals.append(ind_dict)
+            avg = sum(fitnesses) / len(fitnesses)
+            history.append({
+                "generation": gen_idx,
+                "best_fitness": max(fitnesses),
+                "avg_fitness": avg,
+                "individuals": individuals,
+            })
+        return history
+
+    def test_正常系(self, sample_skill):
+        """正常な history からサマリを生成"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill), dry_run=True)
+        history = self._make_history([[0.72, 0.68, 0.65], [0.80, 0.74, 0.70], [0.85, 0.78, 0.75]])
+
+        best = Individual("improved content", generation=2)
+        best.fitness = 0.85
+        best.cot_reasons = {
+            "clarity": {"score": 0.90, "reason": "very clear"},
+            "completeness": {"score": 0.85, "reason": "thorough"},
+            "structure": {"score": 0.88, "reason": "well organized"},
+            "practicality": {"score": 0.80, "reason": "practical"},
+        }
+
+        original = sample_skill.read_text(encoding="utf-8")
+        summary = optimizer._generate_summary(history, best, original)
+
+        assert summary["baseline_score"] == 0.72
+        assert summary["best_score"] == 0.85
+        assert summary["score_delta"] == round(0.85 - 0.72, 4)
+        assert len(summary["generations"]) == 3
+        assert summary["generations"][0]["best"] == 0.72
+        assert summary["generations"][0]["std_dev"] >= 0
+        assert summary["cot_breakdown"]["clarity"]["score"] == 0.90
+        assert summary["cot_breakdown"]["clarity"]["reason"] == "very clear"
+
+    def test_CoT欠落時はNA(self, sample_skill):
+        """cot_reasons が None の場合は N/A"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill), dry_run=True)
+        history = self._make_history([[0.72, 0.68]])
+
+        best = Individual("content", generation=0)
+        best.fitness = 0.72
+        best.cot_reasons = None
+
+        summary = optimizer._generate_summary(history, best, "original")
+
+        for criterion in ["clarity", "completeness", "structure", "practicality"]:
+            assert summary["cot_breakdown"][criterion]["score"] == "N/A"
+            assert summary["cot_breakdown"][criterion]["reason"] == "N/A"
+
+    def test_差分なし時(self, sample_skill):
+        """ベースラインと同じ内容の場合、diff_stats は 0"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill), dry_run=True)
+        original = "# Same content"
+        history = self._make_history([[0.72]])
+
+        best = Individual(original, generation=0)
+        best.fitness = 0.72
+
+        summary = optimizer._generate_summary(history, best, original)
+
+        assert summary["score_delta"] == 0
+        assert summary["diff_stats"]["lines_added"] == 0
+        assert summary["diff_stats"]["lines_deleted"] == 0
+        assert summary["diff_stats"]["changed_sections"] == []
+
+    def test_score_delta_0(self, sample_skill):
+        """score_delta == 0 の場合、diff_stats は空"""
+        optimizer = GeneticOptimizer(target_path=str(sample_skill), dry_run=True)
+        history = self._make_history([[0.75, 0.70]])
+
+        best = Individual("different content", generation=0)
+        best.fitness = 0.75  # baseline_score と同じ
+
+        summary = optimizer._generate_summary(history, best, "original content")
+
+        assert summary["score_delta"] == 0
+        assert summary["diff_stats"] == {"lines_added": 0, "lines_deleted": 0, "changed_sections": []}
+
+
+class TestComputeDiffStats:
+    """_compute_diff_stats() のテスト"""
+
+    def test_追加と削除(self):
+        original = "# Title\n## Section A\nline1\nline2\n"
+        modified = "# Title\n## Section A\nline1\nline2\nline3\n"
+        stats = GeneticOptimizer._compute_diff_stats(original, modified)
+        assert stats["lines_added"] >= 1
+        assert stats["lines_deleted"] == 0
+
+    def test_セクション見出し変更検出(self):
+        original = "# Title\n## Old Section\ncontent\n"
+        modified = "# Title\n## New Section\ncontent\n"
+        stats = GeneticOptimizer._compute_diff_stats(original, modified)
+        assert len(stats["changed_sections"]) >= 1
+
+    def test_同一内容(self):
+        content = "# Title\n## Section\ncontent\n"
+        stats = GeneticOptimizer._compute_diff_stats(content, content)
+        assert stats["lines_added"] == 0
+        assert stats["lines_deleted"] == 0
+        assert stats["changed_sections"] == []
+
+
+class TestSummaryInRunResult:
+    """run() の戻り値に summary が含まれることを確認"""
+
+    def test_run_result_has_summary(self, sample_skill, temp_dir):
+        """dry-run で run() を実行し、summary フィールドが存在する"""
+        optimizer = GeneticOptimizer(
+            target_path=str(sample_skill),
+            generations=2,
+            population_size=3,
+            dry_run=True,
+        )
+        optimizer.run_dir = temp_dir / "test_run"
+
+        with patch("optimize.subprocess.run", side_effect=FileNotFoundError):
+            result = optimizer.run()
+
+        assert "summary" in result
+        summary = result["summary"]
+        assert "baseline_score" in summary
+        assert "best_score" in summary
+        assert "score_delta" in summary
+        assert "generations" in summary
+        assert "cot_breakdown" in summary
+        assert "diff_stats" in summary
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -11,6 +11,7 @@
 """
 
 import argparse
+import difflib
 import json
 import os
 import re
@@ -240,6 +241,117 @@ class GeneticOptimizer:
             return str(Path.home())
         return None
 
+    def _generate_summary(
+        self,
+        history: List[Dict[str, Any]],
+        best_ever: Optional["Individual"],
+        original_content: str,
+    ) -> Dict[str, Any]:
+        """最適化結果のサマリを生成する。
+
+        Args:
+            history: 世代ごとの記録リスト
+            best_ever: 最良個体
+            original_content: ベースライン（元スキル）の内容
+
+        Returns:
+            summary dict
+        """
+        # baseline_score: 世代0の最初の個体（= オリジナル）の評価スコア
+        baseline_score = None
+        if history and history[0].get("individuals"):
+            baseline_score = history[0]["individuals"][0].get("fitness")
+
+        best_score = best_ever.fitness if best_ever else None
+        score_delta = round(best_score - baseline_score, 4) if (
+            best_score is not None and baseline_score is not None
+        ) else None
+
+        # 世代履歴
+        import statistics
+        generations = []
+        for gen_record in history:
+            individuals = gen_record.get("individuals", [])
+            fitnesses = [
+                ind.get("fitness", 0) for ind in individuals
+                if ind.get("fitness") is not None
+            ]
+            std_dev = round(statistics.stdev(fitnesses), 4) if len(fitnesses) >= 2 else 0.0
+            # 戦略: 最良個体の strategy
+            strategy = individuals[0].get("strategy", "unknown") if individuals else "unknown"
+            generations.append({
+                "generation": gen_record["generation"],
+                "best": gen_record.get("best_fitness"),
+                "avg": round(gen_record.get("avg_fitness", 0), 4),
+                "std_dev": std_dev,
+                "strategy": strategy,
+            })
+
+        # CoT 評価内訳
+        COT_CRITERIA = ["clarity", "completeness", "structure", "practicality"]
+        cot_breakdown = {}
+        if best_ever and best_ever.cot_reasons:
+            for criterion in COT_CRITERIA:
+                entry = best_ever.cot_reasons.get(criterion)
+                if isinstance(entry, dict):
+                    cot_breakdown[criterion] = {
+                        "score": entry.get("score", "N/A"),
+                        "reason": entry.get("reason", "N/A"),
+                    }
+                else:
+                    cot_breakdown[criterion] = {"score": "N/A", "reason": "N/A"}
+        else:
+            for criterion in COT_CRITERIA:
+                cot_breakdown[criterion] = {"score": "N/A", "reason": "N/A"}
+
+        # diff 統計
+        if score_delta is not None and score_delta == 0:
+            diff_stats = {"lines_added": 0, "lines_deleted": 0, "changed_sections": []}
+        elif best_ever:
+            diff_stats = self._compute_diff_stats(original_content, best_ever.content)
+        else:
+            diff_stats = {"lines_added": 0, "lines_deleted": 0, "changed_sections": []}
+
+        return {
+            "target": str(self.target_path),
+            "baseline_score": baseline_score,
+            "best_score": best_score,
+            "score_delta": score_delta,
+            "generations": generations,
+            "cot_breakdown": cot_breakdown,
+            "diff_stats": diff_stats,
+        }
+
+    @staticmethod
+    def _compute_diff_stats(original: str, modified: str) -> Dict[str, Any]:
+        """difflib.unified_diff で diff 統計を算出する。"""
+        original_lines = original.splitlines(keepends=True)
+        modified_lines = modified.splitlines(keepends=True)
+        diff = list(difflib.unified_diff(original_lines, modified_lines, lineterm=""))
+
+        lines_added = 0
+        lines_deleted = 0
+        changed_sections: List[str] = []
+
+        for line in diff:
+            if line.startswith("+") and not line.startswith("+++"):
+                lines_added += 1
+                # ## 見出し行の変更を検出
+                stripped = line[1:].strip()
+                if stripped.startswith("## ") and stripped not in changed_sections:
+                    changed_sections.append(stripped)
+            elif line.startswith("-") and not line.startswith("---"):
+                lines_deleted += 1
+                stripped = line[1:].strip()
+                if stripped.startswith("## ") and stripped not in changed_sections:
+                    changed_sections.append(stripped)
+
+        return {
+            "lines_added": lines_added,
+            "lines_deleted": lines_deleted,
+            "changed_sections": changed_sections,
+        }
+
     def run(self) -> Dict[str, Any]:
         """最適化ループを実行"""
         # 0. scope 通知
@@ -298,7 +410,10 @@ class GeneticOptimizer:
             if gen < self.generations - 1:
                 population = self.next_generation(population, gen + 1)
 
-        # 4. 結果保存
+        # 4. サマリ生成
+        summary = self._generate_summary(history, best_ever, original_content)
+
+        # 5. 結果保存
         result = {
             "run_id": self.run_id,
             "target": str(self.target_path),
@@ -308,6 +423,7 @@ class GeneticOptimizer:
             "dry_run": self.dry_run,
             "best_individual": best_ever.to_dict() if best_ever else None,
             "history": history,
+            "summary": summary,
         }
 
         self.save_result(result)
@@ -1117,26 +1233,49 @@ def main():
     result = optimizer.run()
 
     # サマリー出力
-    print(f"\n=== 最適化結果 ===")
-    print(f"Run ID: {result['run_id']}")
-    print(f"世代数: {result['generations']}")
-    print(f"集団サイズ: {result['population_size']}")
-    print(f"適応度関数: {result['fitness_func']}")
-    print(f"dry-run: {result['dry_run']}")
+    summary = result.get("summary", {})
+    print(f"\n=== 最適化結果サマリ ===")
+    print(f"対象: {summary.get('target', result['target'])}")
+    print(f"ベースラインスコア: {summary.get('baseline_score', 'N/A')}")
 
-    if result.get("best_individual"):
-        best = result["best_individual"]
-        print(f"最良スコア: {best['fitness']}")
-        print(f"最良個体ID: {best['id']}")
+    best_score = summary.get("best_score", "N/A")
+    score_delta = summary.get("score_delta")
+    delta_str = f" (+{score_delta})" if score_delta and score_delta > 0 else (
+        f" ({score_delta})" if score_delta and score_delta < 0 else ""
+    )
+    print(f"最良スコア: {best_score}{delta_str}")
 
-    for h in result.get("history", []):
-        print(
-            f"  Gen {h['generation']}: "
-            f"best={h['best_fitness']}, "
-            f"avg={h['avg_fitness']:.3f}"
-        )
+    # スコア推移テーブル
+    gens = summary.get("generations", [])
+    if gens:
+        print(f"\n--- スコア推移 ---")
+        print(f"{'Gen':>3} | {'Best':>6} | {'Avg':>6} | {'StdDev':>6} | 戦略")
+        for g in gens:
+            best_val = f"{g['best']:.3f}" if g['best'] is not None else "N/A"
+            avg_val = f"{g['avg']:.3f}" if g['avg'] is not None else "N/A"
+            std_val = f"{g['std_dev']:.3f}" if g['std_dev'] is not None else "N/A"
+            print(f"{g['generation']:>3} | {best_val:>6} | {avg_val:>6} | {std_val:>6} | {g['strategy']}")
 
-    print(f"\n結果保存先: {optimizer.run_dir}")
+    # CoT 評価内訳
+    cot = summary.get("cot_breakdown", {})
+    if cot:
+        print(f"\n--- CoT 評価内訳 (最良個体) ---")
+        for criterion, data in cot.items():
+            score_val = data.get("score", "N/A")
+            reason_val = data.get("reason", "N/A")
+            score_str = f"{score_val:.2f}" if isinstance(score_val, (int, float)) else str(score_val)
+            print(f"{criterion + ':':18s} {score_str} (reason: {reason_val})")
+
+    # diff 統計
+    diff = summary.get("diff_stats", {})
+    if diff:
+        print(f"\n--- 変更サマリ ---")
+        print(f"+{diff.get('lines_added', 0)} 行追加, -{diff.get('lines_deleted', 0)} 行削除, {len(diff.get('changed_sections', []))} セクション変更")
+        if diff.get("changed_sections"):
+            print(f"変更セクション: {', '.join(diff['changed_sections'])}")
+
+    print(f"\nRun ID: {result['run_id']}")
+    print(f"結果保存先: {optimizer.run_dir}")
 
 
 if __name__ == "__main__":
