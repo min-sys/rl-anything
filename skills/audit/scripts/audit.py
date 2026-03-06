@@ -16,6 +16,7 @@ sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 sys.path.insert(0, str(_plugin_root / "scripts"))
 
 from reflect_utils import read_all_memory_entries, read_auto_memory, split_memory_sections
+from hardcoded_detector import detect_hardcoded_values
 
 # 行数制限
 LIMITS = {
@@ -1121,6 +1122,18 @@ def collect_issues(project_dir: Path) -> List[Dict[str, Any]]:
             "source": "detect_duplicates_simple",
         })
 
+    # hardcoded values（ハードコード値検出）
+    for category in ("skills", "rules"):
+        for path in artifacts.get(category, []):
+            detections = detect_hardcoded_values(str(path))
+            for det in detections:
+                issues.append({
+                    "type": "hardcoded_value",
+                    "file": str(path),
+                    "detail": det,
+                    "source": "detect_hardcoded_values",
+                })
+
     return issues
 
 
@@ -1135,6 +1148,7 @@ def generate_report(
     plugin_usage: Optional[Dict[str, int]] = None,
     openspec_analytics: Optional[List[str]] = None,
     untagged_reference_candidates: Optional[List[Dict[str, Any]]] = None,
+    hardcoded_values: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
     """1画面レポートを生成する。"""
     lines = ["# Environment Audit Report", ""]
@@ -1187,6 +1201,18 @@ def generate_report(
         lines.append(f"## Potential Duplicates ({len(duplicates)})")
         for d in duplicates:
             lines.append(f"- {d['name']}: {', '.join(d['paths'])}")
+        lines.append("")
+
+    # Hardcoded Values 警告
+    if hardcoded_values:
+        lines.append(f"## Hardcoded Values ({len(hardcoded_values)})")
+        for hv in hardcoded_values:
+            detail = hv.get("detail", {})
+            lines.append(
+                f"- {hv['file']}:{detail.get('line', '?')} "
+                f"`{detail.get('matched', '?')}` ({detail.get('pattern_type', '?')}, "
+                f"confidence={detail.get('confidence_score', 0):.2f})"
+            )
         lines.append("")
 
     # Reference Type 未設定警告
@@ -1245,12 +1271,26 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False) -> 
     # Reference type 未設定警告
     untagged = detect_untagged_reference_candidates(artifacts, usage)
 
+    # Hardcoded values 検出
+    hardcoded_values = []
+    for category in ("skills", "rules"):
+        for path in artifacts.get(category, []):
+            detections = detect_hardcoded_values(str(path))
+            for det in detections:
+                hardcoded_values.append({
+                    "type": "hardcoded_value",
+                    "file": str(path),
+                    "detail": det,
+                    "source": "detect_hardcoded_values",
+                })
+
     return generate_report(
         artifacts, violations, usage, duplicates, advisories,
         quality_baselines, project_dir=proj,
         plugin_usage=plugin_usage if plugin_usage else None,
         openspec_analytics=openspec_analytics if openspec_analytics else None,
         untagged_reference_candidates=untagged if untagged else None,
+        hardcoded_values=hardcoded_values if hardcoded_values else None,
     )
 
 

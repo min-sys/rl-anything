@@ -10,7 +10,29 @@ sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 sys.path.insert(0, str(_plugin_root / "scripts"))
 
-from audit import collect_issues
+from audit import collect_issues, find_artifacts
+
+
+def _find_artifacts_local_only(project_dir):
+    """グローバル artifacts を除外し、プロジェクトローカルのみ返す。"""
+    result = {"skills": [], "rules": [], "memory": [], "claude_md": []}
+    claude_dir = project_dir / ".claude"
+    claude_md = project_dir / "CLAUDE.md"
+    if claude_md.exists():
+        result["claude_md"].append(claude_md)
+    skills_dir = claude_dir / "skills"
+    if skills_dir.exists():
+        for skill_md in skills_dir.rglob("SKILL.md"):
+            result["skills"].append(skill_md)
+    rules_dir = claude_dir / "rules"
+    if rules_dir.exists():
+        for rule_file in rules_dir.glob("*.md"):
+            result["rules"].append(rule_file)
+    memory_dir = claude_dir / "memory"
+    if memory_dir.exists():
+        for mem_file in memory_dir.glob("*.md"):
+            result["memory"].append(mem_file)
+    return result
 
 
 @pytest.fixture
@@ -85,9 +107,42 @@ def test_duplicates(project_dir):
     assert dup_issues[0]["source"] == "detect_duplicates_simple"
 
 
+def test_hardcoded_value_in_skill(project_dir):
+    """skill ファイル内のハードコード値が hardcoded_value として返される。"""
+    skills_dir = project_dir / ".claude" / "skills" / "my-skill"
+    skills_dir.mkdir(parents=True)
+    skill_md = skills_dir / "SKILL.md"
+    skill_md.write_text("# My Skill\nslack_app_id: A04K8RZLM3Q\n")
+
+    with patch("audit.read_auto_memory", return_value=[]):
+        issues = collect_issues(project_dir)
+
+    hv_issues = [i for i in issues if i["type"] == "hardcoded_value"]
+    assert len(hv_issues) >= 1
+    assert hv_issues[0]["detail"]["pattern_type"] == "slack_id"
+    assert hv_issues[0]["detail"]["matched"] == "A04K8RZLM3Q"
+    assert hv_issues[0]["source"] == "detect_hardcoded_values"
+
+
+def test_no_hardcoded_value(project_dir):
+    """ハードコード値がなければ hardcoded_value issue は返さない。"""
+    skills_dir = project_dir / ".claude" / "skills" / "clean-skill"
+    skills_dir.mkdir(parents=True)
+    skill_md = skills_dir / "SKILL.md"
+    skill_md.write_text("# Clean Skill\nNo hardcoded values here.\n")
+
+    with patch("audit.read_auto_memory", return_value=[]), \
+         patch("audit.find_artifacts", side_effect=_find_artifacts_local_only):
+        issues = collect_issues(project_dir)
+
+    hv_issues = [i for i in issues if i["type"] == "hardcoded_value"]
+    assert len(hv_issues) == 0
+
+
 def test_no_issues(project_dir):
     """問題がなければ空リストを返す。"""
-    with patch("audit.read_auto_memory", return_value=[]):
+    with patch("audit.read_auto_memory", return_value=[]), \
+         patch("audit.find_artifacts", side_effect=_find_artifacts_local_only):
         issues = collect_issues(project_dir)
 
     assert issues == []

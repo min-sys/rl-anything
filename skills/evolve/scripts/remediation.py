@@ -84,6 +84,10 @@ def compute_confidence_score(issue: Dict[str, Any]) -> float:
     if issue_type == "duplicate":
         return 0.4  # 重複の統合は複雑
 
+    if issue_type == "hardcoded_value":
+        # 検出結果自体の confidence_score を使用
+        return detail.get("confidence_score", 0.5)
+
     return 0.5
 
 
@@ -142,6 +146,7 @@ _RATIONALE_TEMPLATES = {
     "line_limit_violation_manual": "行数が制限値の {pct}% ({lines}/{limit}) と大幅に超過しています。手動でのリファクタリングが必要です。",
     "near_limit": "行数が制限の {pct}% ({lines}/{limit}) に達しています。トピック別ファイルへの分割を提案します。",
     "duplicate": "名前が類似するアーティファクト「{name}」が {count} 箇所にあります。統合を検討してください。",
+    "hardcoded_value": "ハードコード値 `{matched}` ({pattern_type}) が検出されました。プレースホルダへの置換を検討してください。",
 }
 
 
@@ -183,6 +188,12 @@ def generate_rationale(issue: Dict[str, Any], category: str) -> str:
         return _RATIONALE_TEMPLATES["duplicate"].format(
             name=detail.get("name", "unknown"),
             count=len(detail.get("paths", [])),
+        )
+
+    if issue_type == "hardcoded_value":
+        return _RATIONALE_TEMPLATES["hardcoded_value"].format(
+            matched=detail.get("matched", "unknown"),
+            pattern_type=detail.get("pattern_type", "unknown"),
         )
 
     return f"問題タイプ「{issue_type}」が検出されました。"
