@@ -19,7 +19,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion
 | 引数 | 説明 | デフォルト |
 |------|------|-----------|
 | `TARGET` | 最適化対象のスキルファイルパス（スキル名 or ファイルパス） | 必須 |
-| `--generations N` | 世代数 | 3 |
+| `--generations N` | 世代数 | 1 |
 | `--population N` | 集団サイズ | 3 |
 | `--fitness FUNC` | 適応度関数名 | default |
 | `--dry-run` | 構造テスト（LLM 評価なし） | false |
@@ -72,7 +72,7 @@ python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py \
 /optimize my-skill                          # 基本実行（3世代 x 集団3）
 /optimize my-skill --dry-run                # 構造テスト
 /optimize my-skill --fitness skill_quality  # カスタム適応度関数
-/optimize my-skill --generations 5          # 5世代実行
+/optimize my-skill --generations 3          # 効果確認後に世代数を増やす
 /optimize my-skill --restore               # バックアップから復元
 /optimize my-skill --budget 30             # 高価モデル30コールまで（budget_mpo）
 /optimize my-skill --parallel 4            # references/ を4並行で最適化

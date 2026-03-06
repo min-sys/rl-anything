@@ -1311,7 +1311,7 @@ def main():
         "--target", required=True, help="最適化対象のスキルファイルパス"
     )
     parser.add_argument(
-        "--generations", type=int, default=3, help="世代数"
+        "--generations", type=int, default=1, help="世代数"
     )
     parser.add_argument(
         "--population", type=int, default=3, help="集団サイズ"
