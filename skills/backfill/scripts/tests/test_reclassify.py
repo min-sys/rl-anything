@@ -243,3 +243,18 @@ class TestValidCategories:
         """PROMPT_CATEGORIES の全キーが含まれる。"""
         for cat in common.PROMPT_CATEGORIES:
             assert cat in reclassify.VALID_CATEGORIES
+
+    def test_includes_conversation_subcategories(self):
+        """conversation サブカテゴリが VALID_CATEGORIES に含まれる。"""
+        for sub in [
+            "conversation:approval",
+            "conversation:confirmation",
+            "conversation:question",
+            "conversation:direction",
+            "conversation:thanks",
+        ]:
+            assert sub in reclassify.VALID_CATEGORIES
+
+    def test_includes_bare_conversation(self):
+        """後方互換のため bare conversation が VALID_CATEGORIES に含まれる。"""
+        assert "conversation" in reclassify.VALID_CATEGORIES

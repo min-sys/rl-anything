@@ -302,6 +302,81 @@ class TestAnalyzeSessions:
         assert result["avg_tool_calls"] == 0
 
 
+class TestConversationSubcategoryAggregation:
+    """conversation:* サブカテゴリ集約表示のテスト。"""
+
+    def test_aggregates_subcategories_in_report(self):
+        """サブカテゴリが合計行+内訳行で表示される。"""
+        session_analysis = {
+            "total_sessions": 10,
+            "avg_tool_calls": 5.0,
+            "avg_duration_minutes": 10.0,
+            "avg_errors": 0.5,
+            "avg_human_messages": 3.0,
+            "tool_distribution": {"Read": 10},
+            "intent_distribution": {
+                "implementation": 20,
+                "conversation:approval": 50,
+                "conversation:confirmation": 30,
+                "conversation": 10,
+            },
+            "sessions_by_duration": {"short": 3, "medium": 5, "long": 2},
+            "sessions_by_project": {"test": 10},
+        }
+        report = analyze.format_report(
+            consistency={},
+            variations={},
+            intervention={"total_agent_calls": 0, "contextualized": 0, "ad_hoc": 0,
+                          "contextualized_ratio": 0.0, "sessions_with_mixed_patterns": 0,
+                          "total_sessions_with_agents": 0},
+            discover_prune={"total_records": 0, "backfill_records": 0, "trace_records": 0,
+                            "hook_records": 0, "skills_referenced_as_parent": [],
+                            "ad_hoc_agent_types": []},
+            session_analysis=session_analysis,
+            workflow_count=0,
+            usage_count=0,
+            session_count=10,
+        )
+        assert "conversation (total) | 90" in report
+        assert "conversation:approval | 50" in report
+        assert "conversation:confirmation | 30" in report
+        assert "conversation (unclassified) | 10" in report
+        assert "implementation | 20" in report
+
+    def test_no_bare_conversation_hides_unclassified(self):
+        """bare conversation がない場合は unclassified 行を出さない。"""
+        session_analysis = {
+            "total_sessions": 5,
+            "avg_tool_calls": 3.0,
+            "avg_duration_minutes": 5.0,
+            "avg_errors": 0.0,
+            "avg_human_messages": 2.0,
+            "tool_distribution": {},
+            "intent_distribution": {
+                "conversation:approval": 20,
+                "conversation:thanks": 5,
+            },
+            "sessions_by_duration": {"short": 5, "medium": 0, "long": 0},
+            "sessions_by_project": {"test": 5},
+        }
+        report = analyze.format_report(
+            consistency={},
+            variations={},
+            intervention={"total_agent_calls": 0, "contextualized": 0, "ad_hoc": 0,
+                          "contextualized_ratio": 0.0, "sessions_with_mixed_patterns": 0,
+                          "total_sessions_with_agents": 0},
+            discover_prune={"total_records": 0, "backfill_records": 0, "trace_records": 0,
+                            "hook_records": 0, "skills_referenced_as_parent": [],
+                            "ad_hoc_agent_types": []},
+            session_analysis=session_analysis,
+            workflow_count=0,
+            usage_count=0,
+            session_count=5,
+        )
+        assert "conversation (total) | 25" in report
+        assert "unclassified" not in report
+
+
 class TestGetProjectSessionIds:
     """get_project_session_ids() のテスト。"""
 

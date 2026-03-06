@@ -71,12 +71,21 @@ PROMPT_CATEGORIES = {
     "research": ["research", "best practice", "latest", "how to", "pattern", "調べて", "ベストプラクティス", "最新", "方法"],
     "implementation": ["implement", "create", "build", r"write.*code", r"add.*feature", "実装", "作成", "追加", "機能", "作って"],
     "config": ["config", "setting", "setup", "env", "設定", "構成", "セットアップ", "readme"],
-    "conversation": ["お願い", "続けて", "ありがと", "よろしく", "はい", "いいえ", "ok", "いいよ", "やって", "進めて", "対応して"],
+    "conversation:approval": ["はい", "いいえ", "ok", "いいよ", "よろしく", "採用", "accept"],
+    "conversation:confirmation": ["お願い", "やって", "進めて", "対応して", "続けて"],
+    "conversation:question": [r"なに", r"どう", r"なぜ", "教えて", "？"],
+    "conversation:direction": ["こうして", "やめて", "変えて", "代わりに", "ではなく"],
+    "conversation:thanks": ["ありがと", "感謝", "サンクス", "thx", "thanks"],
 }
 
 
 def classify_prompt(prompt: str) -> str:
-    """prompt をキーワードベースで簡易分類する。"""
+    """prompt をキーワードベースで簡易分類する。
+
+    conversation サブカテゴリ（conversation:*）は全キーワードが分配済みのため、
+    キーワードマッチでは常にサブカテゴリが返る。bare "conversation" は LLM reclassify
+    経由でのみ発生し、VALID_CATEGORIES で受け入れる（後方互換）。
+    """
     prompt_lower = prompt.lower()
     for category, keywords in PROMPT_CATEGORIES.items():
         for kw in keywords:

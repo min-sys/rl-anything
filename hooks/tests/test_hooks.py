@@ -225,7 +225,7 @@ class TestClassifyPrompt:
         assert common.classify_prompt("setup the env variables") == "config"
 
     def test_conversation_ok(self):
-        assert common.classify_prompt("OK let's do it") == "conversation"
+        assert common.classify_prompt("OK let's do it") == "conversation:approval"
 
     # --- 既存カテゴリ（日本語） ---
 
@@ -298,16 +298,16 @@ class TestClassifyPrompt:
         assert common.classify_prompt("README.mdを更新") == "config"
 
     def test_conversation_jp_please(self):
-        assert common.classify_prompt("お願いします") == "conversation"
+        assert common.classify_prompt("お願いします") == "conversation:confirmation"
 
     def test_conversation_jp_continue(self):
-        assert common.classify_prompt("続けてください") == "conversation"
+        assert common.classify_prompt("続けてください") == "conversation:confirmation"
 
     def test_conversation_jp_proceed(self):
-        assert common.classify_prompt("進めて") == "conversation"
+        assert common.classify_prompt("進めて") == "conversation:confirmation"
 
     def test_conversation_jp_thanks(self):
-        assert common.classify_prompt("ありがとう") == "conversation"
+        assert common.classify_prompt("ありがとう") == "conversation:thanks"
 
     # --- 優先順位テスト ---
 

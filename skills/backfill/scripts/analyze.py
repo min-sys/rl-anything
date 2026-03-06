@@ -487,10 +487,22 @@ def format_report(
         lines.append("### ユーザー意図の分布")
         lines.append("")
         if sa["intent_distribution"]:
+            # conversation:* サブカテゴリの集約
+            conv_subcats = {k: v for k, v in sa["intent_distribution"].items() if k.startswith("conversation:")}
+            bare_conv = sa["intent_distribution"].get("conversation", 0)
+            conv_total = sum(conv_subcats.values()) + bare_conv
+            non_conv = {k: v for k, v in sa["intent_distribution"].items() if not k.startswith("conversation:") and k != "conversation"}
+
             lines.append("| Intent | Count |")
             lines.append("|--------|-------|")
-            for intent, count in sorted(sa["intent_distribution"].items(), key=lambda x: x[1], reverse=True):
+            for intent, count in sorted(non_conv.items(), key=lambda x: x[1], reverse=True):
                 lines.append(f"| {intent} | {count} |")
+            if conv_total > 0:
+                lines.append(f"| conversation (total) | {conv_total} |")
+                if bare_conv > 0:
+                    lines.append(f"|   conversation (unclassified) | {bare_conv} |")
+                for sub, count in sorted(conv_subcats.items(), key=lambda x: x[1], reverse=True):
+                    lines.append(f"|   {sub} | {count} |")
         lines.append("")
 
     # Correction 分析 & Routing

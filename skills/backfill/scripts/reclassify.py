@@ -28,7 +28,7 @@ sys.path.insert(0, str(PLUGIN_ROOT / "hooks"))
 import common
 
 # 有効なカテゴリ一覧
-VALID_CATEGORIES = list(common.PROMPT_CATEGORIES.keys()) + ["other", "skill-invocation"]
+VALID_CATEGORIES = list(common.PROMPT_CATEGORIES.keys()) + ["other", "skill-invocation", "conversation"]
 
 
 def load_corrections_by_session() -> Dict[str, List[Dict[str, Any]]]:
