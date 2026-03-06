@@ -535,6 +535,48 @@ def detect_session_patterns(
     return patterns
 
 
+# ---------- recommended artifacts ----------
+
+RECOMMENDED_ARTIFACTS = [
+    {
+        "id": "no-defer-use-subagent",
+        "type": "rule",
+        "path": Path.home() / ".claude" / "rules" / "no-defer-use-subagent.md",
+        "description": "先送り禁止 — background subagent 即時委譲ルール",
+        "hook_path": Path.home() / ".claude" / "hooks" / "detect-deferred-task.py",
+        "hook_description": "Stop hook: 先送り表現検出 → 会話続行強制",
+    },
+]
+
+
+def detect_recommended_artifacts() -> List[Dict[str, Any]]:
+    """推奨ルール/hook が未導入かチェックし、未導入のものを返す。"""
+    missing = []
+    for artifact in RECOMMENDED_ARTIFACTS:
+        rule_exists = artifact["path"].exists()
+        hook_path = artifact.get("hook_path")
+        hook_exists = hook_path.exists() if hook_path else True
+
+        if rule_exists and hook_exists:
+            continue
+
+        entry: Dict[str, Any] = {
+            "id": artifact["id"],
+            "description": artifact["description"],
+            "missing": [],
+        }
+        if not rule_exists:
+            entry["missing"].append({"type": "rule", "path": str(artifact["path"])})
+        if not hook_exists and hook_path:
+            entry["missing"].append({
+                "type": "hook",
+                "path": str(hook_path),
+                "description": artifact.get("hook_description", ""),
+            })
+        missing.append(entry)
+    return missing
+
+
 def run_discover(
     session_scan: bool = False,
     *,
@@ -589,6 +631,11 @@ def run_discover(
         tool_result = analyze_tool_usage(project_root=project_root)
         if tool_result["total_tool_calls"] > 0:
             result["tool_usage_patterns"] = tool_result
+
+    # 推奨アーティファクト未導入チェック
+    recommended_missing = detect_recommended_artifacts()
+    if recommended_missing:
+        result["recommended_artifacts"] = recommended_missing
 
     return result
 
