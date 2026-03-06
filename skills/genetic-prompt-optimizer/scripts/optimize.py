@@ -323,9 +323,23 @@ class GeneticOptimizer:
                 bandit.initialize_from_importance(importance)
 
         # Phase 2: セクション単位の反復最適化
+        # 評価は全体再結合後に行う（セクション単独評価は文脈欠落で無意味）
         section_contents = {s.id: "\n".join(s.lines) for s in sections}
         score_history: Dict[str, List[float]] = {sid: [] for sid in section_ids}
         total_cost = 0.0
+
+        def _reassemble(overrides: Optional[Dict[str, str]] = None) -> str:
+            """セクションを再結合して全体テキストを生成。"""
+            parts = []
+            for sid in section_ids:
+                if overrides and sid in overrides:
+                    parts.append(overrides[sid])
+                else:
+                    parts.append(section_contents[sid])
+            return "\n".join(parts)
+
+        # 現在の全体スコアをキャッシュ（同一世代内で再利用）
+        baseline_score: Optional[float] = None
 
         cumulative_cost = 0
         for gen in range(self.generations):
@@ -336,6 +350,14 @@ class GeneticOptimizer:
                 k = max(1, len(section_ids) // 2)
             selected = bandit.select_top_k(k)
             print(f"\n--- 世代 {gen}: sections {selected} ---")
+
+            # 世代開始時のベースラインスコア
+            if not self.dry_run and baseline_score is None:
+                baseline_content = _reassemble()
+                baseline_ind = Individual(baseline_content, generation=gen)
+                baseline_score = self.evaluate(baseline_ind)
+                cumulative_cost += 1
+                print(f"  baseline score: {baseline_score:.3f}")
 
             for sid in selected:
                 # Early stopping チェック
@@ -354,13 +376,20 @@ class GeneticOptimizer:
                     ind.fitness = self.evaluate(ind)
                     cumulative_cost += 1
                 else:
+                    # セクション単体を変異させる
                     mutated = self.mutate(ind, gen)
-                    mutated.fitness = self.evaluate(mutated)
-                    ind.fitness = self.evaluate(ind)
-                    cumulative_cost += 2  # evaluate + mutate
+
+                    # 変異セクションを全体に再結合してから評価
+                    mutated_full = _reassemble({sid: mutated.content})
+                    mutated_full_ind = Individual(mutated_full, generation=gen, section_id=sid)
+                    mutated_full_ind.fitness = self.evaluate(mutated_full_ind)
+                    mutated.fitness = mutated_full_ind.fitness
+                    ind.fitness = baseline_score
+                    cumulative_cost += 1  # evaluate (baseline はキャッシュ)
 
                     if (mutated.fitness or 0) > (ind.fitness or 0):
                         section_contents[sid] = mutated.content
+                        baseline_score = mutated.fitness  # 採用 → ベースライン更新
                         bandit.update(sid, improved=True)
                         print(f"  {sid}: improved {ind.fitness:.3f} -> {mutated.fitness:.3f}")
                     else:
