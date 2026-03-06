@@ -376,8 +376,9 @@ class GeneticOptimizer:
                     ind.fitness = self.evaluate(ind)
                     cumulative_cost += 1
                 else:
-                    # セクション単体を変異させる
-                    mutated = self.mutate(ind, gen)
+                    # セクション単体を変異（全体コンテキスト付き）
+                    full_context = _reassemble()
+                    mutated = self._mutate_section(ind, gen, full_context)
 
                     # 変異セクションを全体に再結合してから評価
                     mutated_full = _reassemble({sid: mutated.content})
@@ -399,10 +400,21 @@ class GeneticOptimizer:
                 score = ind.fitness if self.dry_run else max(ind.fitness or 0, mutated.fitness or 0)
                 score_history[sid].append(score)
 
-        # Phase 3: 再結合
-        final_content = "\n".join(section_contents[sid] for sid in section_ids)
+        # Phase 3: 再結合 + オリジナルとの比較ガード
+        final_content = _reassemble()
         final_ind = Individual(final_content, generation=self.generations - 1)
-        final_ind.fitness = evaluator(final_content)
+        if baseline_score is not None:
+            # baseline_score は改善採用時に更新済み → 追加 LLM コール不要
+            final_ind.fitness = baseline_score
+        else:
+            final_ind.fitness = evaluator(final_content)
+
+        # 改善がなかった場合はオリジナルを維持
+        original_ind = Individual(content, generation=0)
+        original_ind.fitness = evaluator(content) if baseline_score is None else None
+        if baseline_score is not None and (final_ind.fitness or 0) < (baseline_score or 0):
+            final_ind = Individual(content, generation=0)
+            final_ind.fitness = baseline_score
 
         # Bandit 状態保存
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -567,6 +579,67 @@ class GeneticOptimizer:
                 return hint_text
 
         return ""
+
+    def _mutate_section(
+        self, individual: Individual, generation: int, full_context: str
+    ) -> Individual:
+        """セクション単位の変異。全体コンテキストを参照しつつ、対象セクションのみ改善。"""
+        section_lines = individual.content.count("\n") + 1
+        prompt = (
+            "以下はClaude Codeスキル定義の全体です。\n\n"
+            f"```markdown\n{full_context}\n```\n\n"
+            "上記スキルの中で、以下のセクション部分だけを改善してください。\n"
+            "他のセクションとの整合性を保ちつつ、このセクションの品質を向上させてください。\n\n"
+            "改善方針（ランダムに1-2個選んで適用）:\n"
+            "- より具体的な例を追加\n"
+            "- 曖昧な指示を明確化\n"
+            "- 構造を整理\n"
+            "- 不要な冗長性を削除\n"
+            "- エッジケースの対処を追加\n\n"
+            "対象セクション:\n"
+            f"```markdown\n{individual.content}\n```\n\n"
+            f"改善後のセクション部分だけを出力してください（{section_lines}行前後を目安）。\n"
+            "```markdown と ``` で囲んでください。\n"
+            "セクションの見出しレベル（## や ###）は変更しないでください。\n"
+            "frontmatter（---で囲まれたYAML）は追加しないでください。"
+        )
+
+        try:
+            run_kwargs = dict(
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if self._claude_cwd:
+                run_kwargs["cwd"] = self._claude_cwd
+            result = subprocess.run(
+                ["claude", "-p", "--output-format", "text"],
+                **run_kwargs,
+            )
+            if result.returncode == 0:
+                content = self._extract_markdown(result.stdout)
+                if content:
+                    child = Individual(
+                        content,
+                        generation=generation,
+                        parent_ids=[individual.id],
+                        section_id=individual.section_id,
+                    )
+                    child.strategy = "section_mutation"
+                    return child
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            print(f"  セクション変異失敗（{type(e).__name__}）、元の個体を使用")
+
+        # フォールバック: 元の個体を返す
+        fallback = Individual(
+            individual.content,
+            generation=generation,
+            parent_ids=[individual.id],
+            section_id=individual.section_id,
+        )
+        fallback.strategy = "section_mutation"
+        return fallback
 
     def mutate(self, individual: Individual, generation: int) -> Individual:
         """LLM で突然変異を生成。
