@@ -4,390 +4,206 @@
 
 ### Added
 - **remediation-engine**: evolve パイプラインに Remediation フェーズ（Step 7.5）を追加
-  - `audit.py` に `collect_issues()` — 既存検出結果を統一フォーマット `{type, file, detail, source}` の issue リストとして構造化出力
-  - `skills/evolve/scripts/remediation.py` 新規作成 — confidence_score / impact_scope ベースの動的3カテゴリ分類（auto_fixable / proposable / manual_required）
-  - `generate_rationale()`: 修正理由テキスト生成（テンプレートベース）
-  - `fix_stale_references()`: 陳腐化参照の行削除 + ロールバック用 original 保持
-  - `generate_proposals()`: 行数超過・肥大化に対する rationale 付き修正案生成
-- **remediation-verification**: 修正後の2段階検証エンジン
-  - `verify_fix()`: 該当検出関数を再実行し元問題の解消を確認
-  - `check_regression()`: 見出し構造保持・コードブロック対応・空ファイルチェック
-  - `rollback_fix()`: regression 検出時に修正前内容へ復元
-- `record_outcome()`: `remediation-outcomes.jsonl` への修正結果記録（dry-run 時スキップ）
-- `evolve.py` に Remediation フェーズ追加（audit の後、collect_issues → classify_issues → result に格納）
-- `SKILL.md` に Step 7.5 フロー記述追加
-- OpenSpec specs 追加: remediation-engine（新規）、remediation-verification（新規）
-- テスト追加: collect_issues 6件 + remediation 分類/修正/検証/テレメトリ 19件（計25件）
+  - confidence_score / impact_scope ベースの動的3カテゴリ分類（auto_fixable / proposable / manual_required）
+  - 修正理由（rationale）付きの一括承認 / 個別承認フロー
+  - 陳腐化参照の自動削除、行数超過に対する修正案生成
+- **remediation-verification**: 修正後の2段階検証（Fix Verification + Regression Check）
+  - regression 検出時に自動ロールバック
+- 修正結果を `remediation-outcomes.jsonl` に記録（dry-run 時スキップ）
 
 ## [0.19.1] - 2026-03-06
 
 ### Added
-- **reference-skill-classification**: `is_reference_skill()` で参照型スキルを判定（frontmatter `type: reference` → `skill_type_cache` → LLM キーワード推定の3段階優先順位）
-- `_load_skill_type_cache()` / `_save_skill_type_cache()`: `evolve-state.json` の `skill_type_cache` 読み書き（mtime ベース無効化対応）
-- `detect_zero_invocations()` で参照型スキルを自動除外（`.pin` と同じ位置）
-- `suggest_recommendation()` に参照型スキル向けロジック追加（`keep推奨` / ドリフト時 `要確認`）
-- **reference-drift-detection**: `detect_reference_drift()` で参照型スキルの内容とコードベースの乖離度をサブエージェントで評価
-- `load_drift_threshold()`: `evolve-state.json` の `reference_drift_threshold`（デフォルト 0.5）
-- `_gather_drift_context()`: CLAUDE.md・rules・スキル内容からドリフト評価コンテキストを収集
-- `run_prune()` 結果に `reference_drift_candidates` キー追加
-- **audit-untagged-warning**: `detect_untagged_reference_candidates()` でゼロ呼び出し + `type` 未設定のスキルを警告（プラグインスキル除外）
-- audit レポートに「Reference Type Warning」セクション追加
-- `docs/evolve/prune.md` に参照型スキルの判断基準を追記
-- OpenSpec specs 追加: reference-skill-classification（新規）、reference-drift-detection（新規）
-- テスト追加: is_reference_skill 6件 + detect_zero_invocations 2件 + detect_reference_drift 5件 + suggest_recommendation 3件 + load_drift_threshold 4件（計20件）
+- **reference-skill-classification**: 参照型スキルを自動判定し prune の淘汰対象から除外
+- **reference-drift-detection**: 参照型スキルの内容とコードベースの乖離度を評価
+- **audit-untagged-warning**: ゼロ呼び出し + `type` 未設定のスキルを audit レポートで警告
 
 ## [0.19.0] - 2026-03-06
 
 ### Added
-- **missed-skill-detection**: sessions.jsonl の user_prompts × CLAUDE.md のスキルトリガーワードを突合し、「スキルが存在するのに使われなかった」パターンを検出・レポート
-- `scripts/lib/skill_triggers.py`: CLAUDE.md Skills セクションからスキル名+トリガーワード抽出、`normalize_skill_name()`（`/` 除去、`plugin-name:` prefix 除去）
-- `telemetry_query.py` に `query_sessions()` 追加（sessions.jsonl クエリ、project フィルタ対応）
-- `discover.py` に `detect_missed_skills()` 追加（閾値 `MISSED_SKILL_THRESHOLD=2`、sessions.jsonl 未生成時スキップ）
-- discover レポートに `missed_skill_opportunities` セクション追加
-- **scope-aware-routing**: `reflect_utils.py` に `detect_project_signals()` 追加（CLAUDE.md スキル名照合 + 実在パスチェック）
-- `suggest_claude_file()` ルーティング優先順位変更: guardrail → プロジェクト固有シグナル → モデル名 → always/never/prefer
-- テスト追加: skill_triggers 7件 + missed_skills 8件 + reflect_utils 6件（計21件）
-- OpenSpec specs 追加: missed-skill-detection（新規）、scope-aware-routing（新規）、reflect/scoped-report-filtering（更新）
+- **missed-skill-detection**: 「スキルが存在するのに使われなかった」パターンを検出・レポート
+- **scope-aware-routing**: reflect の修正反映先をプロジェクト固有シグナルで自動判定
 
 ## [0.18.1] - 2026-03-06
 
 ### Fixed
 - backfill: usage/workflows/sessions レコードに `project` フィールドが欠落していた問題を修正
-- session_summary hook: sessions.jsonl / workflows.jsonl に `project` フィールドを付与
-- subagent_observe hook: subagents.jsonl に `project` フィールドを付与
-
-### Changed
-- commit-version ルール: バージョン種別を AskUserQuestion で確認、CHANGELOG に前回バージョンからの全変更を記載するよう改善
 
 ## [0.18.0] - 2026-03-06
 
 ### Added
-- **cross-project-telemetry-isolation**: observe hooks の usage/errors レコードに `project` フィールド追加（CLAUDE_PROJECT_DIR 末尾名）
-- `scripts/lib/telemetry_query.py`: DuckDB 共通クエリ層（JSONL→SQL、DuckDB 未インストール時は Python フォールバック、project フィルタリング対応）
-- discover/audit: `--project-dir` によるプロジェクト単位フィルタリング（`--include-unknown` オプション付き）
-- `scripts/migrate_project_field.py`: 2層リカバリ（sessions + fs consensus）で既存 usage.jsonl に project フィールドをバックフィル
-- **interactive-merge-proposal**: reorganize 検出かつ merge 閾値未満（0.40〜0.60）のペアに対して AskUserQuestion で対話的統合提案
-- `filter_merge_group_pairs()` に `interactive_threshold` パラメータ追加、返り値を `(passed, interactive)` タプルに変更
-- `load_interactive_merge_threshold()`: `evolve-state.json` の `interactive_merge_similarity_threshold`（デフォルト 0.40）を読み込み
-- `merge_proposals` に `status: "interactive_candidate"` + `similarity_score` を出力
-- evolve SKILL.md Step 5 Merge に interactive candidate ハンドリング（最大3件/回、承認→統合、却下→suppression 登録）
-- テスト追加: telemetry_query 6件 + migrate 5件 + similarity 2件 + prune 3件
+- **cross-project-telemetry-isolation**: observe hooks に project フィールド追加、プロジェクト単位のテレメトリ分離
+- discover/audit: `--project-dir` によるプロジェクト単位フィルタリング
+- **interactive-merge-proposal**: reorganize 検出の中類似度ペアに対して対話的統合提案
 
 ## [0.17.0] - 2026-03-05
 
 ### Added
-- **agent-type-classification**: 組み込み Agent（Explore, Plan, general-purpose）をメインランキングから除外し `agent_usage_summary` に分離
-- `scripts/lib/agent_classifier.py`: `BUILTIN_AGENT_NAMES` + `classify_agent_type()` 共通モジュール（builtin / custom_global / custom_project 判定）
-- `detect_behavior_patterns()` で処理順序を明確化: プラグイン → 組み込み Agent → カスタム Agent
-- カスタム Agent に `agent_type` フィールドを付与し `determine_scope()` でスコープ判定
-- `agent-type-classification` / `scope-detection` spec を main specs に同期
-- ユニットテスト 11 件（`test_agent_classifier.py`）+ 統合テスト 8 件（`test_agent_filter.py`）追加
+- **agent-type-classification**: 組み込み Agent をメインランキングから除外し `agent_usage_summary` に分離
 
 ### Changed
-- `audit.py` の `_BUILTIN_TOOLS` を `BUILTIN_AGENT_NAMES` から派生する形にリファクタ（DRY）
 - `determine_scope()` が `agent_type` フィールドを優先参照するように拡張
 
 ## [0.16.0] - 2026-03-05
 
 ### Added
 - **usage-scope-classification**: プラグインスキルの動的検出とレポート分離表示
-- `_load_plugin_skill_map()`: `installed_plugins.json` から `{skill_name: plugin_name}` マッピングを動的構築（`.claude/skills/` と `skills/` 両レイアウト対応）
-- `classify_usage_skill()`: 完全一致 + prefix マッチ + プラグイン名マッチの多段階スキル分類
-- `_is_openspec_skill()` / `_is_plugin_skill()`: OpenSpec 旧スキル名（`opsx:*`）を含むキーワードベース判定
-- `aggregate_plugin_usage()`: プラグイン別使用回数の集計
-- `build_openspec_analytics_section()`: OpenSpec ワークフロー分析（ファネル・完走率・フェーズ別効率・品質トレンド・最適化候補）
-- `detect_behavior_patterns()` でプラグインスキルをメインランキングから除外し `plugin_summary` エントリに集約
-- evolve SKILL.md Step 7 に Plugin usage / OpenSpec Workflow Analytics の表示指示追加
-- `scoped-report-filtering` / `usage-scope-tagging` spec を main specs に同期
-- ユニットテスト 17 件追加（`test_usage_scope.py`）
+- **OpenSpec Workflow Analytics**: ファネル・完走率・フェーズ別効率・品質トレンド・最適化候補
 
 ### Changed
-- `aggregate_usage(exclude_plugins=True)` でプラグインスキルをメインランキングから除外
-- `generate_report()` に `plugin_usage` / `openspec_analytics` パラメータ追加
-- 既存テスト 2 ファイルのキャッシュ変数を `_plugin_skill_map_cache` に移行
+- audit レポートの Usage を PJ 固有スキルのみに変更、Plugin usage サマリを追加
 
 ## [0.15.6] - 2026-03-05
 
 ### Added
-- **Memory Semantic Verification**: audit に LLM セマンティック検証ステップを追加。MEMORY の各セクションをコードベースと突合し、3段階判定（CONSISTENT / MISLEADING / STALE）で陳腐化・誤解リスクを検出
-- **archive Memory Sync**: openspec-archive スキルに Step 4.5（Memory Sync）を追加。change archive 時に MEMORY への影響を分析し更新ドラフトを提示
-- `split_memory_sections()` を reflect_utils.py に追加（`## ` 見出し単位でセクション分割）
-- `_extract_section_keywords()`: ストップワード除外付きキーワード抽出
-- `_find_archive_mentions()`: OpenSpec archive ディレクトリ名とキーワードの照合
-- `build_memory_verification_context()`: MEMORY セクションの検証用コンテキスト収集（JSON 出力）
-- `--memory-context` オプション: audit.py でセマンティック検証用コンテキストを JSON 出力
-- global memory の PJ 固有セクション判定（`_is_project_specific_section()`）
-- ユニットテスト 20 件追加（test_audit_memory_verification.py 14 件 + test_reflect_utils.py 6 件）
+- **Memory Semantic Verification**: audit に LLM セマンティック検証を追加（CONSISTENT / MISLEADING / STALE 判定）
+- **archive Memory Sync**: openspec-archive 時に MEMORY への影響を分析し更新ドラフトを提示
 
 ## [0.15.5] - 2026-03-05
 
 ### Added
-- **audit Memory Health**: audit レポートに MEMORY ファイルの健康度セクションを追加（陳腐化参照検出・肥大化早期警告・改善提案）
-- **reflect memory_update_candidates**: corrections と既存 MEMORY エントリのキーワードマッチによる更新候補検出
-- `NEAR_LIMIT_RATIO` 定数（0.8）: MEMORY 行数上限の 80% で早期警告
-- `MIN_KEYWORD_MATCH` 定数（3）: MEMORY 更新候補の最低キーワードマッチ数
-- auto-memory ファイル（`~/.claude/projects/<encoded>/memory/`）を audit 検査対象に追加
-- `similarity.tokenize()` を reflect の MEMORY 更新候補検出で再利用
-- ユニットテスト 11 件追加（audit Memory Health 7 件 + reflect memory_update_candidates 4 件）
+- **audit Memory Health**: MEMORY ファイルの健康度セクション追加（陳腐化参照検出・肥大化早期警告）
+- **reflect memory_update_candidates**: corrections と既存 MEMORY のキーワードマッチによる更新候補検出
 
 ## [0.15.4] - 2026-03-04
 
 ### Added
-- **merge-group-filter**: reorganize 由来 merge_groups のペア展開時に TF-IDF コサイン類似度フィルタを適用し偽陽性を排除
-- `filter_merge_group_pairs()` を `scripts/lib/similarity.py` に追加（共通エンジン再利用）
-- `load_merge_similarity_threshold()` を prune.py に追加（`evolve-state.json` で閾値設定可能、デフォルト 0.60）
-- `skipped_low_similarity` status を merge_proposals 出力に追加（フィルタ除外ペアの可視化）
-- sklearn 未インストール時の graceful degradation（全ペアをそのまま返す）
-- ユニットテスト 6 件追加（filter 単体テスト 5 件 + merge_duplicates 統合テスト 1 件）
-- OpenSpec specs 新規追加: merge-group-filter、merge spec 更新
+- **merge-group-filter**: reorganize 由来 merge_groups に TF-IDF コサイン類似度フィルタを適用し偽陽性を排除
 
 ## [0.15.3] - 2026-03-04
 
 ### Added
-- **quality_monitor.py**: 高頻度 global/plugin スキルの品質スコアを定期計測し劣化を検知する品質モニタリングエンジン
-- **audit 品質推移セクション**: audit レポートに "Skill Quality Trends" セクションを追加（スパークライン・DEGRADED/RESCORE NEEDED マーカー）
-- `--skip-rescore` オプション: audit 実行時の品質計測をスキップ可能に
-- `--dry-run` オプション: quality_monitor.py で LLM 評価なしに対象スキルのみ確認
-- 定数化: RESCORE_USAGE_THRESHOLD, RESCORE_DAYS_THRESHOLD, DEGRADATION_THRESHOLD, HIGH_FREQ_THRESHOLD, HIGH_FREQ_DAYS, MAX_RECORDS_PER_SKILL
-- OpenSpec specs 新規追加: quality-baseline, degradation-detector, audit-report
-- ユニットテスト 42 件追加（test_quality_monitor.py, test_audit_quality_trends.py）
-
-## [0.15.2] - 2026-03-04
-
-### Changed
-- **DRY リファクタリング**: `_check_line_limit` + 行数定数 (`MAX_SKILL_LINES`/`MAX_RULE_LINES`) を `scripts/lib/line_limit.py` に共通化し optimize.py / run-loop.py / discover.py から参照
-- **Jaccard 共通化**: `tokenize()` / `jaccard_coefficient()` を `scripts/lib/similarity.py` に移動し enrich.py から参照
-- **リネーム**: `generate_adversarial_candidates()` → `get_adversarial_templates()` に改名（実態に合致）
-- **スタブ修正**: fitness-template.py の未実装時フォールバックを `0.5` → stderr 警告 + `0.0` に変更
-- OpenSpec specs 同期: line-limit (新規), evolve-fitness (新規), enrich (更新), fitness-generator (更新)
+- **quality_monitor**: 高頻度スキルの品質スコアを定期計測し劣化を検知
+- audit レポートに "Skill Quality Trends" セクション追加（スパークライン・DEGRADED マーカー）
 
 ## [0.15.1] - 2026-03-04
 
 ### Added
-- **similarity-engine**: TF-IDF + コサイン類似度の共通計算エンジン (`scripts/lib/similarity.py`)
-- `compute_pairwise_similarity()`: 閾値フィルタ付きペアワイズ類似度計算（デフォルト 0.80）
-- `detect_contradictions()`: `claude -p` ベースの corrections 矛盾検出を実装
-- `reflect.py` から `detect_contradictions()` を呼び出し、矛盾ペア検出時に警告表示
-- 各フォールバック箇所に stderr 警告を追加（optimizer, run-loop, semantic_detector）
-- OpenSpec specs 新規追加: `similarity-engine`, `silent-fallback-safety`
+- **similarity-engine**: TF-IDF + コサイン類似度の共通計算エンジン
+- corrections の矛盾検出（`detect_contradictions()`）
 
 ### Changed
-- `semantic_similarity_check()` を TF-IDF 実装に置換し誤検知 465 件を解消 (GitHub Issue #3)
-- `validate_corrections()` フォールバックを `is_learning=True` → `is_learning=False`（安全側）に変更
-- `reorganize.py` の `build_tfidf_matrix()` を `scripts/lib/similarity.py` からの共通 import に置換
-- dry-run スコアに `[dry-run]` マーカーと注意文を追加
-- OpenSpec merge spec を similarity_engine 閾値要件で更新
-
-### Removed
-- `backfill/analyze.py` の `semantic_validate()` dead code を削除
+- `semantic_similarity_check()` を TF-IDF 実装に置換し誤検知 465 件を解消
 
 ## [0.15.0] - 2026-03-04
 
 ### Added
-- **merge-suppression**: merge 統合候補の却下を記録し次回以降の再提案を抑制する機能 (GitHub Issue #2)
-- `load_merge_suppression()`: `type: "merge"` エントリのみ抽出してペアキー set を返す
-- `add_merge_suppression(skill_a, skill_b)`: スキル名をソート・正規化して suppression エントリを追記（書き込み失敗時は非致命的）
-- `merge_duplicates()` に suppression フィルタリング追加（`skipped_suppressed` status）
-- merge-suppression の OpenSpec spec を新規追加
-
-### Changed
-- `load_suppression_list()` が `type: "merge"` エントリを除外するように変更（後方互換性確保）
-- `evolve SKILL.md` の merge 却下フローに `add_merge_suppression()` の具体的な Bash コマンドを明記
-- merge spec の output schema に `skipped_suppressed` status と `merged_content_preview` 省略条件を追加
+- **merge-suppression**: merge 統合候補の却下を記録し次回以降の再提案を抑制
 
 ## [0.14.0] - 2026-03-04
 
 ### Added
 - **smart-prune-recommendation**: prune 候補に description + 推薦ラベル（archive推奨/keep推奨/要確認）を付与
-- **共通 frontmatter パーサー**: `scripts/lib/frontmatter.py` — YAML frontmatter の汎用パーサー + description 抽出
-- **キーワードベース一次判定**: `suggest_recommendation()` — スキル名/description のキーワードで推薦ラベルを自動分類
-- **2段階承認フロー**: AskUserQuestion の options 上限（4つ）を遵守した段階的承認 UI
-
-### Changed
-- `detect_zero_invocations()`, `detect_decay_candidates()`, `safe_global_check()` が description/recommendation フィールドを返すように拡張
-- `reflect_utils._parse_rule_frontmatter()` を `scripts/lib/frontmatter.parse_frontmatter()` に共通化（DRY）
-- `skills/prune/SKILL.md` Step 2-3 をチェックリスト判定 + 2段階フローに更新
+- **2段階承認フロー**: AskUserQuestion の options 上限を遵守した段階的承認 UI
 
 ## [0.13.0] - 2026-03-04
 
 ### Breaking Changes
-- **scripts/ 二重管理の解消**: `scripts/discover.py`, `scripts/evolve.py`, `scripts/audit.py`, `scripts/aggregate_runs.py`, `scripts/fitness_evolution.py` を削除し、`skills/*/scripts/` に一本化。外部から `scripts/` を直接参照している場合は `skills/*/scripts/` に変更が必要
+- **scripts/ 二重管理の解消**: `scripts/*.py` を削除し `skills/*/scripts/` に一本化
 
 ### Added
-- **LLM 入力サニタイズ**: `sanitize_message()` で corrections データをサニタイズ（500文字切り詰め、制御文字除去、XML タグ除去）
-- **偽陽性フィードバック機構**: `false_positives.jsonl` で corrections の偽陽性を SHA-256 ハッシュで管理。`detect_correction()` で自動フィルタリング
-- **偽陽性自動クリーンアップ**: `reflect` 実行時に180日超エントリを自動削除
-- **ファイルパーミッション強化**: `ensure_data_dir()` で 700、`append_jsonl()` 新規作成時に 600 を設定
-
-### Changed
-- `classify_artifact_origin()` を `skills/audit/scripts/audit.py` に移動
-- テスト内の `importlib.util.spec_from_file_location` workaround を廃止し通常 import に簡素化
-- 全スクリプトの import パスを `skills/*/scripts/` ベースに更新
+- **LLM 入力サニタイズ**: corrections データのサニタイズ（500文字切り詰め、制御文字除去、XML タグ除去）
+- **偽陽性フィードバック機構**: corrections の偽陽性を SHA-256 ハッシュで管理・自動フィルタリング
+- **ファイルパーミッション強化**: データディレクトリ 700、JSONL 新規作成時 600
 
 ## [0.12.0] - 2026-03-04
 
 ### Added
 - **Reflect スキル**: `/rl-anything:reflect` — corrections.jsonl の修正フィードバックを CLAUDE.md/rules に反映
-- **discover --session-scan**: セッション JSONL のユーザーメッセージテキストを直接分析し繰り返しパターンを検出
-- **claude-reflect パターン統合**: CJK 3 + Explicit 1 + Positive 3 + Correction 8 + Guardrail 8 パターンを correction_detect.py に統合
+- **discover --session-scan**: セッション JSONL のユーザーメッセージを直接分析し繰り返しパターンを検出
 - **セマンティック検証デフォルト有効**: corrections のセマンティック検証をバッチ送信でデフォルト有効化
-- **corrections.jsonl 拡張スキーマ**: reflect_status, reflected_at, target_type, target_path フィールド追加
-- **auto-memory 昇格ロジック**: corrections から安定パターンを auto-memory に昇格
-- **prune corrections クリーンアップ**: applied/skipped 済み corrections の自動整理
-- **evolve Reflect フェーズ**: evolve パイプラインに Reflect ステップを追加（pending 件数・最終 reflect 日チェック）
-- **migrate_reflect_queue.py**: claude-reflect の learnings-queue.json → corrections.jsonl 変換（冪等）
-- discover の load_claude_reflect_data() を corrections.jsonl 直接参照に変更
+- **evolve Reflect フェーズ**: evolve パイプラインに Reflect ステップを追加
 
 ## [0.11.0] - 2026-03-04
 
 ### Added
-- **Enrich Phase**: Discover のパターンを既存スキルに Jaccard 係数で照合し、改善提案を生成する新フェーズ（型A パターン: Python→JSON + SKILL.md→Claude 対話）
-- **Merge サブステップ**: Prune 内で重複スキルの統合版生成→ユーザー承認→アーカイブの流れを追加。Reorganize の merge_groups と duplicate_candidates の和集合（重複排除済み）を入力
-- **Reorganize Phase**: TF-IDF + 階層クラスタリングでスキル群を分析し、統合候補・分割候補を提案する新フェーズ（scipy/sklearn 依存、graceful degradation 対応）
-- evolve パイプライン順序を拡張: Discover → **Enrich** → Optimize → **Reorganize** → **Prune(+Merge)** → Fitness Evolution → Report
-- behavior_patterns のフォールバック照合: errors.jsonl / history.jsonl が未生成でも usage.jsonl の行動パターンから Enrich 照合を実行
+- **Enrich Phase**: Discover のパターンを既存スキルに Jaccard 係数で照合し改善提案を生成
+- **Merge サブステップ**: Prune 内で重複スキルの統合版生成→ユーザー承認→アーカイブ
+- **Reorganize Phase**: TF-IDF + 階層クラスタリングでスキル群を分析し統合/分割候補を提案
 
 ## [0.10.3] - 2026-03-03
 
 ### Added
-- evolve パイプラインに fitness 関数チェックステップを追加: 未生成時に `generate-fitness --ask` を促す
-- evolve パイプラインに fitness evolution ステップを追加: accept/reject データから評価関数の改善を提案
-- `check_fitness_function()`: プロジェクト固有 fitness 関数と fitness-criteria.md の有無を検出
-- クイックスタートに `generate-fitness --ask`（初回セットアップ）を追加
+- evolve に fitness 関数チェックステップ追加: 未生成時に `generate-fitness --ask` を促す
+- evolve に fitness evolution ステップ追加: accept/reject データから評価関数の改善を提案
 - rules を淘汰対象から除外し情報提供のみに変更
 
 ## [0.10.2] - 2026-03-03
 
 ### Fixed
-- global スキル判定を hooks データ（usage-registry.jsonl）のみに限定し、データ不足時はスキップ（backfill データで誤判定する問題を解消）
+- global スキル判定を hooks データのみに限定し、backfill データでの誤判定を解消
 
 ## [0.10.1] - 2026-03-03
 
 ### Fixed
-- `load_usage_registry()` が usage-registry.jsonl 不在時に usage.jsonl + sessions.jsonl へフォールバック（global スキルが全て「未使用」扱いになる問題を修正）
+- `load_usage_registry()` が usage-registry.jsonl 不在時にフォールバック（global スキルが全て未使用扱いになる問題を修正）
 
 ## [0.10.0] - 2026-03-03
 
 ### Added
-- **Correction Detection**: `UserPromptSubmit` hook でユーザーの修正フィードバック（「いや、」「違う」「no,」等）をリアルタイム検出し `corrections.jsonl` に記録
-- **Confidence Decay**: `confidence = base_score * exp(-age_days / decay_days)` による時間減衰 + correction ペナルティで淘汰精度を向上
+- **Correction Detection**: ユーザーの修正フィードバックをリアルタイム検出し `corrections.jsonl` に記録
+- **Confidence Decay**: 時間減衰 + correction ペナルティで淘汰精度を向上
 - **Pin 保護**: `.pin` ファイル配置でスキルを淘汰対象から除外
-- **Multi-Target Routing**: correction > prune > claude_md > rule の優先度ベースで改善先を自動振り分け
-- **Semantic Validation**: corrections を LLM で検証するための prompt template と入力データ準備
-- **Backfill Corrections**: `--corrections` フラグで過去トランスクリプトから修正パターンを遡及抽出（confidence 0.60）
-- **Reclassify Correction Priority**: correction 紐付きセッションを優先抽出、LLM 分類に correction context を注入
-
-### Changed
-- `observe.py`: Skill 使用時に `$TMPDIR/rl-anything-last-skill-{session_id}.json` に直前スキル名を記録
-- `prune.py`: `detect_decay_candidates()` を追加、`detect_zero_invocations()` / `safe_global_check()` に pin チェックを統合
-- `analyze.py`: correction 分析セクション (#6) と `--no-llm` フラグを追加
-
-### Architecture
-- claude-reflect (MIT, Bayram Annakov) のアーキテクチャを参考にした correction detection パイプライン
+- **Multi-Target Routing**: 改善先の自動振り分け（correction > prune > claude_md > rule）
+- **Backfill Corrections**: 過去トランスクリプトから修正パターンを遡及抽出
 
 ## [0.9.1] - 2026-03-03
 
 ### Fixed
-- hooks が発火しない致命的バグを修正: `hooks.json` の配置場所をルート → `hooks/` に移動、matcher 形式をオブジェクト → 文字列に変更（claude-reflect 等の動作実績あるプラグインと同一形式に統一）
+- hooks が発火しない致命的バグを修正: `hooks.json` の配置場所と matcher 形式を修正
 
 ## [0.9.0] - 2026-03-03
 
 ### Added
-- `scripts/rl/workflow_analysis.py`: workflows.jsonl からスキル別ワークフロー統計を算出し JSON 出力
-  - 抽象パターン圧縮（連続同一エージェントを1つに集約）
-  - `--min-workflows`, `--hints`, `--for-fitness` オプション
-  - team-driven / agent-burst の統計キー対応
-- `generate-fitness --ask`: ユーザーに品質基準を対話的に質問し `.claude/fitness-criteria.md` に保存
-- rl-scorer にワークフロー効率性の補助シグナル（一貫性・ステップ効率・戦略明確さ）
-
-### Changed
-- `optimize.py`: mutation プロンプトにワークフロー分析ヒントを注入（統計がない場合はフォールバック）
-- `analyze_project.py`: ワークフロー統計 JSON + `.claude/fitness-criteria.md` のマージ対応
-- `fitness-template.py`: ワークフロー統計参照のスケルトンコメント追加
+- ワークフロー統計分析: workflows.jsonl からスキル別統計を算出
+- `generate-fitness --ask`: 品質基準を対話的に質問し `fitness-criteria.md` に保存
+- rl-scorer にワークフロー効率性の補助シグナル追加
 
 ## [0.8.0] - 2026-03-03
 
 ### Added
-- `Task` ツール対応: 旧 Claude Code の `Task`（= 現 `Agent`）を同等に処理（5PJ で 750+ 呼び出し復活）
-- ビルトインコマンドフィルタ: `/clear`, `/compact`, `/model` 等 18 コマンドをスキル起動から除外
-- `system` レコードの `api_error` からエラーカウント（従来の `tool_result` は実データに不在）
-- session_meta 拡充: `thinking_count`, `compact_count`, `plan_mode_count`
-- テスト 16 件追加（Task エイリアス 5 件、ビルトインフィルタ 6 件、メタデータ 5 件）
+- `Task` ツール対応: 旧 Claude Code の `Task`（= 現 `Agent`）を同等に処理
+- ビルトインコマンドフィルタ: `/clear`, `/compact` 等 18 コマンドをスキル起動から除外
 
 ### Changed
-- ワークフロー捕捉率: 5PJ 合計 50 → 301 ワークフロー（6 倍増）
+- ワークフロー捕捉率: 5PJ 合計 50 → 301 ワークフロー（6倍増）
 
 ## [0.7.0] - 2026-03-03
 
 ### Added
 - team-driven ワークフロー検出: TeamCreate → Agent → TeamDelete パターンを追跡
-- agent-burst ワークフロー検出: 300 秒以内の連続 Agent 呼び出しを自動グルーピング
-- `command-name` ワークフローアンカー: `<command-name>` タグからもスキル起動を認識
-- Skill tool_use 重複排除: command-name で既にアンカー済みの場合はスキップ
-- `workflows_by_type` サマリー: skill-driven / team-driven / agent-burst の内訳
-- テスト 14 件追加（team-driven 3 件、agent-burst 5 件、mixed 2 件、command-name 4 件）
+- agent-burst ワークフロー検出: 300秒以内の連続 Agent 呼び出しを自動グルーピング
+- `command-name` ワークフローアンカー
 
 ### Changed
-- ワークフロー捕捉率: 4.2% → 26.2%（8 → 50 ワークフロー）
+- ワークフロー捕捉率: 4.2% → 26.2%
 
 ## [0.6.0] - 2026-03-03
 
 ### Added
-- `_classify_system_message()`: human メッセージのノイズフィルタ（中断シグナル、ローカルコマンド出力、タスク通知を除外）
-- `<command-name>` タグからスキル名を抽出し `skill-invocation` として分類
-- `user_prompts` 収集: user_intents と対になるプロンプトテキストを session_meta に記録
-- `filtered_messages` カウント: フィルタされたシステムメッセージ数を session_meta に記録
-- テスト 19 件追加（分類ロジック 6 件、統合テスト 6 件、既存テスト更新 7 件）
+- システムメッセージのノイズフィルタ（中断シグナル、ローカルコマンド出力、タスク通知を除外）
+- `user_prompts` 収集: セッションメタに記録
 
 ### Changed
 - subprocess 廃止: `backfill.py` を直接 import して実行（セキュリティ改善）
-- `parse_transcript()` の human メッセージ処理を分類ベースに全面刷新
 
 ## [0.5.0] - 2026-03-03
 
 ### Added
-- `classify_artifact_origin(path)`: スキル/ルールの出自を custom / plugin / global に分類するユーティリティ関数
-- `_load_plugin_skill_names()`: `installed_plugins.json` からプラグインインストール済みスキル名を取得（キャッシュ付き）
-- `detect_zero_invocations()` がプラグイン由来スキルを淘汰候補から除外し `plugin_unused` として返す
-- `run_prune()` の戻り値に `plugin_unused` キーを追加
+- **出自分類**: スキル/ルールを custom / plugin / global に分類
+- プラグイン由来スキルを淘汰候補から除外し `plugin_unused` として表示
 - evolve レポートに Custom / Plugin / Global の出自別3セクション表示
-- 全9スキル SKILL.md に YAML frontmatter 追加（name, description, disable-model-invocation）
-- prune テスト 15 件追加（出自分類・プラグイン除外・installed_plugins.json フォールバック）
-
-### Changed
-- `/scripts/prune.py` を削除し `skills/prune/scripts/prune.py` に統一（DRY 違反解消）
-- `scripts/evolve.py`, `skills/evolve/scripts/evolve.py` の import パスを修正
-
-### Removed
-- `.claude/commands/opsx/` ディレクトリ（SKILL.md に一本化）
-- `/scripts/prune.py`（重複していた旧版）
 
 ## [0.4.1] - 2026-03-03
 
 ### Added
-- `classify_prompt()` のキーワード拡充: 6 新カテゴリ（git-ops, deploy, debug, test, config, conversation）+ 既存カテゴリへの日本語キーワード追加
-- カテゴリ優先順位制御（辞書順序で spec-review > code-review > git-ops > ... > conversation）
-- LLM Hybrid 再分類: `reclassify.py` でキーワード分類で "other" に残ったプロンプトを Claude が再分類
-- `analyze.py` が `reclassified_intents` フィールドを優先して使用
-- SKILL.md に Step 2（Intent 再分類）を追加
-- テスト 40+ 件追加（新カテゴリ・日本語・優先順位テスト）
-
-### Changed
-- `PROMPT_CATEGORIES` のカテゴリ数: 5 → 11（"other" 率 70% → 20-30% 目標）
-- SKILL.md のステップ番号を再整理（Step 2: 再分類、Step 3: 分析、Step 4: --force）
+- `classify_prompt()` のキーワード拡充: 6 新カテゴリ + 日本語キーワード
+- LLM Hybrid 再分類: キーワードで "other" に残ったプロンプトを Claude が再分類
 
 ## [0.4.0] - 2026-03-03
 
 ### Added
-- `analyze.py` にプロジェクトフィルタ機能: `--project` CLI 引数でプロジェクト単位のデータ分析が可能に
-- `get_project_session_ids()`: sessions.jsonl から project_name でフィルタした session_id セットを取得
-- `load_jsonl()` に `session_ids` フィルタパラメータ追加
-- テスト 10 件追加（project filter 関連）
-
-### Changed
-- `project_name_from_dir()` を `backfill.py` から `hooks/common.py` に移動し共通化
-- `run_analysis()` が `project` 引数を受け取りフィルタ済みデータで分析を実行
-- SKILL.md Step 2 コマンドに `--project "$(basename $(pwd))"` を追加
+- プロジェクト単位のデータ分析: `--project` フィルタ
 
 ## [0.3.3] - 2026-03-03
 
@@ -397,62 +213,29 @@
 ## [0.3.2] - 2026-03-03
 
 ### Added
-- Backfill データ収集範囲の拡張: 全 tool_use の名前+順序、セッションメタデータを `sessions.jsonl` に記録
-- セッションメタデータ: tool_sequence, tool_counts, session_duration_seconds, error_count, human_message_count, user_intents, project_name
-- `analyze.py` にセッション分析・プロジェクト別セクション追加
-
-### Changed
-- `backfill.py`: human メッセージの intent 分類、tool_result の error 検出、全 tool_use 名の収集を追加
-- `backfill.py`: Skill/Agent がないセッションでもメタデータを sessions.jsonl に記録
-- `--force` を project-scoped に変更（対象プロジェクトのみ再処理、他プロジェクトは保持）
+- Backfill データ収集範囲の拡張: セッションメタデータ（tool_sequence, duration, error_count 等）
 
 ## [0.3.1] - 2026-03-03
 
 ### Added
-- Backfill ワークフロー構造抽出: parse_transcript() がワークフロー境界を検出し workflows.jsonl を生成
-- `skills/backfill/scripts/analyze.py`: ワークフロー分析スクリプト（一貫性・バリエーション・介入・Discover/Prune 比較）
-- `hooks/common.py` に `PROMPT_CATEGORIES` / `classify_prompt()` を共通化（DRY 解消）
-
-### Changed
-- `hooks/session_summary.py`: `_PROMPT_CATEGORIES`/`_classify_prompt` を `common.classify_prompt()` に置換
-- `skills/discover/scripts/discover.py`: `_PROMPT_CATEGORIES` を `common.PROMPT_CATEGORIES` に置換
-- `skills/backfill/scripts/backfill.py`: ParseResult dataclass 導入、backfill() が workflows.jsonl を出力
+- Backfill ワークフロー構造抽出: ワークフロー境界検出 + workflows.jsonl 生成
 
 ## [0.3.0] - 2026-03-03
 
 ### Added
-- ワークフロートレーシング: Skill 呼び出し時に PreToolUse hook でワークフロー文脈を記録
-- `hooks/workflow_context.py`: PreToolUse handler（文脈ファイル書き出し）
-- `hooks/common.py` に `read_workflow_context()`: 文脈ファイル読み取りの共通関数（24h expire、サイレント失敗）
-- PostToolUse/SubagentStop で `parent_skill`, `workflow_id` を usage.jsonl/subagents.jsonl に付与
-- Stop hook で `workflows.jsonl` にワークフローシーケンスレコードを書き出し
-- Discover に contextualized/ad-hoc/unknown の3分類を追加（ad-hoc のみスキル候補に）
-- Prune に `parent_skill` 経由使用のカウントを追加（plan mode 経由使用の誤検出を解消）
-- hooks.json に PreToolUse エントリを追加
-
-### Changed
-- `hooks/observe.py`: Agent 呼び出しに parent_skill/workflow_id を付与
-- `hooks/subagent_observe.py`: SubagentStop に parent_skill/workflow_id を付与
-- `hooks/session_summary.py`: ワークフローシーケンス組み立て + 文脈ファイルクリーンアップ
-- `skills/discover/scripts/discover.py`: parent_skill ベースの分類ロジック
-- `skills/prune/scripts/prune.py`: parent_skill 経由カウント
+- ワークフロートレーシング: Skill 呼び出し時にワークフロー文脈を記録
+- Discover に contextualized/ad-hoc/unknown の3分類追加
 
 ## [0.2.5] - 2026-03-03
 
 ### Added
-- `/rl-anything:backfill` スキル: セッショントランスクリプトから Skill/Agent 呼び出しを抽出し usage.jsonl にバックフィル
-- `skills/backfill/scripts/backfill.py`: トランスクリプトパーサー＋JSONL 書き出し
-- `--force` フラグ: 既存バックフィルレコードを削除して全セッションを再処理
-- `--project-dir` オプション: バックフィル対象プロジェクトの指定
-- 重複防止（session_id + source=backfill チェック）
-- パース失敗時のスキップ＋エラーカウント
+- `/rl-anything:backfill` スキル: セッショントランスクリプトから usage.jsonl にバックフィル
 
 ## [0.2.4] - 2026-03-03
 
 ### Added
-- SubagentStop フック `hooks/subagent_observe.py` で subagent の完了データを `subagents.jsonl` に記録
-- PostToolUse で Agent ツール呼び出しを観測し `usage.jsonl` に `Agent:{subagent_type}` 形式で記録
-- hooks 共通ユーティリティ `hooks/common.py`（`ensure_data_dir`, `append_jsonl`, `DATA_DIR` を集約）
+- SubagentStop フック: subagent 完了データを `subagents.jsonl` に記録
+- PostToolUse で Agent ツール呼び出しを観測
 
 ### Fixed
 - hooks.json の `$PLUGIN_DIR` を公式仕様 `${CLAUDE_PLUGIN_ROOT}` に修正
@@ -460,34 +243,28 @@
 ## [0.2.3] - 2026-03-03
 
 ### Fixed
-- `detect_dead_globs` の誤検知: `{ts,tsx}` ブレース展開とカンマ区切り複数パターンに対応
-- Python `Path.glob()` がブレース展開をサポートしないため、パターンを個別展開してからマッチ
+- `detect_dead_globs` の誤検知: `{ts,tsx}` ブレース展開に対応
 
 ## [0.2.2] - 2026-03-02
 
 ### Fixed
-- スクリプトを各スキルの `scripts/` サブディレクトリに配置（プラグイン公式構造に準拠）
-- `<PLUGIN_DIR>/skills/{name}/scripts/` 形式のフルパスに統一
-- cross-import の `sys.path` をプラグインルートの `scripts/` に向ける
+- スクリプトをプラグイン公式構造に準拠する配置に修正
 
 ## [0.2.1] - 2026-03-02
 
 ### Fixed
-- SKILL.md の `$PLUGIN_DIR` 記法を `<PLUGIN_DIR>` に統一（パス解決エラーの修正）
+- SKILL.md の `$PLUGIN_DIR` 記法を `<PLUGIN_DIR>` に統一
 
 ## [0.2.0] - 2026-03-02
 
 ### Added
-- **Observe hooks**: PostToolUse/Stop/PreCompact/SessionStart の4フック（hooks.json）
-- **Audit**: 環境健康診断 `/rl-anything:audit`
-- **Prune**: 未使用アーティファクト淘汰 `/rl-anything:prune`
-- **Discover**: 行動パターン発見 `/rl-anything:discover`
-- **Evolve**: 全フェーズ統合実行 `/rl-anything:evolve`
-- **Evolve-fitness**: 評価関数の改善提案 `/rl-anything:evolve-fitness`
-- **Feedback**: フィードバック収集 `/rl-anything:feedback` + GitHub Issue テンプレート
-- **Telemetry**: Individual に strategy/cot_reasons フィールド、history.jsonl 記録
-- **Bloat control**: サイズバリデーション・肥大化検出
-- **Cross-run aggregation**: 戦略効果・accept/reject 比率の集計
+- **Observe hooks**: PostToolUse/Stop/PreCompact/SessionStart の4フック
+- **Audit**: `/rl-anything:audit` 環境健康診断
+- **Prune**: `/rl-anything:prune` 未使用アーティファクト淘汰
+- **Discover**: `/rl-anything:discover` 行動パターン発見
+- **Evolve**: `/rl-anything:evolve` 全フェーズ統合実行
+- **Evolve-fitness**: `/rl-anything:evolve-fitness` 評価関数の改善提案
+- **Feedback**: `/rl-anything:feedback` フィードバック収集
 
 ## [0.1.0] - 2026-03-01
 
