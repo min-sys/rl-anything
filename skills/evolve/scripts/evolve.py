@@ -215,6 +215,16 @@ def run_evolve(
         "skipped_reason": "no_patterns_available" if not discover_data.get("matched_skills") and not discover_data.get("unmatched_patterns") else None,
     }
 
+    # Phase 2.7: Layer Diagnose（全レイヤー診断）
+    try:
+        sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+        from layer_diagnose import diagnose_all_layers
+        proj = Path(project_dir) if project_dir else Path.cwd()
+        layer_result = diagnose_all_layers(proj)
+        result["phases"]["layer_diagnose"] = layer_result
+    except Exception as e:
+        result["phases"]["layer_diagnose"] = {"error": str(e)}
+
     # Phase 3: Audit
     try:
         from audit import run_audit

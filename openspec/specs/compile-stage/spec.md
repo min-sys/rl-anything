@@ -12,7 +12,7 @@ Compile ステージは optimize（パッチ生成 + regression gate）、remedi
 - **THEN** optimize はスキップされ、remediation → reflect のみ実行される
 
 #### Scenario: Diagnose の診断結果を入力として受け取る
-- **WHEN** Diagnose ステージが問題リストを出力している
+- **WHEN** Diagnose ステージが全レイヤー（Skill + Rules + Memory + Hooks + CLAUDE.md）の問題リストを出力している
 - **THEN** Compile ステージはその診断結果を remediation の入力として使用する
 
 ### Requirement: Compile は共通 regression gate を使用する

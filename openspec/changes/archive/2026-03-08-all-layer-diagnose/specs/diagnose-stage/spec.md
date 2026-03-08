@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Diagnose ステージはパターン検出と問題検出を統合する
 Diagnose ステージは discover（パターン検出 + enrich 統合）、audit 問題検出（collect_issues）、reorganize（split 検出のみ）、**全レイヤー診断（Rules / Memory / Hooks / CLAUDE.md）** を1ステージとして実行しなければならない（MUST）。出力はレイヤー別の問題リストと候補リストを含まなければならない（MUST）。
@@ -19,16 +19,7 @@ Diagnose ステージは discover（パターン検出 + enrich 統合）、audi
 - **WHEN** `diagnose_hooks()` が settings.json の読み取りに失敗する
 - **THEN** `diagnose_rules()`, `diagnose_memory()`, `diagnose_claudemd()` は正常に実行され、hooks のみエラーが記録される
 
-### Requirement: Diagnose の出力は discover に enrich の照合結果を含む
-discover の出力に、既存スキルとの Jaccard 類似度照合結果（旧 enrich の機能）を含まなければならない（MUST）。照合には `scripts/lib/similarity.py` の `jaccard_coefficient` を使用しなければならない（MUST）。
-
-#### Scenario: パターンが既存スキルに一致
-- **WHEN** discover が `error_pattern: "cdk deploy failed"` を検出し、既存スキルに `aws-cdk-deploy` が存在する
-- **THEN** discover の出力の `matched_skills` に `aws-cdk-deploy` が含まれ、`similarity_score` が付与される
-
-#### Scenario: パターンが既存スキルに不一致
-- **WHEN** discover が `error_pattern: "docker compose timeout"` を検出し、docker 関連スキルが存在しない
-- **THEN** discover の出力の `unmatched_patterns` に当該パターンが含まれる
+## ADDED Requirements
 
 ### Requirement: Diagnose は session-scan を実行しない
 discover のテキストレベルパターンマイニング（session-scan）は実行してはならない（MUST NOT）。usage.jsonl ベースのパターン検出のみを使用しなければならない（MUST）。

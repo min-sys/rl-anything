@@ -1134,6 +1134,19 @@ def collect_issues(project_dir: Path) -> List[Dict[str, Any]]:
                     "source": "detect_hardcoded_values",
                 })
 
+    # レイヤー別診断（Rules / Memory / Hooks / CLAUDE.md）
+    try:
+        from layer_diagnose import diagnose_all_layers
+        existing_stale_refs = [i for i in issues if i["type"] == "stale_ref"]
+        layer_results = diagnose_all_layers(
+            project_dir,
+            existing_stale_refs=existing_stale_refs,
+        )
+        for layer_issues in layer_results.values():
+            issues.extend(layer_issues)
+    except Exception:
+        pass  # レイヤー診断のエラーは既存機能に影響しない
+
     return issues
 
 

@@ -88,6 +88,29 @@ def compute_confidence_score(issue: Dict[str, Any]) -> float:
         # 検出結果自体の confidence_score を使用
         return detail.get("confidence_score", 0.5)
 
+    # レイヤー別診断の新 issue type
+    if issue_type == "orphan_rule":
+        return 0.5  # 孤立判定は不確実性がある
+
+    if issue_type == "stale_rule":
+        return 0.95  # ファイル不存在は確実
+
+    if issue_type == "stale_memory":
+        return 0.6  # セマンティックパターン検出の不確実性
+
+    if issue_type == "memory_duplicate":
+        similarity = detail.get("similarity", 0.5)
+        return min(0.8, max(0.6, similarity))  # 類似度に依存
+
+    if issue_type == "hooks_unconfigured":
+        return 0.4  # 意図的な場合もある
+
+    if issue_type == "claudemd_phantom_ref":
+        return 0.9  # スキル/ルールの実在確認は確実性が高い
+
+    if issue_type == "claudemd_missing_section":
+        return 0.95  # セクション有無は確実に判定可能
+
     return 0.5
 
 
@@ -147,6 +170,13 @@ _RATIONALE_TEMPLATES = {
     "near_limit": "行数が制限の {pct}% ({lines}/{limit}) に達しています。トピック別ファイルへの分割を提案します。",
     "duplicate": "名前が類似するアーティファクト「{name}」が {count} 箇所にあります。統合を検討してください。",
     "hardcoded_value": "ハードコード値 `{matched}` ({pattern_type}) が検出されました。プレースホルダへの置換を検討してください。",
+    "orphan_rule": "ルール「{name}」はどのスキル・CLAUDE.md からも参照されていません。",
+    "stale_rule": "ルール内で参照されている「{path}」が存在しません。参照の更新または削除を検討してください。",
+    "stale_memory": "MEMORY.md 内の「{path}」への言及は実体が見つかりません。エントリの更新または削除を検討してください。",
+    "memory_duplicate": "MEMORY.md のセクション「{section_a}」と「{section_b}」は内容が重複しています（類似度: {similarity}）。統合を検討してください。",
+    "hooks_unconfigured": "hooks 設定が見つかりません。observe hooks の設定を検討してください。",
+    "claudemd_phantom_ref": "CLAUDE.md 内で言及された{ref_type}「{name}」が存在しません。",
+    "claudemd_missing_section": "CLAUDE.md に {section} セクションがありませんが、{skill_count} 個のスキルが存在します。セクションの追加を検討してください。",
 }
 
 
@@ -194,6 +224,44 @@ def generate_rationale(issue: Dict[str, Any], category: str) -> str:
         return _RATIONALE_TEMPLATES["hardcoded_value"].format(
             matched=detail.get("matched", "unknown"),
             pattern_type=detail.get("pattern_type", "unknown"),
+        )
+
+    if issue_type == "orphan_rule":
+        return _RATIONALE_TEMPLATES["orphan_rule"].format(
+            name=detail.get("name", "unknown"),
+        )
+
+    if issue_type == "stale_rule":
+        return _RATIONALE_TEMPLATES["stale_rule"].format(
+            path=detail.get("path", "unknown"),
+        )
+
+    if issue_type == "stale_memory":
+        return _RATIONALE_TEMPLATES["stale_memory"].format(
+            path=detail.get("path", "unknown"),
+        )
+
+    if issue_type == "memory_duplicate":
+        sections = detail.get("sections", ["unknown", "unknown"])
+        return _RATIONALE_TEMPLATES["memory_duplicate"].format(
+            section_a=sections[0] if len(sections) > 0 else "unknown",
+            section_b=sections[1] if len(sections) > 1 else "unknown",
+            similarity=detail.get("similarity", 0.0),
+        )
+
+    if issue_type == "hooks_unconfigured":
+        return _RATIONALE_TEMPLATES["hooks_unconfigured"]
+
+    if issue_type == "claudemd_phantom_ref":
+        return _RATIONALE_TEMPLATES["claudemd_phantom_ref"].format(
+            ref_type=detail.get("ref_type", "skill"),
+            name=detail.get("name", "unknown"),
+        )
+
+    if issue_type == "claudemd_missing_section":
+        return _RATIONALE_TEMPLATES["claudemd_missing_section"].format(
+            section=detail.get("section", "skills"),
+            skill_count=detail.get("skill_count", 0),
         )
 
     return f"問題タイプ「{issue_type}」が検出されました。"
