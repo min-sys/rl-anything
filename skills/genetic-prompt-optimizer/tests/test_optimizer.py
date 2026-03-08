@@ -205,7 +205,7 @@ class TestDirectPatchOptimizer:
 
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = "```markdown\n# Improved Skill\n\nBetter content.\n```"
+        mock_result.stdout = "```markdown\n---\nname: test\ndescription: 改善済み\n---\n\n# Improved Skill\n\nBetter content.\n```"
 
         with patch("optimize._CORRECTIONS_PATH", corrections_file), \
              patch("optimize.subprocess.run", return_value=mock_result):
@@ -264,6 +264,32 @@ class TestDirectPatchOptimizer:
         passed, reason = optimizer._regression_gate("# Good Skill\n\nThis is fine.")
         assert passed is True
         assert reason is None
+
+    def test_regression_gate_frontmatter_保持(self, sample_skill):
+        optimizer = DirectPatchOptimizer(target_path=str(sample_skill))
+        optimizer.original_content = "---\nname: test\n---\n\n# Original"
+        passed, reason = optimizer._regression_gate("---\nname: test\n---\n\n# Improved")
+        assert passed is True
+        assert reason is None
+
+    def test_regression_gate_frontmatter_消失(self, sample_skill):
+        optimizer = DirectPatchOptimizer(target_path=str(sample_skill))
+        optimizer.original_content = "---\nname: test\n---\n\n# Original"
+        passed, reason = optimizer._regression_gate("# Improved without frontmatter")
+        assert passed is False
+        assert reason == "frontmatter_lost"
+
+    def test_regression_gate_frontmatter_なし_スキップ(self, sample_skill):
+        optimizer = DirectPatchOptimizer(target_path=str(sample_skill))
+        optimizer.original_content = "# No frontmatter skill"
+        passed, reason = optimizer._regression_gate("# Updated skill")
+        assert passed is True
+        assert reason is None
+
+    def test_format_gate_reason_frontmatter_lost(self):
+        msg = DirectPatchOptimizer._format_gate_reason("frontmatter_lost")
+        assert "frontmatter" in msg
+        assert "消失" in msg
 
     def test_llm_コール失敗(self, sample_skill, temp_dir):
         optimizer = DirectPatchOptimizer(target_path=str(sample_skill))

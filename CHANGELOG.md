@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.21.1] - 2026-03-08
+
+### Fixed
+- **optimize**: regression gate が LLM パッチによる YAML frontmatter 消失を検出できない問題を修正 (#20)
+
 ## [0.21.0] - 2026-03-07
 
 ### BREAKING CHANGES

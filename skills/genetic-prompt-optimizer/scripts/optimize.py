@@ -286,6 +286,7 @@ class DirectPatchOptimizer:
 
         # 元のスキル読み込み
         original_content = self.target_path.read_text(encoding="utf-8")
+        self.original_content = original_content
 
         # コンテキスト収集
         corrections = self._collect_corrections()
@@ -450,6 +451,8 @@ class DirectPatchOptimizer:
             return f"禁止パターン検出（{reason}）"
         if reason.startswith("pitfall_pattern"):
             return f"既知の失敗パターン検出（{reason}）"
+        if reason == "frontmatter_lost":
+            return "YAML frontmatter が消失しました"
         return reason
 
     # --- Regression Gate ---
@@ -471,6 +474,12 @@ class DirectPatchOptimizer:
         for pp in pitfall_patterns:
             if pp in content:
                 return False, f"pitfall_pattern({pp})"
+
+        # frontmatter 保持チェック
+        original = getattr(self, "original_content", None)
+        if original and original.startswith("---"):
+            if not content.startswith("---"):
+                return False, "frontmatter_lost"
 
         return True, None
 
