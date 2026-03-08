@@ -38,10 +38,19 @@ python3 <PLUGIN_DIR>/skills/audit/scripts/audit.py "$(pwd)" --telemetry-score
 3軸（Utilization / Effectiveness / Implicit Reward）の重み付き平均で 0.0〜1.0 のスコアを算出。
 データ不足時（30セッション未満 or 7日未満）は警告を表示。
 
-両方指定時は Environment Fitness（統合スコア）も表示:
+`--constitutional-score` が指定された場合、CLAUDE.md/Rules から抽出した原則に対する LLM Judge 評価と Chaos Testing を実行:
 
 ```bash
-python3 <PLUGIN_DIR>/skills/audit/scripts/audit.py "$(pwd)" --coherence-score --telemetry-score
+python3 <PLUGIN_DIR>/skills/audit/scripts/audit.py "$(pwd)" --constitutional-score
+```
+
+Constitutional Score: 各原則 × 各レイヤーの遵守度を LLM Judge で評価。Coherence Coverage < 0.5 の場合はスキップ。
+Chaos Testing: Rules/Skills の仮想除去による堅牢性テスト + SPOF 検出。
+
+複数指定時は Environment Fitness（統合スコア）も表示:
+
+```bash
+python3 <PLUGIN_DIR>/skills/audit/scripts/audit.py "$(pwd)" --coherence-score --telemetry-score --constitutional-score
 ```
 
 ### Step 1: Audit スクリプト実行

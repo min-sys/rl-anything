@@ -39,11 +39,24 @@ WEIGHTS = {
     "telemetry": 0.6,
 }
 
+# Constitutional 利用可能時の 3層ブレンド重み
+WEIGHTS_3LAYER = {
+    "coherence": 0.25,
+    "telemetry": 0.45,
+    "constitutional": 0.30,
+}
+
+# テレメトリ不足・Constitutional 可時の 2層重み
+WEIGHTS_COHERENCE_CONSTITUTIONAL = {
+    "coherence": 0.45,
+    "constitutional": 0.55,
+}
+
 
 def compute_environment_fitness(project_dir: Path, days: int = 30) -> Dict[str, Any]:
-    """Coherence + Telemetry をブレンドした統合 Environment Fitness を算出する。"""
+    """Coherence + Telemetry + Constitutional をブレンドした統合 Environment Fitness を算出する。"""
     _ensure_paths()
-    project_dir = Path(project_dir)
+    project_dir = Path(project_dir).resolve()
 
     coherence_result = None
     coherence_score = 0.0
@@ -67,30 +80,64 @@ def compute_environment_fitness(project_dir: Path, days: int = 30) -> Dict[str, 
     except Exception:
         pass
 
+    constitutional_result = None
+    constitutional_score = 0.0
+    constitutional_ok = False
+    try:
+        constitutional_mod = _load_sibling("constitutional")
+        constitutional_result = constitutional_mod.compute_constitutional_score(project_dir)
+        if constitutional_result and constitutional_result.get("overall") is not None:
+            constitutional_score = constitutional_result["overall"]
+            constitutional_ok = True
+    except Exception:
+        pass
+
     sources: List[str] = []
     if coherence_ok:
         sources.append("coherence")
     if telemetry_ok:
         sources.append("telemetry")
+    if constitutional_ok:
+        sources.append("constitutional")
 
-    if coherence_ok and telemetry_ok:
+    # ブレンド重み決定
+    if coherence_ok and telemetry_ok and constitutional_ok:
+        weights_used = WEIGHTS_3LAYER
+        overall = (
+            coherence_score * WEIGHTS_3LAYER["coherence"]
+            + telemetry_score * WEIGHTS_3LAYER["telemetry"]
+            + constitutional_score * WEIGHTS_3LAYER["constitutional"]
+        )
+    elif coherence_ok and telemetry_ok:
+        weights_used = WEIGHTS
         overall = coherence_score * WEIGHTS["coherence"] + telemetry_score * WEIGHTS["telemetry"]
+    elif coherence_ok and constitutional_ok:
+        weights_used = WEIGHTS_COHERENCE_CONSTITUTIONAL
+        overall = (
+            coherence_score * WEIGHTS_COHERENCE_CONSTITUTIONAL["coherence"]
+            + constitutional_score * WEIGHTS_COHERENCE_CONSTITUTIONAL["constitutional"]
+        )
     elif coherence_ok:
+        weights_used = {"coherence": 1.0}
         overall = coherence_score
     elif telemetry_ok:
+        weights_used = {"telemetry": 1.0}
         overall = telemetry_score
     else:
+        weights_used = {}
         overall = 0.0
 
     result: Dict[str, Any] = {
         "overall": round(overall, 4),
         "sources": sources,
-        "weights": WEIGHTS,
+        "weights": weights_used,
     }
     if coherence_result:
         result["coherence"] = coherence_result
     if telemetry_result:
         result["telemetry"] = telemetry_result
+    if constitutional_result:
+        result["constitutional"] = constitutional_result
 
     return result
 
@@ -100,13 +147,23 @@ def format_environment_report(result: Dict[str, Any]) -> List[str]:
     lines = [f"## Environment Fitness: {result['overall']:.2f}", ""]
     lines.append(f"Sources: {', '.join(result['sources']) if result['sources'] else 'none'}")
 
+    weights = result.get("weights", {})
     if "coherence" in result:
-        lines.append(f"  Coherence:  {result['coherence']['overall']:.2f} (weight {result['weights']['coherence']:.1f})")
+        w = weights.get("coherence", 0)
+        lines.append(f"  Coherence:      {result['coherence']['overall']:.2f} (weight {w:.2f})")
     if "telemetry" in result:
         tel = result["telemetry"]
-        lines.append(f"  Telemetry:  {tel['overall']:.2f} (weight {result['weights']['telemetry']:.1f})")
+        w = weights.get("telemetry", 0)
+        lines.append(f"  Telemetry:      {tel['overall']:.2f} (weight {w:.2f})")
         if not tel.get("data_sufficiency", True):
             lines.append("  (Telemetry data insufficient — using coherence only)")
+    if "constitutional" in result:
+        con = result["constitutional"]
+        if con and con.get("overall") is not None:
+            w = weights.get("constitutional", 0)
+            lines.append(f"  Constitutional: {con['overall']:.2f} (weight {w:.2f})")
+        elif con and con.get("skip_reason"):
+            lines.append(f"  Constitutional: skipped ({con['skip_reason']})")
 
     lines.append("")
     return lines

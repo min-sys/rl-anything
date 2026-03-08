@@ -126,9 +126,20 @@ def _find_artifacts_local(project_dir: Path) -> Dict[str, List[Path]]:
     rules_dir = claude_dir / "rules"
     if rules_dir.exists():
         result["rules"] = list(rules_dir.glob("*.md"))
+    # ローカル .claude/memory/
     memory_dir = claude_dir / "memory"
     if memory_dir.exists():
         result["memory"] = list(memory_dir.glob("*.md"))
+    # グローバル auto-memory: ~/.claude/projects/<encoded-path>/memory/
+    if not result["memory"]:
+        resolved = str(project_dir.resolve())
+        encoded = resolved.replace("/", "-")
+        home = Path.home()
+        for candidate in [encoded, encoded.lstrip("-")]:
+            auto_mem_dir = home / ".claude" / "projects" / candidate / "memory"
+            if auto_mem_dir.is_dir():
+                result["memory"] = list(auto_mem_dir.glob("*.md"))
+                break
     return result
 
 

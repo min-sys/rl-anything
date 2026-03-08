@@ -134,3 +134,97 @@ class TestComputeEnvironmentFitness:
 
         # coherence は算出可能（低スコア）、telemetry は不足
         assert "overall" in result
+
+
+class TestThreeLayerBlend:
+    """3層ブレンド（coherence + telemetry + constitutional）のテスト。"""
+
+    def _mock_load_sibling(self, coherence_result, telemetry_result, constitutional_result):
+        """_load_sibling のモックを返す。各モジュールは制御された値を返す。"""
+        def loader(name):
+            m = mock.MagicMock()
+            if name == "coherence":
+                m.compute_coherence_score.return_value = coherence_result
+            elif name == "telemetry":
+                m.compute_telemetry_score.return_value = telemetry_result
+            elif name == "constitutional":
+                m.compute_constitutional_score.return_value = constitutional_result
+            return m
+        return loader
+
+    def test_all_three_sources(self, tmp_path):
+        """coherence + telemetry + constitutional → weights 0.25/0.45/0.30"""
+        project = _make_project(tmp_path)
+        coh = {"overall": 0.8, "coverage": 0.8}
+        tel = {"overall": 0.7, "data_sufficiency": True}
+        con = {"overall": 0.9, "skip_reason": None}
+
+        loader = self._mock_load_sibling(coh, tel, con)
+        with mock.patch.object(environment, "_load_sibling", side_effect=loader):
+            result = environment.compute_environment_fitness(project, days=30)
+
+        assert set(result["sources"]) == {"coherence", "telemetry", "constitutional"}
+        expected = round(0.8 * 0.25 + 0.7 * 0.45 + 0.9 * 0.30, 4)
+        assert abs(result["overall"] - expected) < 0.01
+        assert result["weights"] == environment.WEIGHTS_3LAYER
+
+    def test_telemetry_insufficient_constitutional_available(self, tmp_path):
+        """telemetry 不足 + constitutional 可 → weights 0.45/0.55"""
+        project = _make_project(tmp_path)
+        coh = {"overall": 0.8, "coverage": 0.8}
+        tel = {"overall": 0.3, "data_sufficiency": False}
+        con = {"overall": 0.9, "skip_reason": None}
+
+        loader = self._mock_load_sibling(coh, tel, con)
+        with mock.patch.object(environment, "_load_sibling", side_effect=loader):
+            result = environment.compute_environment_fitness(project, days=30)
+
+        assert "coherence" in result["sources"]
+        assert "constitutional" in result["sources"]
+        assert "telemetry" not in result["sources"]
+        expected = round(0.8 * 0.45 + 0.9 * 0.55, 4)
+        assert abs(result["overall"] - expected) < 0.01
+        assert result["weights"] == environment.WEIGHTS_COHERENCE_CONSTITUTIONAL
+
+    def test_constitutional_unavailable_fallback_two_layer(self, tmp_path):
+        """constitutional 不可 → 2層フォールバック (0.4/0.6)"""
+        project = _make_project(tmp_path)
+        coh = {"overall": 0.8, "coverage": 0.8}
+        tel = {"overall": 0.7, "data_sufficiency": True}
+        # constitutional が None を返す（overall=None）
+        con = {"overall": None, "skip_reason": "low_coverage", "coverage_value": 0.3}
+
+        loader = self._mock_load_sibling(coh, tel, con)
+        with mock.patch.object(environment, "_load_sibling", side_effect=loader):
+            result = environment.compute_environment_fitness(project, days=30)
+
+        assert "coherence" in result["sources"]
+        assert "telemetry" in result["sources"]
+        assert "constitutional" not in result["sources"]
+        expected = round(0.8 * 0.4 + 0.7 * 0.6, 4)
+        assert abs(result["overall"] - expected) < 0.01
+        assert result["weights"] == environment.WEIGHTS
+
+    def test_only_coherence(self, tmp_path):
+        """coherence のみ → weight 1.0"""
+        project = _make_project(tmp_path)
+        coh = {"overall": 0.75, "coverage": 0.75}
+        tel = {"overall": 0.0, "data_sufficiency": False}
+        con = None  # constitutional が完全失敗
+
+        def loader(name):
+            m = mock.MagicMock()
+            if name == "coherence":
+                m.compute_coherence_score.return_value = coh
+            elif name == "telemetry":
+                m.compute_telemetry_score.return_value = tel
+            elif name == "constitutional":
+                m.compute_constitutional_score.return_value = con
+            return m
+
+        with mock.patch.object(environment, "_load_sibling", side_effect=loader):
+            result = environment.compute_environment_fitness(project, days=30)
+
+        assert result["sources"] == ["coherence"]
+        assert abs(result["overall"] - 0.75) < 0.01
+        assert result["weights"] == {"coherence": 1.0}
