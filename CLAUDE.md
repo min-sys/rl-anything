@@ -38,9 +38,9 @@
 
 ## 適応度関数
 
-組み込み: `default`（LLM汎用評価）、`skill_quality`（ルールベース構造品質）。
+組み込み: `default`（LLM汎用評価）、`skill_quality`（ルールベース構造品質）、`coherence`（構造的整合性4軸）、`telemetry`（テレメトリ3軸）、`environment`（coherence+telemetry統合）。
 プロジェクト固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}` で使用。
-インターフェース: stdin でスキル内容を受け取り、0.0〜1.0 を stdout に出力。
+環境スコア: `audit --coherence-score --telemetry-score` で構造品質+行動実績の統合スコアを表示。
 
 詳細は [README.md](README.md#適応度関数) を参照。
 

@@ -239,6 +239,11 @@ rl-anything は **3つの独立した柱** で構成される。
 |------|------|
 | `default` | LLM による汎用評価（明確性・完全性・構造・実用性） |
 | `skill_quality` | ルールベースの構造品質チェック |
+| `coherence` | 環境の構造的整合性（Coverage/Consistency/Completeness/Efficiency の4軸） |
+| `telemetry` | テレメトリ駆動の環境実効性（Utilization/Effectiveness/Implicit Reward の3軸） |
+| `environment` | coherence + telemetry をブレンドした統合環境スコア |
+
+`telemetry` / `environment` は `--fitness` フラグでは使用しない（プロジェクトパスが必要なため）。`audit --telemetry-score` / `audit --coherence-score --telemetry-score` で利用する。
 
 ### プロジェクト固有（カスタム）
 

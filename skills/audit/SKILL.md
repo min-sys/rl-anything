@@ -18,7 +18,7 @@ description: |
 
 ## 実行手順
 
-### Step 0.5: Coherence Score（オプション）
+### Step 0.5: Coherence Score / Telemetry Score（オプション）
 
 `--coherence-score` が指定された場合、環境全体の構造的整合性スコアを算出してレポート先頭に表示する:
 
@@ -28,6 +28,21 @@ python3 <PLUGIN_DIR>/skills/audit/scripts/audit.py "$(pwd)" --coherence-score
 
 4軸（Coverage / Consistency / Completeness / Efficiency）の重み付き平均で 0.0〜1.0 のスコアを算出。
 0.7 未満の軸には改善アドバイスを表示。
+
+`--telemetry-score` が指定された場合、テレメトリデータから環境の実効性を3軸で測定:
+
+```bash
+python3 <PLUGIN_DIR>/skills/audit/scripts/audit.py "$(pwd)" --telemetry-score
+```
+
+3軸（Utilization / Effectiveness / Implicit Reward）の重み付き平均で 0.0〜1.0 のスコアを算出。
+データ不足時（30セッション未満 or 7日未満）は警告を表示。
+
+両方指定時は Environment Fitness（統合スコア）も表示:
+
+```bash
+python3 <PLUGIN_DIR>/skills/audit/scripts/audit.py "$(pwd)" --coherence-score --telemetry-score
+```
 
 ### Step 1: Audit スクリプト実行
 
