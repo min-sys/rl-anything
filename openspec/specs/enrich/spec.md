@@ -1,6 +1,18 @@
-## MODIFIED Requirements
+## DEPRECATED
 
-### Requirement: Enrich matches patterns to existing skills
+> **Status**: enrich は廃止されました。Jaccard 類似度マッチング機能は discover の後処理フィルタに統合されています。
+
+### Migration Guide
+
+- enrich の Jaccard 類似度マッチング機能は discover の後処理フィルタに統合された。独立スキルとしての enrich は廃止。
+- discover の出力に `matched_skills` と `unmatched_patterns` が含まれるようになる。enrich を直接呼び出していたコードは discover の出力を参照するよう変更する。
+- Jaccard 類似度の共通モジュール import（`scripts/lib/similarity.py`）は discover に移管された。
+
+### 旧 Requirements（参考）
+
+以下は廃止前の要件。discover の diagnose-stage spec を参照のこと。
+
+#### Requirement: Enrich matches patterns to existing skills
 
 Enrich Phase は Discover が検出した error_patterns、rejection_patterns、および behavior_patterns を既存スキル群と照合し、関連するスキルを特定する（MUST）。照合にはキーワードマッチ（Jaccard 係数 >= 0.15）を使用する。Jaccard 係数の計算には `scripts/lib/similarity.py` の共通実装を使用しなければならない（MUST）。plugin 由来スキルは照合対象外とする（MUST）。
 
@@ -24,9 +36,7 @@ Enrich Phase は Discover が検出した error_patterns、rejection_patterns、
 - **WHEN** Discover が `rejection_pattern: "openspec format error"` を検出し、`openspec-propose` スキルが存在するが origin が "plugin"
 - **THEN** Enrich は `openspec-propose` を照合対象外とし、当該パターンを `unmatched_patterns` に含める
 
-## ADDED Requirements
-
-### Requirement: Jaccard 類似度は共通モジュールから import する
+#### Requirement: Jaccard 類似度は共通モジュールから import する
 
 enrich.py は `tokenize()` と `jaccard_coefficient()` を `scripts/lib/similarity.py` から import しなければならない（MUST）。ローカルに同等の関数を定義してはならない（MUST NOT）。
 

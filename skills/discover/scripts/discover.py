@@ -32,7 +32,11 @@ _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 from agent_classifier import classify_agent_type
 from line_limit import MAX_RULE_LINES, MAX_SKILL_LINES
+from similarity import jaccard_coefficient, tokenize
 from skill_triggers import extract_skill_triggers, normalize_skill_name
+
+# Jaccard 照合閾値
+JACCARD_THRESHOLD = 0.15
 
 # Discover 振動防止用抑制リスト
 SUPPRESSION_FILE = DATA_DIR / "discover-suppression.jsonl"
@@ -464,75 +468,102 @@ def load_claude_reflect_data() -> List[Dict[str, Any]]:
     return load_jsonl(corrections_file)
 
 
-# ---------- session-scan ----------
-
-CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
-SESSION_SCAN_THRESHOLD = 5
+# ---------- enrich (Jaccard 照合、旧 enrich.py から統合) ----------
 
 
-def _get_backfill_parse_transcript():
-    """backfill の parse_transcript を遅延インポートで取得する。"""
-    import sys as _sys
-    _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
-    _backfill_scripts = _plugin_root / "skills" / "backfill" / "scripts"
-    if str(_backfill_scripts) not in _sys.path:
-        _sys.path.insert(0, str(_backfill_scripts))
-    from backfill import parse_transcript
-    return parse_transcript
+def _load_skill_tokens(skill_path: Path) -> Dict[str, Any]:
+    """SKILL.md の先頭 50 行 + スキル名からトークン集合を生成する。"""
+    from typing import Set as _Set
+
+    tokens: _Set[str] = set()
+    skill_name = skill_path.parent.name
+    tokens |= tokenize(skill_name)
+
+    try:
+        lines = skill_path.read_text(encoding="utf-8").splitlines()[:50]
+        for line in lines:
+            tokens |= tokenize(line)
+    except OSError:
+        pass
+
+    return {"path": skill_path, "name": skill_name, "tokens": tokens}
 
 
-def detect_session_patterns(
-    threshold: int = SESSION_SCAN_THRESHOLD,
-    projects_dir: Optional[Path] = None,
-) -> List[Dict[str, Any]]:
-    """セッション JSONL のユーザーメッセージテキストを直接分析し、繰り返しパターンを検出する。
+def _enrich_patterns(
+    patterns: List[Dict[str, Any]],
+    project_dir: Optional[Path] = None,
+    max_matches: int = 3,
+) -> Dict[str, Any]:
+    """パターンを既存スキルに Jaccard 係数でマッチングする。
 
-    Args:
-        threshold: パターン検出閾値（デフォルト5回以上）
-        projects_dir: プロジェクトディレクトリのルート（テスト用）
+    enrich.py から統合。プラグイン由来のスキルは除外。
+    Jaccard >= JACCARD_THRESHOLD のマッチのみ保持し、上位 max_matches 件を返す。
 
     Returns:
-        検出されたパターンのリスト
+        {"matched_skills": [...], "unmatched_patterns": [...]}
     """
-    if projects_dir is None:
-        projects_dir = CLAUDE_PROJECTS_DIR
+    proj = project_dir or Path.cwd()
 
-    if not projects_dir.is_dir():
-        return []
+    # audit.py から find_artifacts / classify_artifact_origin を遅延インポート
+    import sys as _sys
+    _audit_scripts = _plugin_root / "skills" / "audit" / "scripts"
+    if str(_audit_scripts) not in _sys.path:
+        _sys.path.insert(0, str(_audit_scripts))
+    from audit import classify_artifact_origin, find_artifacts
 
-    parse_transcript = _get_backfill_parse_transcript()
+    artifacts = find_artifacts(proj)
 
-    # 全セッションからユーザーメッセージを収集
-    prompt_counter: Counter = Counter()
+    # 非プラグインスキルのトークンを事前計算
+    skill_info = []
+    for skill_path in artifacts.get("skills", []):
+        origin = classify_artifact_origin(skill_path)
+        if origin == "plugin":
+            continue
+        skill_info.append(_load_skill_tokens(skill_path))
 
-    for session_file in projects_dir.glob("*/sessions/*.jsonl"):
-        try:
-            result = parse_transcript(session_file)
-        except Exception as e:
-            print(
-                f"[rl-anything:discover] session parse error: {session_file.name}: {e}",
-                file=sys.stderr,
-            )
+    matched_skills: List[Dict[str, Any]] = []
+    matched_pattern_texts: set = set()
+
+    for pattern in patterns:
+        pattern_text = pattern.get("pattern", "")
+        pattern_type = pattern.get("type", "unknown")
+        pattern_tokens = tokenize(pattern_text)
+
+        if not pattern_tokens:
             continue
 
-        if result.session_meta and result.session_meta.get("user_prompts"):
-            for prompt in result.session_meta["user_prompts"]:
-                # 短すぎるプロンプトや空文字列はスキップ
-                prompt = prompt.strip()
-                if len(prompt) >= 5:
-                    prompt_counter[prompt] += 1
+        scored = []
+        for info in skill_info:
+            score = jaccard_coefficient(pattern_tokens, info["tokens"])
+            if score >= JACCARD_THRESHOLD:
+                scored.append({
+                    "pattern_type": pattern_type,
+                    "pattern": pattern_text,
+                    "matched_skill": info["name"],
+                    "skill_path": str(info["path"]),
+                    "jaccard_score": round(score, 4),
+                })
 
-    suppressed = load_suppression_list()
-    patterns = []
-    for prompt_text, count in prompt_counter.most_common():
-        if count >= threshold and prompt_text not in suppressed:
-            patterns.append({
-                "type": "session_text",
-                "pattern": prompt_text,
-                "count": count,
-                "suggestion": "skill_candidate",
+        scored.sort(key=lambda x: x["jaccard_score"], reverse=True)
+        if scored:
+            matched_skills.extend(scored[:max_matches])
+            matched_pattern_texts.add(pattern_text)
+
+    # 未マッチパターン
+    unmatched_patterns = []
+    for pattern in patterns:
+        pattern_text = pattern.get("pattern", "")
+        if pattern_text not in matched_pattern_texts:
+            unmatched_patterns.append({
+                "pattern_type": pattern.get("type", "unknown"),
+                "pattern": pattern_text,
+                "suggestion": pattern.get("suggestion", "skill_candidate"),
             })
-    return patterns
+
+    return {
+        "matched_skills": matched_skills,
+        "unmatched_patterns": unmatched_patterns,
+    }
 
 
 # ---------- recommended artifacts ----------
@@ -578,13 +609,12 @@ def detect_recommended_artifacts() -> List[Dict[str, Any]]:
 
 
 def run_discover(
-    session_scan: bool = False,
     *,
     project_root: Optional[Path] = None,
     include_unknown: bool = False,
     tool_usage: bool = False,
 ) -> Dict[str, Any]:
-    """Discover を実行して候補を返す。"""
+    """Discover を実行して候補を返す。enrich 統合済み。"""
     behavior = detect_behavior_patterns(
         project_root=project_root, include_unknown=include_unknown,
     )
@@ -613,18 +643,19 @@ def run_discover(
     if missed_result["message"]:
         result["missed_skill_message"] = missed_result["message"]
 
-    if session_scan:
-        session_patterns = detect_session_patterns()
-        result["session_patterns"] = session_patterns
-    else:
-        session_patterns = []
-
     # スコープ判断
-    all_patterns = behavior + errors + rejections + session_patterns
+    all_patterns = behavior + errors + rejections
     for p in all_patterns:
         p["scope"] = determine_scope(p)
 
     result["total_candidates"] = len(all_patterns)
+
+    # enrich 統合: Jaccard 照合
+    active_patterns = errors + rejections if (errors or rejections) else behavior
+    if active_patterns:
+        enrich_result = _enrich_patterns(active_patterns, project_dir=project_root)
+        result["matched_skills"] = enrich_result["matched_skills"]
+        result["unmatched_patterns"] = enrich_result["unmatched_patterns"]
 
     if tool_usage:
         from tool_usage_analyzer import analyze_tool_usage
@@ -642,11 +673,6 @@ def run_discover(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="パターン発見スクリプト")
-    parser.add_argument(
-        "--session-scan",
-        action="store_true",
-        help="セッション JSONL のユーザーメッセージテキストを直接分析して繰り返しパターンを検出する",
-    )
     parser.add_argument(
         "--project-dir",
         default=None,
@@ -666,7 +692,6 @@ def main() -> None:
 
     project_root = Path(args.project_dir) if args.project_dir else None
     result = run_discover(
-        session_scan=args.session_scan,
         project_root=project_root,
         include_unknown=args.include_unknown,
         tool_usage=args.tool_usage,

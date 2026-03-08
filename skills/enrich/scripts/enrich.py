@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Enrich フェーズスクリプト。
 
+.. deprecated::
+    discover.py に _enrich_patterns() として統合済み。
+    このファイルは後方互換のためのみ残存。新規利用は discover.py を使用すること。
+
 Discover の出力（error_patterns, rejection_patterns, behavior_patterns）を受け取り、
 既存スキルと Jaccard 係数によるキーワードマッチングで関連付ける。
 LLM 呼び出しなし（Type A パターン）。

@@ -32,6 +32,7 @@ MAX_CORRECTIONS_PER_PATCH = 10
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 from line_limit import MAX_RULE_LINES, MAX_SKILL_LINES, check_line_limit
+from regression_gate import GateResult, check_gates
 
 # corrections パス
 _CORRECTIONS_PATH = Path.home() / ".claude" / "rl-anything" / "corrections.jsonl"
@@ -458,30 +459,24 @@ class DirectPatchOptimizer:
     # --- Regression Gate ---
 
     def _regression_gate(self, content: str) -> Tuple[bool, Optional[str]]:
-        """構造的必要条件のハードゲートチェック。"""
-        if not content or not content.strip():
-            return False, "empty"
+        """構造的必要条件のハードゲートチェック。共通ライブラリに委譲。"""
+        pitfalls_file = self.target_path.parent / "references" / "pitfalls.md"
+        pitfall_path = str(pitfalls_file) if pitfalls_file.exists() else None
 
-        if not self._check_line_limit(content):
-            lines = content.count("\n") + 1
-            return False, f"line_limit_exceeded({lines}/{self._max_lines})"
-
-        for pattern in self.FORBIDDEN_PATTERNS:
-            if pattern in content:
-                return False, f"forbidden_pattern({pattern})"
-
-        pitfall_patterns = self._load_pitfall_patterns()
-        for pp in pitfall_patterns:
-            if pp in content:
-                return False, f"pitfall_pattern({pp})"
-
-        # frontmatter 保持チェック
         original = getattr(self, "original_content", None)
-        if original and original.startswith("---"):
-            if not content.startswith("---"):
-                return False, "frontmatter_lost"
-
-        return True, None
+        result = check_gates(
+            candidate=content,
+            original=original,
+            max_lines=self._max_lines,
+            pitfall_patterns_path=pitfall_path,
+        )
+        if result.passed:
+            return True, None
+        # 既存の reason フォーマットとの互換性を維持
+        reason = result.reason
+        if reason == "empty_content":
+            reason = "empty"
+        return False, reason
 
     def _load_pitfall_patterns(self) -> List[str]:
         """pitfalls.md からゲート不合格パターンを読み込む。"""

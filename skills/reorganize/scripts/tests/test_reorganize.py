@@ -280,70 +280,63 @@ class TestPluginSkillsExcluded:
             audit._plugin_skill_map_cache = None
 
 
-class TestMergeGroupsFromClusters:
-    """2つ以上のスキルを持つクラスタがマージ候補になるテスト。"""
+class TestClustersOutput:
+    """クラスタリング出力テスト（マージ候補は prune に一元化済み）。"""
 
-    def test_merge_groups_from_clusters(self, tmp_path):
-        """類似コンテンツのスキルがマージ候補として検出される。"""
+    def test_clusters_output_no_merge_groups(self, tmp_path):
+        """出力に clusters と split_candidates が含まれ、merge_groups は含まれない。"""
         scipy = pytest.importorskip("scipy")
         sklearn = pytest.importorskip("sklearn")
 
         project_dir = tmp_path / "project"
         skills_dir = project_dir / ".claude" / "skills"
 
-        # 類似したスキルペアを作成
-        similar_content_a = (
-            "# Deploy AWS\n"
-            "Deploy application to AWS using CloudFormation templates.\n"
-            "AWS deployment configuration and infrastructure setup.\n"
-            "CloudFormation stack management and deployment pipeline.\n"
-            "AWS EC2 instances and load balancer configuration.\n"
-        )
-        similar_content_b = (
-            "# AWS Infrastructure\n"
-            "AWS infrastructure deployment and CloudFormation templates.\n"
-            "Deploy and manage AWS cloud infrastructure resources.\n"
-            "CloudFormation deployment automation and stack updates.\n"
-            "AWS EC2 auto-scaling and load balancer setup.\n"
-        )
-
-        # 異なるドメインのスキルを3つ作成
-        different_contents = [
-            (
-                "# Python Testing\n"
-                "Unit testing with pytest framework and test fixtures.\n"
-                "Mock objects and parametrized test cases for Python.\n"
-                "Test coverage analysis and continuous integration.\n"
-                "Python test runner configuration and assertion helpers.\n"
-            ),
-            (
-                "# Database Migration\n"
-                "SQL database schema migration and version control.\n"
-                "PostgreSQL table alterations and index management.\n"
-                "Database rollback procedures and migration scripts.\n"
-                "SQL schema versioning and data migration tools.\n"
-            ),
-            (
-                "# Frontend React\n"
-                "React component development and state management.\n"
-                "JavaScript frontend rendering and virtual DOM.\n"
-                "React hooks and context API for application state.\n"
-                "Frontend UI component library and design system.\n"
-            ),
-        ]
-
-        # 類似スキル2つ
+        # 5つスキルを作成
         skill_paths = []
-        for name, content in [("deploy-aws", similar_content_a), ("aws-infra", similar_content_b)]:
+        contents = [
+            "Deploy application to AWS using CloudFormation templates.\nAWS deployment config.\n",
+            "AWS infrastructure deployment and CloudFormation templates.\nDeploy resources.\n",
+            "Unit testing with pytest framework and test fixtures.\nMock and parametrize.\n",
+            "SQL database schema migration and version control.\nPostgreSQL alterations.\n",
+            "React component development and state management.\nJavaScript frontend.\n",
+        ]
+        for i, content in enumerate(contents):
+            name = f"skill-{i}"
             skill_dir = skills_dir / name
             skill_dir.mkdir(parents=True)
             skill_md = skill_dir / "SKILL.md"
-            skill_md.write_text(content)
+            skill_md.write_text(f"# {name}\n{content}")
             skill_paths.append(skill_md)
 
-        # 異なるスキル3つ
-        for i, content in enumerate(different_contents):
-            name = f"different-skill-{i}"
+        fake_artifacts = {"skills": skill_paths, "rules": [], "memory": [], "claude_md": []}
+        with mock.patch("reorganize.find_artifacts", return_value=fake_artifacts):
+            result = reorganize.run_reorganize(str(project_dir))
+
+        assert result["skipped"] is False
+        assert "clusters" in result
+        assert "split_candidates" in result
+        assert "merge_groups" not in result
+        assert "total_merge_groups" not in result
+        assert result["total_clusters"] > 0
+
+    def test_clusters_have_keywords(self, tmp_path):
+        """各クラスタに centroid_keywords が含まれる。"""
+        scipy = pytest.importorskip("scipy")
+        sklearn = pytest.importorskip("sklearn")
+
+        project_dir = tmp_path / "project"
+        skills_dir = project_dir / ".claude" / "skills"
+
+        domains = [
+            ("cooking-recipes", "# Cooking\nRecipes for Italian pasta and French cuisine.\nBaking bread.\n"),
+            ("quantum-physics", "# Quantum\nEntanglement and superposition.\nSchrodinger equation.\n"),
+            ("gardening-tips", "# Gardening\nOrganic composting techniques.\nSeasonal planting.\n"),
+            ("music-theory", "# Music\nChord progressions and analysis.\nMusical scales.\n"),
+            ("marine-biology", "# Marine\nCoral reef ecosystems.\nOcean currents.\n"),
+        ]
+
+        skill_paths = []
+        for name, content in domains:
             skill_dir = skills_dir / name
             skill_dir.mkdir(parents=True)
             skill_md = skill_dir / "SKILL.md"
@@ -355,60 +348,42 @@ class TestMergeGroupsFromClusters:
             result = reorganize.run_reorganize(str(project_dir))
 
         assert result["skipped"] is False
-        assert result["total_clusters"] > 0
-        assert isinstance(result["clusters"], list)
-        assert isinstance(result["merge_groups"], list)
-
-        # マージ候補にはスキル名と類似度スコアが含まれる
-        for mg in result["merge_groups"]:
-            assert "skills" in mg
-            assert len(mg["skills"]) >= 2
-            assert "reason" in mg
-            assert "similarity_score" in mg
-            assert mg["reason"] == "high content similarity"
-
-    def test_single_skill_clusters_not_in_merge_groups(self, tmp_path):
-        """1つのスキルだけのクラスタはマージ候補に含まれない。"""
-        scipy = pytest.importorskip("scipy")
-        sklearn = pytest.importorskip("sklearn")
-
-        project_dir = tmp_path / "project"
-        skills_dir = project_dir / ".claude" / "skills"
-
-        # 全く異なるドメインのスキルを5つ作成
-        domains = [
-            ("cooking-recipes", "# Cooking\nRecipes for Italian pasta and French cuisine.\nIngredients and cooking temperatures for baking bread.\n"),
-            ("quantum-physics", "# Quantum Physics\nQuantum entanglement and superposition principles.\nSchrodinger equation and wave function collapse.\n"),
-            ("gardening-tips", "# Gardening\nOrganic gardening and composting techniques.\nSeasonal planting calendar and soil pH management.\n"),
-            ("music-theory", "# Music Theory\nChord progressions and harmonic analysis.\nMusical scales and rhythm notation systems.\n"),
-            ("marine-biology", "# Marine Biology\nCoral reef ecosystems and marine biodiversity.\nOcean currents and deep sea organism adaptation.\n"),
-        ]
-
-        skill_paths = []
-        for name, content in domains:
-            skill_dir = skills_dir / name
-            skill_dir.mkdir(parents=True)
-            skill_md = skill_dir / "SKILL.md"
-            skill_md.write_text(content)
-            skill_paths.append(skill_md)
-
-        # 低い閾値（厳しいマージ条件）を設定
-        data_dir = tmp_path / "rl-data"
-        data_dir.mkdir()
-        state = {"reorganize_threshold": 0.3}
-        (data_dir / "evolve-state.json").write_text(json.dumps(state))
-
-        fake_artifacts = {"skills": skill_paths, "rules": [], "memory": [], "claude_md": []}
-        with mock.patch.object(reorganize, "DATA_DIR", data_dir):
-            with mock.patch("reorganize.find_artifacts", return_value=fake_artifacts):
-                result = reorganize.run_reorganize(str(project_dir))
-
-        assert result["skipped"] is False
-        # 各クラスタには1つのスキルのみ（非常に異なるドメイン）
-        # マージ候補は0か少数のはず
         for cluster in result["clusters"]:
             assert "centroid_keywords" in cluster
             assert isinstance(cluster["centroid_keywords"], list)
+
+
+class TestSplitDetection:
+    """split 検出の専用テスト。"""
+
+    def test_300行超検出(self, tmp_path):
+        """300行を超えるスキルが split_candidates に含まれる。"""
+        skills_dir = tmp_path / ".claude" / "skills"
+        long_dir = skills_dir / "long-skill"
+        long_dir.mkdir(parents=True)
+        long_md = long_dir / "SKILL.md"
+        long_md.write_text("# Long\n" + "\n".join(f"line {i}" for i in range(350)))
+
+        artifacts = {"skills": [long_md], "rules": []}
+        candidates = reorganize.detect_split_candidates(artifacts)
+        assert len(candidates) == 1
+        assert candidates[0]["skill_name"] == "long-skill"
+        assert candidates[0]["line_count"] > 300
+
+    def test_全スキル300行以下時の空リスト(self, tmp_path):
+        """全スキルが300行以下なら空リストを返す。"""
+        skills_dir = tmp_path / ".claude" / "skills"
+        paths = []
+        for name in ["a", "b", "c"]:
+            d = skills_dir / name
+            d.mkdir(parents=True)
+            md = d / "SKILL.md"
+            md.write_text(f"# {name}\nShort content.\n")
+            paths.append(md)
+
+        artifacts = {"skills": paths, "rules": []}
+        candidates = reorganize.detect_split_candidates(artifacts)
+        assert candidates == []
 
 
 class TestBuildTfidfMatrix:

@@ -1,8 +1,9 @@
 ---
 name: backfill
 description: |
-  Backfill session transcripts to extract Skill/Agent tool calls and workflow structures,
-  then output analysis reports. Writes to usage.jsonl and workflows.jsonl.
+  Setup command: Backfill session transcripts to extract Skill/Agent tool calls and workflow structures.
+  Run once during initial setup or after significant session accumulation. Not part of the daily evolve pipeline.
+  Writes to usage.jsonl and workflows.jsonl.
   Trigger: backfill, バックフィル, session history, セッション履歴, 分析
 disable-model-invocation: true
 ---

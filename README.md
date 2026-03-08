@@ -37,8 +37,7 @@ rl-anything は **3つの独立した柱** で構成される。
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  柱1: 自律進化パイプライン                                │
-│  Observe(hooks) → Discover → Enrich → Optimize →        │
-│  Reorganize → Prune → Reflect → Report                   │
+│  Observe(hooks) → Diagnose → Compile → Housekeeping     │
 │  → evolve で一括実行                                      │
 ├─────────────────────────────────────────────────────────┤
 │  柱2: 修正フィードバックループ                             │
@@ -88,7 +87,7 @@ rl-anything は **3つの独立した柱** で構成される。
 | `update` | ユーティリティ | プラグインを最新版に更新 |
 | `version` | ユーティリティ | バージョン・コミットハッシュを表示 |
 
-内部スキル（evolve から自動呼出し）: `enrich`, `reorganize`
+内部スキル（evolve から自動呼出し）: `reorganize`（split 検出のみ）。`enrich` は discover に統合済み（deprecated）
 
 ## Hooks（データ収集）
 
@@ -118,19 +117,18 @@ rl-anything は **3つの独立した柱** で構成される。
 /rl-anything:evolve              # 本実行
 ```
 
-実行フェーズ: Discover → Enrich → Optimize → Reorganize → Prune(+Merge) → Fitness Evolution → Remediation → Reflect → Report
+実行フェーズ: Diagnose(Discover+Audit+Reorganize) → Compile(Optimize+Remediation+Reflect) → Housekeeping(Prune+Fitness Evolution) → Report
 
 前回以降のセッション数が3未満 or 10観測未満の場合はスキップを推奨。
 
 ### discover
 
 ```
-/rl-anything:discover                    # パターン検出＋候補生成
+/rl-anything:discover                    # パターン検出＋候補生成（enrich 統合済み）
 /rl-anything:discover --scope global     # グローバルスコープで検出
-/rl-anything:discover --session-scan     # セッションテキストからも検出
 ```
 
-検出基準: 行動パターン（5+回）→スキル候補、エラーパターン（3+回）→ルール候補、却下理由（3+回）→ルール候補。組み込み Agent は `agent_usage_summary` に分離。推奨ルール/hook 未導入も検出。
+検出基準: 行動パターン（5+回）→スキル候補、エラーパターン（3+回）→ルール候補、却下理由（3+回）→ルール候補。組み込み Agent は `agent_usage_summary` に分離。推奨ルール/hook 未導入も検出。Jaccard 係数で既存スキルとの照合も実行（enrich 統合）。
 
 ### prune
 

@@ -108,7 +108,7 @@ class TestFullPipeline:
         optimizer = DirectPatchOptimizer(target_path=str(skill_path), mode="auto")
         optimizer.run_dir = temp_dir / "test_run"
 
-        improved = "# Improved Skill\n\nBetter content with edge cases.\n"
+        improved = "---\nname: test-skill\ndescription: Integration test skill\n---\n\n# Improved Skill\n\nBetter content with edge cases.\n"
 
         with patch("optimize._CORRECTIONS_PATH", corrections_file), \
              patch("optimize.subprocess.run", return_value=self._mock_llm_response(improved)):

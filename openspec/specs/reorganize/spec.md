@@ -1,29 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: Reorganize clusters skills by content similarity
-Reorganize Phase は全スキルの SKILL.md テキストから TF-IDF ベクトルを生成し、階層クラスタリングで意味的に近いスキル群を特定する（MUST）。plugin 由来スキルは分析対象外とする（MUST）。
+Reorganize Phase は全スキルの SKILL.md テキストから TF-IDF ベクトルを生成し、階層クラスタリングで意味的に近いスキル群を特定する（MUST）。plugin 由来スキルは分析対象外とする（MUST）。ただしクラスタリング結果はマージ提案には使用せず、split 候補検出の補助情報としてのみ使用する（MUST）。
 
 #### Scenario: Related skills clustered together
 - **WHEN** `aws-cdk-deploy`, `aws-cdk-development`, `aws-common` の3スキルが存在する
-- **THEN** Reorganize はこれらを同一クラスタに分類し、「統合候補」として提案する
+- **THEN** Reorganize はこれらを同一クラスタに分類するが、マージ提案は生成しない
 
 #### Scenario: Unrelated skills in separate clusters
 - **WHEN** `mailpit-test` と `draw-io` が存在する
 - **THEN** Reorganize はこれらを別クラスタに分類する
 
-### Requirement: Reorganize proposes merge for clusters with 2+ skills
-クラスタ内のスキル数が 2 以上の場合、「統合候補グループ」として提案する（MUST）。提案はユーザーへの情報提供のみであり、自動統合は行わない（MUST NOT）。
-
-#### Scenario: Cluster with 3 related skills
-- **WHEN** クラスタ `["openspec-propose", "openspec-refine", "openspec-apply-change"]` が検出された（ただし全て plugin 由来でないと仮定）
-- **THEN** 出力の `merge_groups` に当該グループを含め、「これらのスキルは統合を検討してください」と提案する
-
-#### Scenario: All clusters are singletons
-- **WHEN** 全スキルが異なるクラスタに分類された
-- **THEN** `merge_groups` は空リストとなる
-
 ### Requirement: Reorganize detects oversized skills for split
-単一スキルで SKILL.md の行数が 300 行を超える場合、「分割候補」として提案する（MUST）。
+単一スキルで SKILL.md の行数が 300 行を超える場合、「分割候補」として提案する（MUST）。これが reorganize の主要な責務である。
 
 #### Scenario: Oversized skill detected
 - **WHEN** `mega-skill/SKILL.md` が 450 行ある
@@ -48,7 +37,7 @@ scipy がインストールされていない環境では、Reorganize Phase を
 - **THEN** Reorganize は `{"skipped": true, "reason": "scipy_not_available"}` を出力する
 
 ### Requirement: Reorganize output structure
-Reorganize Phase の出力は以下の JSON 構造に従う（MUST）。
+Reorganize Phase の出力は以下の JSON 構造に従う（MUST）。マージ候補検出は prune の semantic similarity ベースの検出に一元化されたため、`merge_groups` と `total_merge_groups` は出力に含めない。
 
 ```json
 {
@@ -60,13 +49,6 @@ Reorganize Phase の出力は以下の JSON 構造に従う（MUST）。
       "centroid_keywords": ["deploy", "aws", "cdk"]
     }
   ],
-  "merge_groups": [
-    {
-      "skills": ["skill-a", "skill-b"],
-      "reason": "high content similarity",
-      "similarity_score": 0.85
-    }
-  ],
   "split_candidates": [
     {
       "skill_name": "mega-skill",
@@ -75,14 +57,13 @@ Reorganize Phase の出力は以下の JSON 構造に従う（MUST）。
     }
   ],
   "total_clusters": 0,
-  "total_merge_groups": 0,
   "total_split_candidates": 0
 }
 ```
 
 #### Scenario: Full output with all sections populated
-- **WHEN** 10 スキルが分析され、3 クラスタに分類、1 統合候補グループ、1 分割候補がある
-- **THEN** 出力は `clusters` 3件、`merge_groups` 1件、`split_candidates` 1件を含む
+- **WHEN** 10 スキルが分析され、3 クラスタに分類、1 分割候補がある
+- **THEN** 出力は `clusters` 3件、`split_candidates` 1件を含む
 
 ### Requirement: Reorganize uses configurable distance threshold
 クラスタリングの距離閾値はデフォルト 0.7 とし、`evolve-state.json` の `reorganize_threshold` で変更可能とする（MUST）。
@@ -90,3 +71,13 @@ Reorganize Phase の出力は以下の JSON 構造に従う（MUST）。
 #### Scenario: Custom threshold configured
 - **WHEN** `evolve-state.json` に `"reorganize_threshold": 0.5` が設定されている
 - **THEN** Reorganize は距離閾値 0.5 でクラスタリングを実行する
+
+## REMOVED Requirements
+
+### Requirement: Reorganize proposes merge for clusters with 2+ skills
+**Reason**: マージ候補検出は prune の semantic similarity ベースの検出に一元化する。reorganize と prune の二重検出を解消する。
+**Migration**: マージ候補は prune の `duplicate_candidates` / `merge_proposals` から取得する。
+
+### Requirement: Reorganize output structure (merge_groups)
+**Reason**: マージ候補検出の削除に伴い、出力構造から `merge_groups` を除去する。
+**Migration**: 出力 JSON から `merge_groups` と `total_merge_groups` フィールドが削除された。`split_candidates` と `clusters`（split 検出に使用）は維持される。

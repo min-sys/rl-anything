@@ -6,10 +6,10 @@
 
 | 柱 | スキル | 説明 |
 |----|--------|------|
-| 自律進化 | backfill, discover, enrich, reorganize, prune, evolve, audit | Observe→Discover→Enrich→Optimize→Reorganize→Prune→Reflect→Report のデータ駆動パイプライン |
+| 自律進化 | evolve, discover, reorganize, prune, audit | Observe → Diagnose → Compile → Housekeeping → Report の3ステージパイプライン |
 | フィードバック | reflect | 修正パターン検出 → corrections.jsonl → CLAUDE.md/rules に反映 |
-| 直接パッチ最適化 | optimize, rl-loop, generate-fitness, evolve-fitness | corrections/context → LLM 1パスパッチ → regression gate |
-| ユーティリティ | feedback, update, version | フィードバック・更新・バージョン確認 |
+| 直接パッチ最適化 | optimize, rl-loop, generate-fitness, evolve-fitness | corrections/context → LLM 1パスパッチ → regression gate（`scripts/lib/regression_gate.py` に共通化） |
+| ユーティリティ | feedback, update, version, backfill | フィードバック・更新・バージョン確認・初期セットアップ |
 
 ## コンポーネント
 

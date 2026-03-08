@@ -15,7 +15,7 @@ sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "discover" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "prune" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "evolve-fitness" / "scripts"))
-sys.path.insert(0, str(_plugin_root / "skills" / "enrich" / "scripts"))
+# enrich は discover に統合済み — import パス不要
 sys.path.insert(0, str(_plugin_root / "skills" / "reorganize" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "evolve" / "scripts"))
 
@@ -205,14 +205,15 @@ def run_evolve(
     except Exception as e:
         result["phases"]["discover"] = {"error": str(e)}
 
-    # Phase 2.5: Enrich（Discover の直後）
-    try:
-        from enrich import run_enrich
-        discover_data = result["phases"].get("discover", {})
-        enrich_result = run_enrich(discover_data, project_dir)
-        result["phases"]["enrich"] = enrich_result
-    except Exception as e:
-        result["phases"]["enrich"] = {"error": str(e)}
+    # Phase 2.5: Enrich（discover に統合済み — discover 出力から取得）
+    discover_data = result["phases"].get("discover", {})
+    result["phases"]["enrich"] = {
+        "enrichments": discover_data.get("matched_skills", []),
+        "unmatched_patterns": discover_data.get("unmatched_patterns", []),
+        "total_enrichments": len(discover_data.get("matched_skills", [])),
+        "total_unmatched": len(discover_data.get("unmatched_patterns", [])),
+        "skipped_reason": "no_patterns_available" if not discover_data.get("matched_skills") and not discover_data.get("unmatched_patterns") else None,
+    }
 
     # Phase 3: Audit
     try:

@@ -171,7 +171,6 @@ def run_reorganize(project_dir: str = None) -> dict:
 
     # クラスタ情報を構築
     clusters = []
-    merge_groups = []
 
     for cluster_id, indices in sorted(cluster_map.items()):
         cluster_skill_names = [skill_names[i] for i in indices]
@@ -188,39 +187,14 @@ def run_reorganize(project_dir: str = None) -> dict:
             "centroid_keywords": keywords,
         })
 
-        # 2つ以上のスキルがあるクラスタはマージ候補
-        if len(indices) >= 2:
-            # クラスタ内ペアの平均類似度を計算
-            from scipy.spatial.distance import cosine as cosine_dist
-
-            total_sim = 0.0
-            pair_count = 0
-            for i in range(len(indices)):
-                for j in range(i + 1, len(indices)):
-                    vec_a = tfidf_matrix[indices[i]].toarray().flatten()
-                    vec_b = tfidf_matrix[indices[j]].toarray().flatten()
-                    sim = 1.0 - cosine_dist(vec_a, vec_b)
-                    total_sim += sim
-                    pair_count += 1
-
-            avg_similarity = total_sim / pair_count if pair_count > 0 else 0.0
-
-            merge_groups.append({
-                "skills": cluster_skill_names,
-                "reason": "high content similarity",
-                "similarity_score": round(avg_similarity, 4),
-            })
-
     # 分割候補
     split_candidates = detect_split_candidates(artifacts)
 
     return {
         "skipped": False,
         "clusters": clusters,
-        "merge_groups": merge_groups,
         "split_candidates": split_candidates,
         "total_clusters": len(clusters),
-        "total_merge_groups": len(merge_groups),
         "total_split_candidates": len(split_candidates),
     }
 

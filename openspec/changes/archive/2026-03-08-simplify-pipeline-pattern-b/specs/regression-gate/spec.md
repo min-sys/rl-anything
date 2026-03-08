@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: 回帰テストゲート
 `evaluate` メソッドの先頭でハードゲートチェックを実施し、最低品質を保証しなければならない（MUST）。不合格の場合は LLM 評価をスキップして即 0.0 を返さなければならない（MUST）。ゲートチェックの実装は `scripts/lib/regression_gate.py` の `check_gates()` を使用しなければならない（MUST）。evaluate メソッド内にゲートロジックをハードコードしてはならない（MUST NOT）。
@@ -33,36 +33,3 @@
 #### Scenario: 元スキルに frontmatter がない場合
 - **WHEN** 元コンテンツが `---` で始まらない
 - **THEN** frontmatter チェックはスキップし、他のゲートチェックのみ適用しなければならない（MUST）
-
-### Requirement: ゲート不合格時のログ出力
-ゲート不合格の理由を stderr またはコンソールに出力しなければならない（MUST）。
-
-#### Scenario: 不合格理由の表示
-- **WHEN** 回帰テストゲートで不合格になる
-- **THEN** `"  ゲート不合格: {理由}"` を print 出力しなければならない（MUST）（例: `"  ゲート不合格: 禁止パターン TODO を検出"`）
-
-### Requirement: 共通ライブラリ使用
-ゲートチェックの実装は `scripts/lib/regression_gate.py` の共通ライブラリを使用しなければならない（MUST）。以下の要件を満たすこと:
-
-- `check_gates()` 関数: `check_gates(candidate: str, original: str | None = None, max_lines: int, pitfall_patterns_path: str | None = None) -> GateResult` のシグネチャで提供される
-- `GateResult` データクラス: `passed: bool`, `reason: str | None` の2フィールドを持つ
-- `max_lines` はデフォルト値を持たない必須パラメータである。呼び出し側が `line_limit.py` の `MAX_SKILL_LINES`(500) / `MAX_RULE_LINES`(3) を参照し明示的に渡す
-- pitfall パターンチェック: `references/pitfalls.md` からゲートパターンをロードし候補テキストに対して照合する。`pitfall_patterns_path` が `None` の場合はスキップする
-
-#### Scenario: check_gates が全チェックを実行
-- **WHEN** `check_gates(candidate="...", original="---\nname: test\n---\ncontent", max_lines=500, pitfall_patterns_path="references/pitfalls.md")` を呼び出す
-- **THEN** 空コンテンツチェック、行数制限チェック、禁止パターンチェック、frontmatter 保持チェック、pitfall パターンチェックを順に実行し、`GateResult` を返す
-
-#### Scenario: pitfall パターン検出
-- **WHEN** 候補に `references/pitfalls.md` に記載されたパターンが含まれる
-- **THEN** `GateResult(passed=False, reason="pitfall_pattern({pattern})")` を返す
-
-#### Scenario: pitfall パターンファイルが存在しない
-- **WHEN** `pitfall_patterns_path` に指定されたファイルが存在しない
-- **THEN** pitfall チェックをスキップし、他のゲートチェックを継続する
-
-#### Scenario: max_lines が明示的に渡される
-- **WHEN** optimize.py がスキルのパッチを検証する
-- **THEN** `check_gates(candidate=patch, original=original, max_lines=MAX_SKILL_LINES)` のように明示的に渡す
-
-詳細なライブラリ仕様は `openspec/specs/shared-regression-gate/spec.md` を参照。
