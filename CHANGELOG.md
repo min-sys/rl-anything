@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.1] - 2026-03-09
+
+### Fixed
+- **optimize**: SKILL.md・plugin.json・marketplace.json 等の旧GA（遺伝的アルゴリズム）記述を DirectPatchOptimizer/直接パッチ最適化に統一 (#22)
+
 ## [1.0.0] - 2026-03-09
 
 ### BREAKING CHANGES
