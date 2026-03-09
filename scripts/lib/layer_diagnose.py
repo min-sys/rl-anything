@@ -69,18 +69,6 @@ def adapt_coherence_issues(coherence_result: Dict[str, Any]) -> List[Dict[str, A
             "coherence_adapter",
         ))
 
-    # Efficiency: orphan_rules → orphan_rule
-    efficiency = details.get("efficiency", {})
-    orphan_rules = efficiency.get("orphan_rules", {})
-    for rule_path in orphan_rules.get("rules", []):
-        name = Path(rule_path).stem
-        issues.append(_make_issue(
-            "orphan_rule",
-            rule_path,
-            {"name": name},
-            "coherence_adapter",
-        ))
-
     return issues
 
 
@@ -89,10 +77,10 @@ def adapt_coherence_issues(coherence_result: Dict[str, Any]) -> List[Dict[str, A
 def diagnose_rules(project_dir: Path, *, coherence_result: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Rules レイヤーの診断。
 
-    - orphan_rule: どのスキル・CLAUDE.md からも参照されていない孤立ルール
     - stale_rule: ルール内の参照先が存在しない
 
-    coherence.py の orphan_rules 結果を活用しつつ、スキル SKILL.md の参照チェックで補完する。
+    Note: orphan_rule は .claude/rules/ が Claude の auto-load 対象のため廃止。
+    将来は telemetry ベースの unused_rule に移行予定。
     """
     issues: List[Dict[str, Any]] = []
     rules_dir = project_dir / ".claude" / "rules"
@@ -103,53 +91,7 @@ def diagnose_rules(project_dir: Path, *, coherence_result: Optional[Dict[str, An
     if not rule_files:
         return issues
 
-    # スキル SKILL.md の内容を収集
-    skills_dir = project_dir / ".claude" / "skills"
-    skill_contents: List[str] = []
-    if skills_dir.exists():
-        for skill_md in skills_dir.rglob("SKILL.md"):
-            try:
-                skill_contents.append(skill_md.read_text(encoding="utf-8").lower())
-            except (OSError, UnicodeDecodeError):
-                continue
-
-    # CLAUDE.md の内容
-    claude_md = project_dir / "CLAUDE.md"
-    claude_content = ""
-    if claude_md.exists():
-        try:
-            claude_content = claude_md.read_text(encoding="utf-8").lower()
-        except (OSError, UnicodeDecodeError):
-            pass
-
-    # coherence.py からの orphan_rules 候補
-    coherence_orphans: Set[str] = set()
-    if coherence_result:
-        eff_details = coherence_result.get("details", {}).get("efficiency", {})
-        orphan_info = eff_details.get("orphan_rules", {})
-        for rule_path in orphan_info.get("rules", []):
-            coherence_orphans.add(Path(rule_path).stem.lower())
-
     for rule_path in rule_files:
-        rule_name = rule_path.stem.lower()
-
-        # --- orphan_rule ---
-        # CLAUDE.md で言及されているか
-        referenced_in_claude = rule_name in claude_content
-
-        # スキル SKILL.md で言及されているか
-        referenced_in_skills = any(
-            rule_name in content for content in skill_contents
-        )
-
-        if not referenced_in_claude and not referenced_in_skills:
-            issues.append(_make_issue(
-                "orphan_rule",
-                str(rule_path),
-                {"name": rule_path.stem},
-                "diagnose_rules",
-            ))
-
         # --- stale_rule ---
         try:
             content = rule_path.read_text(encoding="utf-8")
@@ -165,6 +107,10 @@ def diagnose_rules(project_dir: Path, *, coherence_result: Optional[Dict[str, An
                     continue
                 check = project_dir / ref_path
                 if not check.exists():
+                    # ファイル位置基準の相対パス解決（参照元ファイルの親ディレクトリ基準）
+                    file_relative = rule_path.parent / ref_path
+                    if file_relative.exists():
+                        continue
                     issues.append(_make_issue(
                         "stale_rule",
                         str(rule_path),
@@ -345,12 +291,12 @@ def diagnose_claudemd(project_dir: Path) -> List[Dict[str, Any]]:
     in_skills = False
     for line_num, line in enumerate(lines, 1):
         stripped = line.strip()
-        if re.match(r"^#{1,3}\s+[Ss]kills?\b", stripped):
+        if re.match(r"^#{1,3}\s+.*[Ss]kills?\b", stripped) or re.match(r"^#{1,3}\s+.*スキル", stripped):
             in_skills = True
             continue
         if in_skills and re.match(r"^#{1,3}\s+", stripped) and not re.match(
-            r"^#{1,3}\s+[Ss]kills?\b", stripped
-        ):
+            r"^#{1,3}\s+.*[Ss]kills?\b", stripped
+        ) and not re.match(r"^#{1,3}\s+.*スキル", stripped):
             break
         if not in_skills:
             continue
@@ -380,7 +326,7 @@ def diagnose_claudemd(project_dir: Path) -> List[Dict[str, Any]]:
 
     # --- claudemd_missing_section ---
     has_skills_section = bool(
-        re.search(r"^#{1,3}\s+[Ss]kills?\b|^#{1,3}\s+スキル", content, re.MULTILINE)
+        re.search(r"^#{1,3}\s+.*[Ss]kills?\b|^#{1,3}\s+.*スキル", content, re.MULTILINE)
     )
     skill_count = 0
     if skills_dir.exists():

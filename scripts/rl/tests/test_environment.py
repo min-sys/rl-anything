@@ -88,10 +88,14 @@ class TestComputeEnvironmentFitness:
         assert "sources" in result
         assert "coherence" in result["sources"]
         assert "telemetry" in result["sources"]
-        # ブレンド計算: coherence * 0.4 + telemetry * 0.6
+        # ブレンド計算: sources に応じた重み付け
         coh = result["coherence"]["overall"]
         tel = result["telemetry"]["overall"]
-        expected = round(coh * 0.4 + tel * 0.6, 4)
+        if "constitutional" in result["sources"]:
+            con = result["constitutional"]["overall"]
+            expected = round(coh * 0.25 + tel * 0.45 + con * 0.30, 4)
+        else:
+            expected = round(coh * 0.4 + tel * 0.6, 4)
         assert abs(result["overall"] - expected) < 0.01
 
     def test_telemetry_insufficient(self, tmp_path):
@@ -115,9 +119,17 @@ class TestComputeEnvironmentFitness:
              mock.patch("telemetry_query.HAS_DUCKDB", False):
             result = environment.compute_environment_fitness(project, days=30)
 
-        assert result["sources"] == ["coherence"]
-        # coherence のみで算出
-        assert result["overall"] == result["coherence"]["overall"]
+        # telemetry が不十分なので sources に含まれない
+        assert "telemetry" not in result["sources"]
+        assert "coherence" in result["sources"]
+        # coherence のみ or coherence + constitutional
+        if "constitutional" in result["sources"]:
+            coh = result["coherence"]["overall"]
+            con = result["constitutional"]["overall"]
+            expected = round(coh * 0.45 + con * 0.55, 4)
+            assert abs(result["overall"] - expected) < 0.01
+        else:
+            assert result["overall"] == result["coherence"]["overall"]
 
     def test_empty_project(self, tmp_path):
         data_dir = tmp_path / "_data"

@@ -20,8 +20,9 @@ from hardcoded_detector import detect_hardcoded_values
 
 # 行数制限
 LIMITS = {
-    "CLAUDE.md": 200,
+    "CLAUDE.md": 200,  # warning のみ（violation としては扱わない）
     "rules": 3,
+    "project_rules": 5,
     "SKILL.md": 500,
     "MEMORY.md": 200,
     "memory": 120,
@@ -284,18 +285,25 @@ def find_artifacts(project_dir: Path) -> Dict[str, List[Path]]:
 
 
 def check_line_limits(artifacts: Dict[str, List[Path]]) -> List[Dict[str, Any]]:
-    """行数制限の超過を検出する。"""
+    """行数制限の超過を検出する。
+
+    CLAUDE.md は violation ではなく warning のみ（collect_issues で除外）。
+    """
     violations = []
 
     for path in artifacts.get("claude_md", []):
         lines = path.read_text(encoding="utf-8").count("\n") + 1
         if lines > LIMITS["CLAUDE.md"]:
-            violations.append({"file": str(path), "lines": lines, "limit": LIMITS["CLAUDE.md"]})
+            violations.append({"file": str(path), "lines": lines, "limit": LIMITS["CLAUDE.md"], "warning_only": True})
 
     for path in artifacts.get("rules", []):
         lines = path.read_text(encoding="utf-8").count("\n") + 1
-        if lines > LIMITS["rules"]:
-            violations.append({"file": str(path), "lines": lines, "limit": LIMITS["rules"]})
+        # グローバル/プロジェクトルールで制限値を分ける
+        home_str = str(Path.home())
+        is_global = str(path).startswith(home_str) and ".claude/rules/" in str(path)
+        limit = LIMITS["rules"] if is_global else LIMITS["project_rules"]
+        if lines > limit:
+            violations.append({"file": str(path), "lines": lines, "limit": limit})
 
     for path in artifacts.get("skills", []):
         lines = path.read_text(encoding="utf-8").count("\n") + 1
@@ -406,6 +414,9 @@ def _extract_paths_outside_codeblocks(text: str) -> List[Tuple[int, str]]:
             # Python シンボル参照 (CONST/func) を除外 — 全大文字セグメントを含む場合
             segments = path_str.split("/")
             if not path_str.startswith("/") and any(s.isupper() for s in segments if s):
+                continue
+            # 全セグメントが数値パターンのパスを除外（HTTP ステータスコード 429/500/503、バージョン 1.0/2.1 等）
+            if all(s.replace(".", "").isdigit() for s in segments if s):
                 continue
             # 拡張子なしの2セグメント相対パスは既知プレフィックスで検証
             if (
@@ -558,6 +569,16 @@ def build_memory_health_section(
             else:
                 check_path = project_dir / ref_path
             if not check_path.exists():
+                # ファイル位置基準の相対パス解決（参照元ファイルの親ディレクトリ基準）
+                if not ref_path.startswith("/"):
+                    file_relative = path.parent / ref_path
+                    if file_relative.exists():
+                        continue
+                # トップレベルディレクトリがプロジェクトルートに存在しない場合は除外
+                if not ref_path.startswith("/"):
+                    top_dir = ref_path.split("/")[0]
+                    if top_dir not in KNOWN_DIR_PREFIXES and not (project_dir / top_dir).exists():
+                        continue
                 stale_refs.append({
                     "file": str(path),
                     "line": line_num,
@@ -1062,9 +1083,11 @@ def collect_issues(project_dir: Path) -> List[Dict[str, Any]]:
     artifacts = find_artifacts(project_dir)
     issues: List[Dict[str, Any]] = []
 
-    # violations（行数超過）
+    # violations（行数超過）— CLAUDE.md は warning のみ（violation として扱わない）
     violations = check_line_limits(artifacts)
     for v in violations:
+        if v.get("warning_only"):
+            continue
         issues.append({
             "type": "line_limit_violation",
             "file": v["file"],
@@ -1093,6 +1116,16 @@ def collect_issues(project_dir: Path) -> List[Dict[str, Any]]:
             else:
                 check_path = project_dir / ref_path
             if not check_path.exists():
+                # ファイル位置基準の相対パス解決（参照元ファイルの親ディレクトリ基準）
+                if not ref_path.startswith("/"):
+                    file_relative = path.parent / ref_path
+                    if file_relative.exists():
+                        continue
+                # トップレベルディレクトリがプロジェクトルートに存在しない場合は除外
+                if not ref_path.startswith("/"):
+                    top_dir = ref_path.split("/")[0]
+                    if top_dir not in KNOWN_DIR_PREFIXES and not (project_dir / top_dir).exists():
+                        continue
                 issues.append({
                     "type": "stale_ref",
                     "file": str(path),

@@ -48,18 +48,22 @@ def project_dir(tmp_path):
 
 
 def test_violations(project_dir):
-    """行数超過の issue が返される。"""
-    claude_md = project_dir / "CLAUDE.md"
-    claude_md.write_text("\n".join([f"line {i}" for i in range(250)]))
+    """行数超過の issue が返される（MEMORY.md の制限超過）。"""
+    memory_dir = project_dir / ".claude" / "memory"
+    memory_file = memory_dir / "MEMORY.md"
+    memory_file.write_text("\n".join([f"line {i}" for i in range(250)]))
 
     with patch("audit.read_auto_memory", return_value=[]):
         issues = collect_issues(project_dir)
 
     violation_issues = [i for i in issues if i["type"] == "line_limit_violation"]
     assert len(violation_issues) >= 1
-    assert violation_issues[0]["detail"]["lines"] == 250
-    assert violation_issues[0]["detail"]["limit"] == 200
-    assert violation_issues[0]["source"] == "check_line_limits"
+    # MEMORY.md の violation を確認
+    memory_violations = [v for v in violation_issues if "MEMORY.md" in v["file"]]
+    assert len(memory_violations) >= 1
+    assert memory_violations[0]["detail"]["lines"] == 250
+    assert memory_violations[0]["detail"]["limit"] == 200
+    assert memory_violations[0]["source"] == "check_line_limits"
 
 
 def test_stale_refs(project_dir):
@@ -146,6 +150,20 @@ def test_no_issues(project_dir):
         issues = collect_issues(project_dir)
 
     assert issues == []
+
+
+def test_claudemd_violation_excluded(project_dir):
+    """CLAUDE.md の行数超過は violation ではなく warning のみ（collect_issues に含まれない）。"""
+    claude_md = project_dir / "CLAUDE.md"
+    claude_md.write_text("\n".join([f"line {i}" for i in range(250)]))
+
+    with patch("audit.read_auto_memory", return_value=[]):
+        issues = collect_issues(project_dir)
+
+    violation_issues = [i for i in issues if i["type"] == "line_limit_violation"]
+    # CLAUDE.md は warning_only なので violation に含まれない
+    claudemd_violations = [i for i in violation_issues if "CLAUDE.md" in i["file"]]
+    assert len(claudemd_violations) == 0
 
 
 def test_issue_format(project_dir):

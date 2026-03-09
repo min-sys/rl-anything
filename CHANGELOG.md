@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.2] - 2026-03-09
+
+### Fixed
+- **diagnose**: FP 4パターン修正 (#23)
+  - stale_ref: 数値パターン除外、ファイル位置基準の相対パス解決、不在トップレベルディレクトリ除外
+  - orphan_rule: `.claude/rules/` auto-load のため廃止（coherence Efficiency 軸からも削除）
+  - claudemd_missing_section: セクション名マッチを `.*[Ss]kills?\b` に柔軟化（prefix 付き対応）
+  - line_limit: CLAUDE.md を warning only 化、project rule 5行制限、global rule 3行維持
+
+### Changed
+- **coherence**: Efficiency 軸から orphan_rules チェックを削除
+- **line_limit**: `MAX_PROJECT_RULE_LINES=5`、`CLAUDEMD_WARNING_LINES=300` 追加
+- **environment**: orphan_rules 廃止に伴い constitutional が有効になるケースの期待値対応
+
 ## [1.0.1] - 2026-03-09
 
 ### Fixed

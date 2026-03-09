@@ -2,15 +2,19 @@
 
 ### Requirement: 行数制限チェックの共通モジュール
 
-`scripts/lib/line_limit.py` に行数制限チェックの共通実装を提供しなければならない（MUST）。定数 `MAX_SKILL_LINES`（500）と `MAX_RULE_LINES`（3）を Single Source of Truth として定義する。
+`scripts/lib/line_limit.py` に行数制限チェックの共通実装を提供しなければならない（MUST）。定数 `MAX_SKILL_LINES`（500）、`MAX_RULE_LINES`（3）、`MAX_PROJECT_RULE_LINES`（5）を Single Source of Truth として定義する。
 
 #### Scenario: 共通関数のインターフェース
 - **WHEN** `check_line_limit(target_path, content)` を呼び出す
 - **THEN** コンテンツの行数がファイル種別に応じた上限以下なら `True`、超過なら `False` を返す
 
-#### Scenario: ルールファイルの判定
-- **WHEN** `target_path` に `.claude/rules/` が含まれる
+#### Scenario: ルールファイルの判定（グローバル）
+- **WHEN** `target_path` に `.claude/rules/` が含まれ、かつ `str(Path.home())` がパスに含まれる
 - **THEN** `MAX_RULE_LINES`（3）を上限として判定する
+
+#### Scenario: ルールファイルの判定（プロジェクト）
+- **WHEN** `target_path` に `.claude/rules/` が含まれ、かつ `str(Path.home())` がパスに含まれない
+- **THEN** `MAX_PROJECT_RULE_LINES`（5）を上限として判定する
 
 #### Scenario: スキルファイルの判定
 - **WHEN** `target_path` に `.claude/rules/` が含まれない

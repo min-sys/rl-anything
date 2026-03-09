@@ -16,10 +16,14 @@
 - **THEN** `claudemd_phantom_ref` として検出されない（プラグインスキルは `.claude/skills/` に存在しなくても正常）
 
 ### Requirement: CLAUDE.md のスキルセクション欠落を検出する
-`diagnose_claudemd()` は、`.claude/skills/` にスキルが存在するのに CLAUDE.md に Skills セクション（`## Skills` または類似の見出し）がない場合、`claudemd_missing_section` issue として検出しなければならない（MUST）。
+`diagnose_claudemd()` は、`.claude/skills/` にスキルが存在するのに CLAUDE.md に Skills セクションがない場合、`claudemd_missing_section` issue として検出しなければならない（MUST）。セクション名の検出は prefix を許容し、`## Key Skills`、`## Available Skills` 等にもマッチしなければならない（MUST）。
 
-#### Scenario: Skills セクションがある
+#### Scenario: 標準的な Skills セクションがある
 - **WHEN** CLAUDE.md に `## Skills` または `## スキル` セクションがあり、スキルが存在する
+- **THEN** `claudemd_missing_section` として検出されない
+
+#### Scenario: prefix 付き Skills セクションがある
+- **WHEN** CLAUDE.md に `## Key Skills` セクションがあり、スキルが存在する
 - **THEN** `claudemd_missing_section` として検出されない
 
 #### Scenario: Skills セクションがないがスキルが存在する

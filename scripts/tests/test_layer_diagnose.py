@@ -23,8 +23,8 @@ from layer_diagnose import (
 # ── adapt_coherence_issues ──────────────────────────────
 
 
-def test_adapt_coherence_orphan_rules():
-    """coherence の orphan_rules が orphan_rule issue に変換される。"""
+def test_adapt_coherence_orphan_rules_removed():
+    """orphan_rule は廃止されたため、coherence 結果から変換されない。"""
     result = {
         "details": {
             "efficiency": {
@@ -34,9 +34,8 @@ def test_adapt_coherence_orphan_rules():
         }
     }
     issues = adapt_coherence_issues(result)
-    assert len(issues) == 1
-    assert issues[0]["type"] == "orphan_rule"
-    assert issues[0]["detail"]["name"] == "obsolete"
+    orphan_issues = [i for i in issues if i["type"] == "orphan_rule"]
+    assert len(orphan_issues) == 0
 
 
 def test_adapt_coherence_missing_skills():
@@ -74,40 +73,12 @@ def test_adapt_coherence_empty():
 # ── diagnose_rules ──────────────────────────────
 
 
-def test_rules_orphan_detected(tmp_path):
-    """どこからも参照されないルールが orphan_rule として検出される。"""
+def test_rules_no_orphan_detection(tmp_path):
+    """orphan_rule は廃止: 参照されていないルールでも検出されない。"""
     rules_dir = tmp_path / ".claude" / "rules"
     rules_dir.mkdir(parents=True)
     (rules_dir / "obsolete-rule.md").write_text("# Obsolete\nSome old rule.")
-    # CLAUDE.md なし、スキルなし → 孤立
-    issues = diagnose_rules(tmp_path)
-    assert len(issues) == 1
-    assert issues[0]["type"] == "orphan_rule"
-    assert issues[0]["detail"]["name"] == "obsolete-rule"
-
-
-def test_rules_referenced_in_skill(tmp_path):
-    """スキルから参照されているルールは孤立ではない。"""
-    rules_dir = tmp_path / ".claude" / "rules"
-    rules_dir.mkdir(parents=True)
-    (rules_dir / "commit-version.md").write_text("# Commit Version\nbump要否確認")
-
-    skills_dir = tmp_path / ".claude" / "skills" / "commit"
-    skills_dir.mkdir(parents=True)
-    (skills_dir / "SKILL.md").write_text("commit-version ルールに従う")
-
-    issues = diagnose_rules(tmp_path)
-    orphan_issues = [i for i in issues if i["type"] == "orphan_rule"]
-    assert len(orphan_issues) == 0
-
-
-def test_rules_referenced_in_claudemd(tmp_path):
-    """CLAUDE.md で言及されているルールは孤立ではない。"""
-    rules_dir = tmp_path / ".claude" / "rules"
-    rules_dir.mkdir(parents=True)
-    (rules_dir / "git-auth.md").write_text("# Git Auth\npush前にアカウント切替")
-    (tmp_path / "CLAUDE.md").write_text("# Project\ngit-auth ルールに従う")
-
+    # CLAUDE.md なし、スキルなし → 以前は孤立検出されたが、今は検出されない
     issues = diagnose_rules(tmp_path)
     orphan_issues = [i for i in issues if i["type"] == "orphan_rule"]
     assert len(orphan_issues) == 0
@@ -138,15 +109,11 @@ def test_rules_no_issues(tmp_path):
     assert all(i["type"] != "stale_rule" for i in issues)
 
 
-def test_rules_coherence_orphan_but_skill_referenced(tmp_path):
-    """coherence が孤立判定しても、スキルから参照されていれば orphan ではない。"""
+def test_rules_coherence_result_ignored(tmp_path):
+    """coherence_result は orphan 判定に使われない（orphan_rule 廃止）。"""
     rules_dir = tmp_path / ".claude" / "rules"
     rules_dir.mkdir(parents=True)
     (rules_dir / "commit-version.md").write_text("# Commit Version\nbump要否")
-
-    skills_dir = tmp_path / ".claude" / "skills" / "commit"
-    skills_dir.mkdir(parents=True)
-    (skills_dir / "SKILL.md").write_text("commit-version に従う")
 
     coherence_result = {
         "details": {
@@ -158,6 +125,22 @@ def test_rules_coherence_orphan_but_skill_referenced(tmp_path):
     issues = diagnose_rules(tmp_path, coherence_result=coherence_result)
     orphan_issues = [i for i in issues if i["type"] == "orphan_rule"]
     assert len(orphan_issues) == 0
+
+
+def test_rules_stale_rule_file_relative_resolution(tmp_path):
+    """ルール内のパスが参照元ファイルの親ディレクトリ基準で存在する場合は stale_rule にならない。"""
+    rules_dir = tmp_path / ".claude" / "rules"
+    rules_dir.mkdir(parents=True)
+    # references/docs-map.md は rules_dir からの相対パスとして存在する
+    refs_dir = rules_dir / "references"
+    refs_dir.mkdir()
+    (refs_dir / "docs-map.md").write_text("# Docs Map")
+
+    (rules_dir / "my-rule.md").write_text("# My Rule\nSee references/docs-map.md for details")
+
+    issues = diagnose_rules(tmp_path)
+    stale_issues = [i for i in issues if i["type"] == "stale_rule"]
+    assert len(stale_issues) == 0
 
 
 def test_rules_no_rules_dir(tmp_path):
@@ -325,6 +308,29 @@ def test_claudemd_with_skills_section(tmp_path):
     assert len(missing_issues) == 0
 
 
+@pytest.mark.parametrize(
+    "section_heading",
+    [
+        pytest.param("## Key Skills", id="key-skills"),
+        pytest.param("## Available Skills", id="available-skills"),
+        pytest.param("## Project Skills", id="project-skills"),
+        pytest.param("## 主要スキル", id="japanese-skills"),
+    ],
+)
+def test_claudemd_prefix_skills_section(tmp_path, section_heading):
+    """prefix 付きセクション名でも Skills セクションとして認識される。"""
+    skills_dir = tmp_path / ".claude" / "skills" / "my-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text("# My Skill")
+
+    (tmp_path / "CLAUDE.md").write_text(
+        f"# Project\n\n{section_heading}\n\n- my-skill: desc\n"
+    )
+    issues = diagnose_claudemd(tmp_path)
+    missing_issues = [i for i in issues if i["type"] == "claudemd_missing_section"]
+    assert len(missing_issues) == 0
+
+
 def test_claudemd_not_exist(tmp_path):
     """CLAUDE.md が存在しない場合は空リスト。"""
     issues = diagnose_claudemd(tmp_path)
@@ -378,9 +384,9 @@ def test_all_layers_integration(tmp_path):
     assert "claudemd" in result
     assert "coherence_adapter" in result
 
-    # Rules は孤立ルール検出
+    # Rules は orphan_rule 廃止のため検出されない
     orphan_issues = [i for i in result["rules"] if i["type"] == "orphan_rule"]
-    assert len(orphan_issues) == 1
+    assert len(orphan_issues) == 0
 
     # Hooks は unconfigured
     assert len(result["hooks"]) == 1

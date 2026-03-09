@@ -80,3 +80,17 @@ def test_known_prefix_in_codeblock_excluded():
     paths = _paths(text)
     assert "skills/update" in paths
     assert "scripts/lib" not in paths
+
+
+# --- 数値パターン除外 ---
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("429/500/503", id="http-status-codes"),
+        pytest.param("429/500", id="two-status-codes"),
+        pytest.param("1.0/2.1", id="version-numbers"),
+    ],
+)
+def test_numeric_patterns_excluded(text: str):
+    assert _paths(text) == []

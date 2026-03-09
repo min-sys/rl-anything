@@ -100,7 +100,7 @@ def _find_project_artifacts(project_dir: Path) -> Dict[str, Any]:
         try:
             content = result["claude_md"].read_text(encoding="utf-8")
             result["skills_section"] = bool(
-                re.search(r"^#{1,3}\s+[Ss]kills?\b", content, re.MULTILINE)
+                re.search(r"^#{1,3}\s+.*[Ss]kills?\b|^#{1,3}\s+.*スキル", content, re.MULTILINE)
             )
         except (OSError, UnicodeDecodeError):
             pass
@@ -273,12 +273,12 @@ def _extract_mentioned_skills(claude_md: Path) -> List[str]:
     skills = []
     for line in lines:
         stripped = line.strip()
-        if re.match(r"^#{1,3}\s+[Ss]kills?\b", stripped):
+        if re.match(r"^#{1,3}\s+.*[Ss]kills?\b", stripped) or re.match(r"^#{1,3}\s+.*スキル", stripped):
             in_skills = True
             continue
         if in_skills and re.match(r"^#{1,3}\s+", stripped) and not re.match(
-            r"^#{1,3}\s+[Ss]kills?\b", stripped
-        ):
+            r"^#{1,3}\s+.*[Ss]kills?\b", stripped
+        ) and not re.match(r"^#{1,3}\s+.*スキル", stripped):
             break
         if not in_skills:
             continue
@@ -458,7 +458,6 @@ def score_efficiency(project_dir: Path, *, data_dir: Optional[Path] = None) -> T
         "duplicate_skills": {"pass": True, "pairs": []},
         "near_limit": {"pass": True, "files": []},
         "unused_skills": {"pass": True, "skills": [], "skipped": False},
-        "orphan_rules": {"pass": True, "rules": []},
     }
 
     checks: List[bool] = []
@@ -521,25 +520,6 @@ def score_efficiency(project_dir: Path, *, data_dir: Optional[Path] = None) -> T
     else:
         details["unused_skills"]["skipped"] = True
         # skip: スコアに含めない
-
-    # 4. 孤立 Rule
-    claude_md = project_dir / "CLAUDE.md"
-    if claude_md.exists() and artifacts.get("rules"):
-        try:
-            claude_content = claude_md.read_text(encoding="utf-8").lower()
-        except (OSError, UnicodeDecodeError):
-            claude_content = ""
-        orphan_rules = []
-        for rule_path in artifacts["rules"]:
-            rule_name = rule_path.stem.lower()
-            # CLAUDE.md で rule 名が言及されているか
-            if rule_name not in claude_content:
-                orphan_rules.append(str(rule_path))
-        if orphan_rules:
-            details["orphan_rules"] = {"pass": False, "rules": orphan_rules}
-            checks.append(False)
-        else:
-            checks.append(True)
 
     score = sum(1 for c in checks if c) / len(checks) if checks else 1.0
     return round(score, 4), details
@@ -709,7 +689,4 @@ def _build_advice(axis: str, details: Dict[str, Any]) -> List[str]:
         elif key == "unused_skills":
             skills = val.get("skills", [])
             advice.append(f"未使用 Skill: {', '.join(skills)}")
-        elif key == "orphan_rules":
-            rules = val.get("rules", [])
-            advice.append(f"孤立 Rule: {len(rules)} 件")
     return advice
