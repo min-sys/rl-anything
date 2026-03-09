@@ -126,6 +126,55 @@ class TestCollectCorrections:
             result = optimizer._collect_corrections()
         assert len(result) == MAX_CORRECTIONS_PER_PATCH
 
+    def test_last_skill_が_None(self, sample_skill, temp_dir):
+        """Issue #24: last_skill が null の場合に AttributeError にならないこと"""
+        path = temp_dir / "none_skill.jsonl"
+        records = [
+            json.dumps({
+                "message": "last_skill が None",
+                "last_skill": None,
+                "correction_type": "fix",
+                "reflect_status": "pending",
+            }, ensure_ascii=False),
+            json.dumps({
+                "message": "正常レコード",
+                "last_skill": "test-skill",
+                "correction_type": "fix",
+                "reflect_status": "pending",
+            }, ensure_ascii=False),
+        ]
+        path.write_text("\n".join(records) + "\n", encoding="utf-8")
+
+        optimizer = DirectPatchOptimizer(target_path=str(sample_skill), dry_run=True)
+        with patch("optimize._CORRECTIONS_PATH", path):
+            result = optimizer._collect_corrections()
+        assert len(result) == 1
+        assert result[0]["message"] == "正常レコード"
+
+    def test_last_skill_キー不在(self, sample_skill, temp_dir):
+        """last_skill キー自体がないレコードでもエラーにならないこと"""
+        path = temp_dir / "no_key.jsonl"
+        records = [
+            json.dumps({
+                "message": "キーなし",
+                "correction_type": "fix",
+                "reflect_status": "pending",
+            }, ensure_ascii=False),
+            json.dumps({
+                "message": "正常レコード",
+                "last_skill": "test-skill",
+                "correction_type": "fix",
+                "reflect_status": "pending",
+            }, ensure_ascii=False),
+        ]
+        path.write_text("\n".join(records) + "\n", encoding="utf-8")
+
+        optimizer = DirectPatchOptimizer(target_path=str(sample_skill), dry_run=True)
+        with patch("optimize._CORRECTIONS_PATH", path):
+            result = optimizer._collect_corrections()
+        assert len(result) == 1
+        assert result[0]["message"] == "正常レコード"
+
     def test_applied_は除外(self, sample_skill, temp_dir):
         path = temp_dir / "applied.jsonl"
         records = [

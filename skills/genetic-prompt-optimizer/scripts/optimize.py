@@ -139,7 +139,7 @@ class DirectPatchOptimizer:
                     continue
 
                 # 対象スキルに関連するもの
-                last_skill = record.get("last_skill", "")
+                last_skill = record.get("last_skill") or ""
                 if target_name.lower() in last_skill.lower():
                     corrections.append(record)
         except OSError:
