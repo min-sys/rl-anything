@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.0.0] - 2026-03-09
+
+### BREAKING CHANGES
+- **evolve**: 3ステージ構成の全レイヤー自律進化パイプライン完成（Diagnose→Compile→Housekeeping）
+  - v0.x 系の evolve 出力フォーマットとの互換性なし（phases 構造が大幅変更）
+
+### Added
+- **environment-fitness**: coherence+telemetry+constitutional 3層ブレンド統合 Environment Fitness (#15)
+  - Coherence Score: 構造的整合性4軸（Coverage/Consistency/Completeness/Efficiency）
+  - Telemetry Score: テレメトリ駆動3軸（Utilization/Effectiveness/Implicit Reward）
+  - Constitutional Score: 原則×4レイヤーの LLM Judge 評価 + Chaos Testing
+- **all-layer-compile**: 全レイヤー（Rules/Memory/Hooks/CLAUDE.md）の自動修正・提案生成 (#16)
+  - FIX_DISPATCH/VERIFY_DISPATCH による全レイヤー dispatch
+  - confidence_score/impact_scope ベースの動的3カテゴリ分類
+- **self-evolution**: パイプライン自己改善ループ (#21)
+  - pipeline_reflector: trajectory分析・EWA calibration・adjustment proposals
+  - trigger_engine: FP蓄積+承認率低下トリガー追加
+  - evolve Phase 6: self-evolution フェーズ統合
+  - audit `--pipeline-health`: remediation-outcomes.jsonl 集計（LLM不使用）
+  - remediation: extended metadata + calibration override
+- **auto-evolve-trigger**: セッション終了・corrections蓄積時の自動 evolve/audit 提案 (#21)
+- **auto-compression-trigger**: bloat_check() ベースの肥大化自動検出トリガー (#21)
+
 ## [0.21.1] - 2026-03-08
 
 ### Fixed
