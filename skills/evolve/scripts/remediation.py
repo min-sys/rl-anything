@@ -46,14 +46,37 @@ def compute_impact_scope(file_path: str) -> str:
     return "file"
 
 
+def _load_calibration_overrides() -> Dict[str, float]:
+    """confidence-calibration.json から active なキャリブレーション値を読み込む。"""
+    cal_file = DATA_DIR / "confidence-calibration.json"
+    if not cal_file.exists():
+        return {}
+    try:
+        data = json.loads(cal_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    overrides: Dict[str, float] = {}
+    for it, cal in data.get("calibrations", {}).items():
+        if isinstance(cal, dict) and cal.get("status") == "active":
+            overrides[it] = cal.get("calibrated", cal.get("current", 0.5))
+    return overrides
+
+
 def compute_confidence_score(issue: Dict[str, Any]) -> float:
     """問題タイプと詳細から confidence_score を算出する。
+
+    confidence-calibration.json に active なキャリブレーション値があればそちらを使用。
 
     Returns:
         0.0 〜 1.0
     """
     issue_type = issue["type"]
     detail = issue.get("detail", {})
+
+    # Check calibration overrides first
+    overrides = _load_calibration_overrides()
+    if issue_type in overrides:
+        return overrides[issue_type]
 
     if issue_type == "stale_ref":
         # 陳腐化参照は削除の確実性が高い
@@ -762,10 +785,18 @@ def record_outcome(
     rationale: str,
     *,
     dry_run: bool = False,
+    fix_detail: Optional[Dict[str, Any]] = None,
+    verify_result: Optional[Dict[str, Any]] = None,
+    duration_ms: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     """修正結果を remediation-outcomes.jsonl に記録する。
 
     dry_run=True の場合は記録しない。
+
+    Args:
+        fix_detail: 修正の詳細 (changed_files, lines_removed, lines_added)
+        verify_result: 検証結果 (resolved, remaining)
+        duration_ms: 修正にかかった時間（ミリ秒）
 
     Returns:
         記録したレコード、または dry_run 時は None
@@ -785,6 +816,13 @@ def record_outcome(
         "rationale": rationale,
         "file": issue.get("file", ""),
     }
+
+    if fix_detail is not None:
+        record["fix_detail"] = fix_detail
+    if verify_result is not None:
+        record["verify_result"] = verify_result
+    if duration_ms is not None:
+        record["duration_ms"] = duration_ms
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     outcomes_file = DATA_DIR / "remediation-outcomes.jsonl"

@@ -17,6 +17,8 @@ from trigger_engine import (
     _count_sessions_since,
     _deep_merge,
     _evaluate_bloat,
+    _evaluate_approval_rate_decline,
+    _evaluate_self_evolution,
     _is_in_cooldown,
     _record_trigger,
     evaluate_corrections,
@@ -591,3 +593,155 @@ class TestPendingTrigger:
         (data_dir / "pending-trigger.json").write_text("invalid json")
         assert read_and_delete_pending_trigger() is None
         assert not (data_dir / "pending-trigger.json").exists()
+
+
+# --- Self-evolution trigger ---
+
+
+def _write_outcomes(data_dir, outcomes):
+    f = data_dir / "remediation-outcomes.jsonl"
+    f.write_text("\n".join(json.dumps(o) for o in outcomes) + "\n")
+
+
+def _make_outcome(
+    issue_type="stale_ref",
+    result="success",
+    user_decision="approved",
+    confidence_score=0.95,
+    category="auto_fixable",
+):
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "issue_type": issue_type,
+        "result": result,
+        "user_decision": user_decision,
+        "confidence_score": confidence_score,
+        "category": category,
+        "impact_scope": "file",
+        "action": "test",
+        "rationale": "test",
+        "file": "test.md",
+    }
+
+
+class TestSelfEvolutionTrigger:
+    """6.1-6.3: Self-evolution トリガーのテスト。"""
+
+    def test_fp_threshold_reached(self, data_dir):
+        """false positive rate が閾値を超えるとトリガー発火。"""
+        outcomes = [_make_outcome() for _ in range(7)]
+        outcomes += [_make_outcome(user_decision="rejected", result="rejected") for _ in range(5)]
+        _write_outcomes(data_dir, outcomes)
+        _write_state(data_dir, {
+            "trigger_config": {
+                "self_evolution": {
+                    "false_positive_rate_threshold": 0.3,
+                    "min_outcomes_per_type": 10,
+                },
+            },
+        })
+
+        result = _evaluate_self_evolution()
+        assert result.triggered is True
+        assert result.reason == "self_evolution"
+
+    def test_fp_below_threshold(self, data_dir):
+        """false positive rate が閾値未満ではトリガーしない。"""
+        outcomes = [_make_outcome() for _ in range(10)]
+        outcomes += [_make_outcome(user_decision="rejected", result="rejected") for _ in range(1)]
+        _write_outcomes(data_dir, outcomes)
+        _write_state(data_dir, {
+            "trigger_config": {
+                "self_evolution": {
+                    "false_positive_rate_threshold": 0.3,
+                    "min_outcomes_per_type": 10,
+                },
+            },
+        })
+
+        result = _evaluate_self_evolution()
+        assert result.triggered is False
+
+    def test_self_evolution_cooldown(self, data_dir):
+        """self-evolution 72h クールダウンが機能する。"""
+        now = datetime.now(timezone.utc)
+        outcomes = [_make_outcome(user_decision="rejected", result="rejected") for _ in range(10)]
+        _write_outcomes(data_dir, outcomes)
+        _write_state(data_dir, {
+            "trigger_config": {
+                "self_evolution": {
+                    "false_positive_rate_threshold": 0.3,
+                    "min_outcomes_per_type": 5,
+                    "self_evolution_cooldown_hours": 72,
+                },
+            },
+            "trigger_history": [
+                {"reason": "self_evolution", "timestamp": now.isoformat()},
+            ],
+        })
+
+        result = _evaluate_self_evolution()
+        assert result.triggered is False
+
+    def test_insufficient_samples(self, data_dir):
+        """サンプル不足ではトリガーしない。"""
+        outcomes = [_make_outcome(user_decision="rejected", result="rejected") for _ in range(3)]
+        _write_outcomes(data_dir, outcomes)
+        _write_state(data_dir, {
+            "trigger_config": {
+                "self_evolution": {
+                    "min_outcomes_per_type": 10,
+                },
+            },
+        })
+
+        result = _evaluate_self_evolution()
+        assert result.triggered is False
+
+
+class TestApprovalRateDeclineTrigger:
+    """6.2: 承認率低下トリガーのテスト。"""
+
+    def test_decline_detected(self, data_dir):
+        """承認率が閾値以上低下するとトリガー発火。"""
+        previous = [_make_outcome() for _ in range(10)]
+        recent = [_make_outcome(user_decision="rejected", result="rejected") for _ in range(10)]
+        _write_outcomes(data_dir, previous + recent)
+        _write_state(data_dir, {
+            "trigger_config": {
+                "self_evolution": {
+                    "approval_rate_decline_threshold": 0.2,
+                    "decline_sample_size": 10,
+                    "self_evolution_cooldown_hours": 72,
+                },
+            },
+        })
+
+        result = _evaluate_approval_rate_decline()
+        assert result.triggered is True
+        assert result.reason == "approval_rate_decline"
+
+    def test_stable_rate(self, data_dir):
+        """承認率が安定していればトリガーしない。"""
+        outcomes = [_make_outcome() for _ in range(20)]
+        _write_outcomes(data_dir, outcomes)
+        _write_state(data_dir, {
+            "trigger_config": {
+                "self_evolution": {
+                    "approval_rate_decline_threshold": 0.2,
+                    "decline_sample_size": 10,
+                },
+            },
+        })
+
+        result = _evaluate_approval_rate_decline()
+        assert result.triggered is False
+
+    def test_insufficient_data(self, data_dir):
+        """データ不足ではトリガーしない。"""
+        outcomes = [_make_outcome() for _ in range(5)]
+        _write_outcomes(data_dir, outcomes)
+        _write_state(data_dir, {})
+
+        result = _evaluate_approval_rate_decline()
+        assert result.triggered is False

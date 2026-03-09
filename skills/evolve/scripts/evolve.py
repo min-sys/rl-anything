@@ -291,6 +291,76 @@ def run_evolve(
     except Exception as e:
         result["phases"]["fitness_evolution"] = {"error": str(e)}
 
+    # Phase 6: Self-Evolution（パイプライン自己改善）
+    try:
+        sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+        from pipeline_reflector import (
+            analyze_trajectory,
+            calibrate_confidence,
+            check_calibration_regression,
+            check_control_chart,
+            detect_false_positives,
+            generate_adjustment_proposals,
+            load_self_evolution_config,
+            record_proposal,
+        )
+        se_config = load_self_evolution_config()
+        analysis = analyze_trajectory(config=se_config)
+
+        if not analysis["sufficient"]:
+            result["phases"]["self_evolution"] = {
+                "skipped": True,
+                "reason": analysis["diagnosis"],
+                "total": analysis["total"],
+                "min_required": analysis["min_required"],
+            }
+        else:
+            # Trajectory analysis
+            fp_result = detect_false_positives(
+                analysis.get("_outcomes", []),  # fallback: empty
+                se_config,
+            )
+
+            # Calibration
+            cal_result = calibrate_confidence(config=se_config)
+            calibrations = cal_result.get("calibrations", {})
+
+            # Control chart + regression check
+            cc_result = check_control_chart(calibrations) if calibrations else {}
+            from pipeline_reflector import load_outcomes
+            outcomes = load_outcomes(lookback_days=se_config.get("analysis_lookback_days", 30))
+            reg_result = check_calibration_regression(calibrations, outcomes, se_config) if calibrations else {"has_regression": False, "regressions": {}}
+
+            # Generate proposals
+            proposals = generate_adjustment_proposals(calibrations, cc_result, reg_result, se_config) if calibrations else []
+
+            # Record proposals (unless dry-run)
+            recorded_proposals = []
+            for p in proposals:
+                rec = record_proposal(p, dry_run=dry_run)
+                if rec:
+                    recorded_proposals.append(rec)
+
+            result["phases"]["self_evolution"] = {
+                "skipped": False,
+                "analysis": {
+                    "total": analysis["total"],
+                    "by_type": analysis["by_type"],
+                    "diagnosis": analysis["diagnosis"],
+                },
+                "false_positives": {
+                    "high_confidence_count": len(fp_result.get("high_confidence_rejections", [])),
+                    "systematic_flags": fp_result.get("systematic_rejections", {}),
+                },
+                "calibrations": calibrations,
+                "control_chart": cc_result,
+                "regression": reg_result,
+                "proposals": proposals,
+                "proposals_recorded": len(recorded_proposals),
+            }
+    except Exception as e:
+        result["phases"]["self_evolution"] = {"error": str(e)}
+
     # Trigger history summary for report
     result["trigger_summary"] = _build_trigger_summary()
 
@@ -302,6 +372,17 @@ def run_evolve(
             "sessions_processed": sufficiency["sessions"],
             "observations_processed": sufficiency["observations"],
         })
+        # Self-evolution state
+        se_phase = result["phases"].get("self_evolution", {})
+        if not se_phase.get("skipped") and not se_phase.get("error"):
+            state["last_calibration_timestamp"] = datetime.now(timezone.utc).isoformat()
+            history = state.get("calibration_history", [])
+            history.append({
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "calibrations": se_phase.get("calibrations", {}),
+                "proposals_count": len(se_phase.get("proposals", [])),
+            })
+            state["calibration_history"] = history
         save_evolve_state(state)
 
     return result

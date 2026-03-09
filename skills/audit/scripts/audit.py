@@ -1204,11 +1204,12 @@ def generate_report(
     telemetry_report: Optional[List[str]] = None,
     constitutional_report: Optional[List[str]] = None,
     environment_report: Optional[List[str]] = None,
+    pipeline_health_report: Optional[List[str]] = None,
 ) -> str:
     """1画面レポートを生成する。"""
     lines = ["# Environment Audit Report", ""]
 
-    # セクション順序: Environment Fitness → Constitutional → Coherence → Telemetry
+    # セクション順序: Environment Fitness → Constitutional → Coherence → Telemetry → Pipeline Health
     if environment_report:
         lines.extend(environment_report)
 
@@ -1220,6 +1221,10 @@ def generate_report(
 
     if telemetry_report:
         lines.extend(telemetry_report)
+
+    # Pipeline Health（既存スコアセクションの後に配置）
+    if pipeline_health_report:
+        lines.extend(pipeline_health_report)
 
     # サマリ
     total = sum(len(v) for v in artifacts.values())
@@ -1405,7 +1410,7 @@ def _check_degradation(current: Dict[str, Any]) -> None:
                 )
 
 
-def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coherence_score: bool = False, telemetry_score: bool = False, constitutional_score: bool = False) -> str:
+def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coherence_score: bool = False, telemetry_score: bool = False, constitutional_score: bool = False, pipeline_health: bool = False) -> str:
     """Audit を実行してレポートを返す。"""
     proj = Path(project_dir) if project_dir else Path.cwd()
     artifacts = find_artifacts(proj)
@@ -1514,6 +1519,15 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coh
         except Exception as e:
             print(f"Environment Fitness スキップ: {e}", file=sys.stderr)
 
+    # Pipeline Health（LLM 不使用）
+    pipeline_health_report_lines = None
+    if pipeline_health:
+        try:
+            from pipeline_reflector import build_pipeline_health_section
+            pipeline_health_report_lines = build_pipeline_health_section()
+        except Exception as e:
+            print(f"Pipeline Health スキップ: {e}", file=sys.stderr)
+
     # Record audit completion: update last_audit_timestamp + audit-history.jsonl
     _record_audit_completion(
         coherence_report=coherence_report_lines,
@@ -1532,6 +1546,7 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coh
         telemetry_report=telemetry_report_lines,
         constitutional_report=constitutional_report_lines,
         environment_report=environment_report_lines,
+        pipeline_health_report=pipeline_health_report_lines,
     )
 
 
@@ -1545,10 +1560,11 @@ if __name__ == "__main__":
     _parser.add_argument("--coherence-score", action="store_true", help="Coherence Score セクションを表示")
     _parser.add_argument("--telemetry-score", action="store_true", help="Telemetry Score セクションを表示")
     _parser.add_argument("--constitutional-score", action="store_true", help="Constitutional Score セクションを表示")
+    _parser.add_argument("--pipeline-health", action="store_true", help="Pipeline Health セクションを表示")
     _args = _parser.parse_args()
     if _args.memory_context:
         proj = Path(_args.project) if _args.project else Path.cwd()
         ctx = build_memory_verification_context(proj)
         print(json.dumps(ctx, ensure_ascii=False, indent=2))
     else:
-        print(run_audit(_args.project, skip_rescore=_args.skip_rescore, coherence_score=_args.coherence_score, telemetry_score=_args.telemetry_score, constitutional_score=_args.constitutional_score))
+        print(run_audit(_args.project, skip_rescore=_args.skip_rescore, coherence_score=_args.coherence_score, telemetry_score=_args.telemetry_score, constitutional_score=_args.constitutional_score, pipeline_health=_args.pipeline_health))

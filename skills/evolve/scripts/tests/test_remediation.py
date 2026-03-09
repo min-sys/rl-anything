@@ -306,6 +306,68 @@ class TestTelemetry:
         outcomes_file = tmp_path / "remediation-outcomes.jsonl"
         assert not outcomes_file.exists()
 
+    def test_record_outcome_with_extended_metadata(self, tmp_path, monkeypatch):
+        """fix_detail, verify_result, duration_ms が記録される。"""
+        monkeypatch.setattr("remediation.DATA_DIR", tmp_path)
+        issue = {
+            "type": "stale_ref",
+            "confidence_score": 0.95,
+            "impact_scope": "file",
+            "file": "/project/.claude/memory/MEMORY.md",
+        }
+        fix_detail = {"changed_files": ["MEMORY.md"], "lines_removed": 1, "lines_added": 0}
+        verify_result = {"resolved": True}
+        result = record_outcome(
+            issue, "auto_fixable", "delete_line", "success", "approved",
+            "テスト理由",
+            fix_detail=fix_detail,
+            verify_result=verify_result,
+            duration_ms=150,
+        )
+        assert result is not None
+        assert result["fix_detail"] == fix_detail
+        assert result["verify_result"] == verify_result
+        assert result["duration_ms"] == 150
+
+        outcomes_file = tmp_path / "remediation-outcomes.jsonl"
+        records = [json.loads(l) for l in outcomes_file.read_text().splitlines()]
+        assert records[0]["fix_detail"]["lines_removed"] == 1
+        assert records[0]["duration_ms"] == 150
+
+    def test_record_outcome_fix_failed(self, tmp_path, monkeypatch):
+        """fix_failed result が正しく記録される。"""
+        monkeypatch.setattr("remediation.DATA_DIR", tmp_path)
+        issue = {"type": "stale_ref", "confidence_score": 0.95, "impact_scope": "file", "file": "x"}
+        result = record_outcome(
+            issue, "auto_fixable", "delete_line", "fix_failed", "approved",
+            "修正失敗",
+            verify_result={"resolved": False, "remaining": "参照がまだ存在"},
+        )
+        assert result["result"] == "fix_failed"
+        assert result["verify_result"]["resolved"] is False
+
+    def test_record_outcome_rejected(self, tmp_path, monkeypatch):
+        """rejected result が正しく記録される。"""
+        monkeypatch.setattr("remediation.DATA_DIR", tmp_path)
+        issue = {"type": "orphan_rule", "confidence_score": 0.5, "impact_scope": "file", "file": "x"}
+        result = record_outcome(
+            issue, "proposable", "propose_delete", "rejected", "rejected",
+            "ユーザーが却下",
+        )
+        assert result["result"] == "rejected"
+        assert result["user_decision"] == "rejected"
+
+    def test_record_outcome_without_optional_fields(self, tmp_path, monkeypatch):
+        """optional フィールド未指定時は record に含まれない。"""
+        monkeypatch.setattr("remediation.DATA_DIR", tmp_path)
+        issue = {"type": "stale_ref", "file": "x"}
+        result = record_outcome(
+            issue, "auto_fixable", "delete_line", "success", "approved", "理由",
+        )
+        assert "fix_detail" not in result
+        assert "verify_result" not in result
+        assert "duration_ms" not in result
+
 
 # ---------- 6.1: fix_stale_rules / fix_claudemd_phantom_refs / fix_claudemd_missing_section テスト ----------
 

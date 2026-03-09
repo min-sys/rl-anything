@@ -376,6 +376,153 @@ def evaluate_corrections(state: dict[str, Any] | None = None) -> TriggerResult:
     return result
 
 
+# --- Evaluate: self-evolution ---
+
+
+def _evaluate_self_evolution(state: dict[str, Any] | None = None) -> TriggerResult:
+    """False positive 蓄積に基づく self-evolution トリガーを評価する。"""
+    if state is None:
+        state = _load_state()
+
+    config = load_trigger_config(state)
+    if not config.get("enabled", True):
+        return TriggerResult(triggered=False)
+
+    # Load self-evolution config
+    se_config = state.get("trigger_config", {}).get("self_evolution", {})
+    fp_threshold = se_config.get("false_positive_rate_threshold", 0.3)
+    min_per_type = se_config.get("min_outcomes_per_type", 10)
+    cooldown_hours = se_config.get("self_evolution_cooldown_hours", 72)
+    lookback_days = se_config.get("analysis_lookback_days", 30)
+
+    if _is_in_cooldown(state, "self_evolution", cooldown_hours):
+        return TriggerResult(triggered=False, reason="cooldown")
+
+    # Load outcomes
+    outcomes_file = DATA_DIR / "remediation-outcomes.jsonl"
+    if not outcomes_file.exists():
+        return TriggerResult(triggered=False)
+
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=lookback_days)).isoformat()
+
+    by_type: dict[str, dict[str, int]] = {}
+    for line in outcomes_file.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if rec.get("timestamp", "") < cutoff:
+            continue
+        it = rec.get("issue_type", "unknown")
+        if it not in by_type:
+            by_type[it] = {"total": 0, "rejected": 0, "skipped": 0}
+        by_type[it]["total"] += 1
+        decision = rec.get("user_decision", rec.get("result", ""))
+        if decision == "rejected":
+            by_type[it]["rejected"] += 1
+        elif decision == "skipped":
+            by_type[it]["skipped"] += 1
+
+    # Check if any type exceeds threshold
+    triggered_types: list[str] = []
+    for it, stats in by_type.items():
+        if stats["total"] < min_per_type:
+            continue
+        fp_rate = (stats["rejected"] + stats["skipped"]) / stats["total"]
+        if fp_rate >= fp_threshold:
+            triggered_types.append(it)
+
+    if not triggered_types:
+        return TriggerResult(triggered=False)
+
+    result = TriggerResult(
+        triggered=True,
+        reason="self_evolution",
+        action="/rl-anything:evolve",
+        message=f"False positive 蓄積検出: {', '.join(triggered_types)}。self-evolution を推奨。",
+        details={"triggered_types": triggered_types},
+    )
+    state = _record_trigger(state, result)
+    _save_state(state)
+    return result
+
+
+def _evaluate_approval_rate_decline(state: dict[str, Any] | None = None) -> TriggerResult:
+    """承認率の継続的低下に基づくトリガーを評価する。"""
+    if state is None:
+        state = _load_state()
+
+    config = load_trigger_config(state)
+    if not config.get("enabled", True):
+        return TriggerResult(triggered=False)
+
+    se_config = state.get("trigger_config", {}).get("self_evolution", {})
+    decline_threshold = se_config.get("approval_rate_decline_threshold", 0.2)
+    sample_size = se_config.get("decline_sample_size", 10)
+    cooldown_hours = se_config.get("self_evolution_cooldown_hours", 72)
+
+    if _is_in_cooldown(state, "approval_rate_decline", cooldown_hours):
+        return TriggerResult(triggered=False, reason="cooldown")
+
+    outcomes_file = DATA_DIR / "remediation-outcomes.jsonl"
+    if not outcomes_file.exists():
+        return TriggerResult(triggered=False)
+
+    records: list[dict[str, Any]] = []
+    for line in outcomes_file.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+
+    # Need at least 2 * sample_size records
+    if len(records) < 2 * sample_size:
+        return TriggerResult(triggered=False)
+
+    recent = records[-sample_size:]
+    previous = records[-(2 * sample_size):-sample_size]
+
+    def _approval_rate(recs: list[dict[str, Any]]) -> float:
+        if not recs:
+            return 0.0
+        approved = sum(
+            1 for r in recs
+            if r.get("user_decision") == "approved" or r.get("result") == "success"
+        )
+        return approved / len(recs)
+
+    recent_rate = _approval_rate(recent)
+    previous_rate = _approval_rate(previous)
+    decline = previous_rate - recent_rate
+
+    if decline < decline_threshold:
+        return TriggerResult(triggered=False)
+
+    result = TriggerResult(
+        triggered=True,
+        reason="approval_rate_decline",
+        action="/rl-anything:evolve",
+        message=(
+            f"承認率低下検出: {previous_rate:.0%} → {recent_rate:.0%} "
+            f"(Δ{decline:.0%})。self-evolution を推奨。"
+        ),
+        details={
+            "previous_rate": round(previous_rate, 4),
+            "recent_rate": round(recent_rate, 4),
+            "decline": round(decline, 4),
+        },
+    )
+    state = _record_trigger(state, result)
+    _save_state(state)
+    return result
+
+
 # --- Pending trigger file management ---
 
 

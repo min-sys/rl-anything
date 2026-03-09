@@ -100,8 +100,8 @@ Phase 0        Phase 1        Phase 2        Phase 3
 | 1 | **パイプライン簡素化** — 8ステージ→3ステージ（Diagnose→Compile→Housekeeping） | #21 Pattern B | **完了** | `2026-03-08-simplify-pipeline-pattern-b` |
 | 2 | **全層 Diagnose** — Skill 以外のレイヤー（Rules/Memory/Hooks/CLAUDE.md）も診断対象に。Hooks はテレメトリデータ不足のため設定存在チェックのみ（テレメトリベース診断は Gap 1 Ph1 以降で対応） | E2 + E10 VSM | **完了** | `all-layer-diagnose` |
 | 3 | **全層 Compile** — 診断結果から全レイヤーのパッチを生成 | E3 + E7 Compiler Pass | **完了** | `all-layer-compile` |
-| 4 | **自己進化** — パイプライン自身の改善を自律的に提案 | E5-E10 | 未着手 | Phase 3 完了後に計画 |
-| 5 | **Graduated Autonomy** — 信頼度ベースの段階的自律化 | E1 Reflective + E4 Immune | 未着手 | Phase 4 完了後に計画 |
+| 4 | **自己進化** — パイプライン自身の改善を自律的に提案（trajectory分析+EWA calibration+adjustment proposals） | E5-E10 | **完了** | `self-evolution` |
+| 5 | **Graduated Autonomy** — 信頼度ベースの段階的自律化 | E1 Reflective + E4 Immune | 未着手 | Phase 4 完了後 |
 
 詳細は [docs/evolution/](./evolution/) を参照。
 
@@ -174,7 +174,7 @@ evolve が「常に一緒に使われるスキル群」を検出したら plugin
      └────────────┘
 ```
 
-**今すぐ始められること**: Gap 2 Phase 4（self-evolution）— パイプライン自身の改善提案。Gap 1 Phase 3（env-task-exec-eval）— タスク実行による成果測定。
+**今すぐ始められること**: Gap 2 Phase 5（graduated-autonomy）— 信頼度ベースの段階的自律化。Gap 1 Phase 3（env-task-exec-eval）— タスク実行による成果測定。
 
 ---
 
@@ -193,7 +193,7 @@ evolve が「常に一緒に使われるスキル群」を検出したら plugin
 6. auto-evolve-trigger         ← Gap 4 (Gap 1+2 安定後) ✅ 完了
 7. auto-compression-trigger    ← Gap 5 ✅ 完了
 8. env-task-exec-eval          ← Gap 1 Ph3 (Ph2 安定後)
-9. self-evolution              ← Gap 2 Ph4 (Ph3 完了後)
+9. self-evolution              ← Gap 2 Ph4 ✅ 完了
 10. graduated-autonomy         ← Gap 2 Ph5 (Ph4 完了後)
 11. plugin-bundling            ← Gap 6 (運用データ蓄積後)
 ```
