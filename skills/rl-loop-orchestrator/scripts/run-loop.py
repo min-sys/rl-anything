@@ -30,7 +30,7 @@ from typing import Dict, Any, List, Optional
 _optimizer_scripts = Path(__file__).parent.parent.parent / "genetic-prompt-optimizer" / "scripts"
 sys.path.insert(0, str(_optimizer_scripts))
 try:
-    from optimize import GeneticOptimizer as _GO
+    from optimize import DirectPatchOptimizer as _GO
     _record_pitfall = _GO._record_pitfall
 except ImportError:
     _record_pitfall = None  # type: ignore
@@ -130,7 +130,7 @@ def generate_variants(
     population: int = 3,
     dry_run: bool = False,
 ) -> Dict[str, Any]:
-    """genetic-prompt-optimizer でバリエーションを生成"""
+    """直接パッチ最適化でバリエーションを生成"""
     args = [
         sys.executable,
         str(OPTIMIZER_SCRIPT),
@@ -230,7 +230,7 @@ def run_loop(
     print(f"=== RL 自律進化ループ ===")
     print(f"対象: {target_path}")
     print(f"ループ数: {loops}")
-    print(f"集団サイズ: {population}")
+    print(f"バリエーション数: {population}")
     print(f"自動モード: {auto}")
     print(f"dry-run: {dry_run}")
     print(f"出力先: {out_dir}")
@@ -377,7 +377,7 @@ def main():
     parser = argparse.ArgumentParser(description="RL 自律進化ループ")
     parser.add_argument("--target", required=True, help="最適化対象のスキルファイルパス")
     parser.add_argument("--loops", type=int, default=1, help="ループ回数")
-    parser.add_argument("--population", type=int, default=3, help="集団サイズ")
+    parser.add_argument("--population", type=int, default=3, help="バリエーション数")
     parser.add_argument("--auto", action="store_true", help="自動承認モード")
     parser.add_argument("--dry-run", action="store_true", help="構造テスト")
     parser.add_argument("--output-dir", help="出力ディレクトリ（デフォルト: .rl-loop/）")

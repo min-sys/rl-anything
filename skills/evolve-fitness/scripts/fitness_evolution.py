@@ -5,7 +5,7 @@ score-acceptance 相関追跡、rejection_reason 分析、欠落軸提案、
 adversarial probe を行い、fitness function の改善を提案する。
 
 human_accepted / rejection_reason のデータは
-genetic-prompt-optimizer の history.jsonl（SSoT）を参照する。
+optimize スキルの history.jsonl（SSoT）を参照する。
 """
 import json
 import math
@@ -28,7 +28,7 @@ REJECTION_PATTERN_THRESHOLD = 3
 
 
 def load_history() -> List[Dict[str, Any]]:
-    """genetic-prompt-optimizer の history.jsonl（SSoT）を読み込む。"""
+    """optimize スキルの history.jsonl（SSoT）を読み込む。"""
     history_file = HISTORY_DIR / "history.jsonl"
     if not history_file.exists():
         return []

@@ -1,12 +1,12 @@
 ---
 name: optimize
-description: スキル/ルールの遺伝的最適化。/optimize で呼び出し。LLM でバリエーションを生成し、適応度関数で評価して進化させる。
+description: スキル/ルールの直接パッチ最適化。/optimize で呼び出し。corrections/context ベースで LLM 1パス改善を行う。
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion
 ---
 
-# 遺伝的プロンプト最適化
+# 直接パッチ最適化
 
-スキル/ルール（SKILL.md）を遺伝的アルゴリズムで自動最適化する。
+スキル/ルール（SKILL.md）を corrections/context ベースの LLM 直接パッチで最適化する。
 
 ## 実行手順
 
@@ -19,8 +19,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion
 | 引数 | 説明 | デフォルト |
 |------|------|-----------|
 | `TARGET` | 最適化対象のスキルファイルパス（スキル名 or ファイルパス） | 必須 |
-| `--generations N` | 世代数 | 3 |
-| `--population N` | 集団サイズ | 3 |
+| `--mode MODE` | 最適化モード（auto/error_guided/llm_improve） | auto |
 | `--fitness FUNC` | 適応度関数名 | default |
 | `--dry-run` | 構造テスト（LLM 評価なし） | false |
 | `--restore` | バックアップから復元 | false |
@@ -43,7 +42,7 @@ python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py \
 
 ### 3. 結果をユーザーに報告する
 
-- 実行が成功したら、最適化結果のサマリ（世代数・最良スコア・主な変更点）を表示する
+- 実行が成功したら、最適化結果のサマリ（モード・スコア・主な変更点）を表示する
 - `--dry-run` の場合は構造チェック結果を表示する
 - `--restore` の場合は復元完了を報告する
 - エラーが発生した場合はエラー内容と対処法を提示する
@@ -65,10 +64,10 @@ python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py \
 ## 使用例
 
 ```
-/optimize my-skill                          # 基本実行（3世代 x 集団3）
+/optimize my-skill                          # 基本実行（autoモード）
 /optimize my-skill --dry-run                # 構造テスト
 /optimize my-skill --fitness skill_quality  # カスタム適応度関数
-/optimize my-skill --generations 5          # 5世代実行
+/optimize my-skill --mode error_guided      # エラーガイドモード
 /optimize my-skill --restore               # バックアップから復元
 ```
 
@@ -85,4 +84,4 @@ python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py \
 
 ## 出力
 
-世代ごとの結果は `<PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/generations/{run_id}/` に保存。
+最適化結果は `<PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/generations/{run_id}/` に保存。

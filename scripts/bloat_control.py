@@ -45,7 +45,7 @@ def validate_artifact(
     """アーティファクトのサイズバリデーション。
 
     全パイプライン（evolve / optimize / discover）で再利用する共通ユーティリティ。
-    既存の GeneticOptimizer._regression_gate() から抽出。
+    既存の DirectPatchOptimizer._regression_gate() から抽出。
 
     Args:
         content: アーティファクトの内容

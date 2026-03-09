@@ -10,7 +10,7 @@ README.md を Before/After のストーリー構成で全面更新する（SHALL
 
 #### Scenario: What（概要）セクションが存在する
 - **WHEN** README.md を確認する
-- **THEN** rl-anything が何をするか（遺伝的アルゴリズムによるスキル/ルールの自動最適化）が簡潔に記述されている
+- **THEN** rl-anything が何をするか（直接パッチによるスキル/ルールの自動最適化）が簡潔に記述されている
 
 #### Scenario: After（効果）セクションが存在する
 - **WHEN** README.md を確認する

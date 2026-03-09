@@ -8,5 +8,5 @@
   "repository": "https://github.com/min-sys/rl-anything",
   "homepage": "https://github.com/min-sys/rl-anything",
   "license": "MIT",
-  "keywords": ["optimization", "genetic-algorithm", "skill-evolution", "rl-loop", "claude-code"]
+  "keywords": ["optimization", "direct-patch", "skill-evolution", "rl-loop", "claude-code"]
 }

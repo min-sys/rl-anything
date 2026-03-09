@@ -38,7 +38,7 @@
 
 ### Requirement: optimizer 向けの mutation ヒントを生成しなければならない（MUST）
 
-`--hints` オプションを指定した場合、各スキルのワークフロー統計から GeneticOptimizer の mutation プロンプトに注入するヒントテキストを生成しなければならない（MUST）。
+`--hints` オプションを指定した場合、各スキルのワークフロー統計から DirectPatchOptimizer の改善プロンプトに注入するヒントテキストを生成しなければならない（MUST）。
 
 #### Scenario: 低一貫性スキルへのヒント
 - **WHEN** opsx:apply の consistency が 0.475 で、Explore パターンが 47.5%、general-purpose が 25.0%
