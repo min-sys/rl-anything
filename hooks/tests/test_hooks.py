@@ -884,6 +884,68 @@ class TestSaveState:
         assert data["session_id"] == "sess-020"
         assert data["evolve_state"]["generation"] == 3
 
+    def test_work_context_saved(self, patch_data_dir):
+        """正常系: work_context が checkpoint に保存される。"""
+        git_outputs = {
+            ("rev-parse", "--abbrev-ref", "HEAD"): "feature/test\n",
+            ("log", "--oneline", "-5"): "abc1234 fix: something\ndef5678 feat: another\n",
+            ("status", "--short"): " M file1.py\n?? file2.py\n",
+        }
+
+        def fake_run(args, **kwargs):
+            key = tuple(args[1:])  # skip "git"
+            stdout = git_outputs.get(key, "")
+            result = mock.MagicMock()
+            result.returncode = 0
+            result.stdout = stdout
+            return result
+
+        with mock.patch("save_state.subprocess.run", side_effect=fake_run):
+            save_state.handle_pre_compact({"session_id": "sess-wc-01"})
+
+        data = json.loads((patch_data_dir / "checkpoint.json").read_text())
+        wc = data["work_context"]
+        assert wc["git_branch"] == "feature/test"
+        assert len(wc["recent_commits"]) == 2
+        assert "abc1234 fix: something" in wc["recent_commits"]
+        assert len(wc["uncommitted_files"]) == 2
+
+    def test_work_context_git_failure(self, patch_data_dir):
+        """git コマンド失敗時に空のフォールバック値で保存される。"""
+        def fake_run(args, **kwargs):
+            raise FileNotFoundError("git not found")
+
+        with mock.patch("save_state.subprocess.run", side_effect=fake_run):
+            save_state.handle_pre_compact({"session_id": "sess-wc-02"})
+
+        data = json.loads((patch_data_dir / "checkpoint.json").read_text())
+        wc = data["work_context"]
+        assert wc["git_branch"] == ""
+        assert wc["recent_commits"] == []
+        assert wc["uncommitted_files"] == []
+
+    def test_work_context_uncommitted_limit(self, patch_data_dir):
+        """uncommitted_files が _MAX_UNCOMMITTED_FILES を超える場合に切り詰められる。"""
+        many_files = "\n".join(f" M file{i}.py" for i in range(50))
+
+        def fake_run(args, **kwargs):
+            key = tuple(args[1:])
+            outputs = {
+                ("rev-parse", "--abbrev-ref", "HEAD"): "main\n",
+                ("log", "--oneline", "-5"): "",
+                ("status", "--short"): many_files + "\n",
+            }
+            result = mock.MagicMock()
+            result.returncode = 0
+            result.stdout = outputs.get(key, "")
+            return result
+
+        with mock.patch("save_state.subprocess.run", side_effect=fake_run):
+            save_state.handle_pre_compact({"session_id": "sess-wc-03"})
+
+        data = json.loads((patch_data_dir / "checkpoint.json").read_text())
+        assert len(data["work_context"]["uncommitted_files"]) == 30
+
 
 class TestRestoreState:
     """restore_state.py のテスト。"""
@@ -908,6 +970,51 @@ class TestRestoreState:
 
         captured = capsys.readouterr()
         assert captured.out.strip() == ""
+
+    def test_work_context_restored_with_summary(self, patch_data_dir, capsys):
+        """work_context 付き checkpoint の復元でサマリーが出力される。"""
+        checkpoint = {
+            "session_id": "sess-040",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "evolve_state": {},
+            "work_context": {
+                "git_branch": "feature/x",
+                "recent_commits": ["abc1234 fix: something"],
+                "uncommitted_files": ["path/to/file1"],
+            },
+        }
+        (patch_data_dir / "checkpoint.json").write_text(json.dumps(checkpoint))
+
+        restore_state.handle_session_start({})
+
+        captured = capsys.readouterr()
+        lines = captured.out.strip().split("\n")
+        # 最初の行は JSON 出力
+        result = json.loads(lines[0])
+        assert result["restored"] is True
+        # 残りの行はサマリー
+        summary = "\n".join(lines[1:])
+        assert "[rl-anything:restore_state] 作業コンテキスト復元:" in summary
+        assert "ブランチ: feature/x" in summary
+        assert "abc1234 fix: something" in summary
+        assert "path/to/file1" in summary
+
+    def test_work_context_missing_backward_compat(self, patch_data_dir, capsys):
+        """work_context なしの旧 checkpoint でもエラーが発生しない。"""
+        checkpoint = {
+            "session_id": "sess-050",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+            "evolve_state": {"generation": 2},
+        }
+        (patch_data_dir / "checkpoint.json").write_text(json.dumps(checkpoint))
+
+        restore_state.handle_session_start({})
+
+        captured = capsys.readouterr()
+        result = json.loads(captured.out.strip())
+        assert result["restored"] is True
+        # work_context サマリーは出力されない
+        assert "作業コンテキスト復元" not in captured.out
 
 
 # --- discover.py / prune.py のワークフロートレーシング関連テスト ---

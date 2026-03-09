@@ -21,6 +21,27 @@ except ImportError:
     pass
 
 
+def _format_work_context_summary(work_context: dict) -> str:
+    """work_context から人間可読なサマリーを生成する。"""
+    parts = ["[rl-anything:restore_state] 作業コンテキスト復元:"]
+
+    branch = work_context.get("git_branch", "")
+    if branch:
+        parts.append(f"  ブランチ: {branch}")
+
+    commits = work_context.get("recent_commits", [])
+    if commits:
+        parts.append(f"  完了: {', '.join(commits)}")
+
+    files = work_context.get("uncommitted_files", [])
+    if files:
+        parts.append(f"  作業中: {', '.join(files)}")
+
+    if len(parts) == 1:
+        return ""
+    return "\n".join(parts)
+
+
 def _deliver_pending_trigger() -> None:
     """pending-trigger.json があれば読み取り、提案メッセージを stdout に出力する。"""
     if _trigger_engine is None:
@@ -53,6 +74,13 @@ def handle_session_start(event: dict) -> None:
             "restored": True,
             "checkpoint": checkpoint,
         }, ensure_ascii=False))
+
+        # work_context がある場合はサマリーも出力
+        work_context = checkpoint.get("work_context")
+        if work_context:
+            summary = _format_work_context_summary(work_context)
+            if summary:
+                print(summary)
     except (json.JSONDecodeError, OSError) as e:
         print(f"[rl-anything:restore_state] restore failed: {e}", file=sys.stderr)
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.3] - 2026-03-09
+
+### Added
+- **save_state**: PreCompact hook で作業コンテキスト（git branch/log/status）を checkpoint.json に保存 (#17)
+  - 定数: `_MAX_UNCOMMITTED_FILES=30`, `_MAX_RECENT_COMMITS=5`, `_GIT_TIMEOUT_SECONDS=2`
+  - 合計 3.5s タイムアウトガードで hook 5000ms 制限内に収束
+- **restore_state**: SessionStart hook で committed/uncommitted 分離サマリーを stdout 出力 (#17)
+  - work_context なし checkpoint の後方互換性維持
+- **CLAUDE.md**: Compaction Instructions セクション追加（完了タスク/スキル結果/変更ファイル/最後の指示）
+
 ## [1.0.2] - 2026-03-09
 
 ### Fixed

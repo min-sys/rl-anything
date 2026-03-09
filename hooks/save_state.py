@@ -5,11 +5,70 @@
 JSON シリアライズのみ（10-100ms 程度）。LLM 呼び出しなし。
 """
 import json
+import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import common
+
+_MAX_UNCOMMITTED_FILES = 30
+_MAX_RECENT_COMMITS = 5
+_GIT_TIMEOUT_SECONDS = 2
+
+
+def _run_git(args: list[str], timeout: float) -> str:
+    """git コマンドを実行し stdout を返す。失敗時は空文字列。"""
+    try:
+        result = subprocess.run(
+            ["git"] + args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        if result.returncode != 0:
+            return ""
+        return result.stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return ""
+
+
+def _collect_work_context() -> dict:
+    """git から作業コンテキストを収集する。合計 3.5s 超過で残りを skip。"""
+    context: dict = {
+        "recent_commits": [],
+        "uncommitted_files": [],
+        "git_branch": "",
+    }
+    start = time.monotonic()
+
+    # git branch
+    branch_out = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], _GIT_TIMEOUT_SECONDS)
+    context["git_branch"] = branch_out.strip()
+
+    if time.monotonic() - start > 3.5:
+        return context
+
+    # recent commits
+    log_out = _run_git(
+        ["log", "--oneline", f"-{_MAX_RECENT_COMMITS}"], _GIT_TIMEOUT_SECONDS
+    )
+    if log_out:
+        context["recent_commits"] = [
+            line for line in log_out.strip().splitlines() if line.strip()
+        ]
+
+    if time.monotonic() - start > 3.5:
+        return context
+
+    # uncommitted files
+    status_out = _run_git(["status", "--short"], _GIT_TIMEOUT_SECONDS)
+    if status_out:
+        files = [line.strip() for line in status_out.strip().splitlines() if line.strip()]
+        context["uncommitted_files"] = files[:_MAX_UNCOMMITTED_FILES]
+
+    return context
 
 
 def _load_corrections_snapshot() -> list:
@@ -40,6 +99,7 @@ def handle_pre_compact(event: dict) -> None:
         "evolve_state": event.get("evolve_state", {}),
         "context_summary": event.get("context_summary", ""),
         "corrections_snapshot": _load_corrections_snapshot(),
+        "work_context": _collect_work_context(),
     }
 
     checkpoint_file = common.DATA_DIR / "checkpoint.json"
