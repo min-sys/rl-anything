@@ -110,6 +110,62 @@ class TestErrorProjectFilter:
         assert len(patterns) == 0
 
 
+class TestLoadClaudeReflectData:
+    """load_claude_reflect_data の pending フィルタテスト。"""
+
+    def test_pending_only(self, tmp_path):
+        """pending のみ返す。applied/skipped は除外。"""
+        data_dir = tmp_path / "rl-anything"
+        data_dir.mkdir()
+        corrections_file = data_dir / "corrections.jsonl"
+        records = [
+            {"message": "msg1", "reflect_status": "pending"},
+            {"message": "msg2", "reflect_status": "applied"},
+            {"message": "msg3", "reflect_status": "skipped"},
+            {"message": "msg4", "reflect_status": "pending"},
+            {"message": "msg5"},  # reflect_status なし → pending 扱い
+        ]
+        corrections_file.write_text(
+            "\n".join(json.dumps(r) for r in records) + "\n"
+        )
+        with mock.patch.object(discover, "DATA_DIR", data_dir):
+            result = discover.load_claude_reflect_data()
+        assert len(result) == 3  # pending x2 + status なし x1
+
+    def test_all_applied(self, tmp_path):
+        """全件 applied なら空リスト。"""
+        data_dir = tmp_path / "rl-anything"
+        data_dir.mkdir()
+        corrections_file = data_dir / "corrections.jsonl"
+        records = [
+            {"message": "msg1", "reflect_status": "applied"},
+            {"message": "msg2", "reflect_status": "applied"},
+        ]
+        corrections_file.write_text(
+            "\n".join(json.dumps(r) for r in records) + "\n"
+        )
+        with mock.patch.object(discover, "DATA_DIR", data_dir):
+            result = discover.load_claude_reflect_data()
+        assert len(result) == 0
+
+    def test_empty_file(self, tmp_path):
+        """ファイルが空なら空リスト。"""
+        data_dir = tmp_path / "rl-anything"
+        data_dir.mkdir()
+        (data_dir / "corrections.jsonl").write_text("")
+        with mock.patch.object(discover, "DATA_DIR", data_dir):
+            result = discover.load_claude_reflect_data()
+        assert len(result) == 0
+
+    def test_nonexistent_file(self, tmp_path):
+        """ファイルが存在しない場合は空リスト。"""
+        data_dir = tmp_path / "rl-anything"
+        data_dir.mkdir()
+        with mock.patch.object(discover, "DATA_DIR", data_dir):
+            result = discover.load_claude_reflect_data()
+        assert len(result) == 0
+
+
 class TestRunDiscoverProjectFilter:
     """run_discover の project_root / include_unknown テスト。"""
 

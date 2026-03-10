@@ -84,21 +84,38 @@ def semantic_analyze(
                         "is_learning": item.get("is_learning", True),
                         "extracted_learning": item.get("extracted_learning"),
                     })
+            elif parsed and 0 < len(parsed) < len(batch):
+                # partial success: index フィールドでマッチングし、残りは is_learning=True
+                print(
+                    f"Warning: validate_corrections partial success "
+                    f"(expected {len(batch)}, got {len(parsed)}), "
+                    f"unmatched items default to is_learning=True",
+                    file=sys.stderr,
+                )
+                matched = {item.get("index"): item for item in parsed if "index" in item}
+                for i in range(len(batch)):
+                    if i in matched:
+                        results.append({
+                            "is_learning": matched[i].get("is_learning", True),
+                            "extracted_learning": matched[i].get("extracted_learning"),
+                        })
+                    else:
+                        results.append({"is_learning": True, "extracted_learning": None})
             else:
-                # 件数不一致 → フォールバック（安全側: is_learning=False）
+                # 完全失敗（パース不能/空リスト/件数超過） → フォールバック（is_learning=True）
                 print(
                     f"Warning: validate_corrections count mismatch "
                     f"(expected {len(batch)}, got {len(parsed) if parsed else 0}), "
-                    f"defaulting to is_learning=False",
+                    f"defaulting to is_learning=True",
                     file=sys.stderr,
                 )
                 for _ in batch:
-                    results.append({"is_learning": False, "extracted_learning": None})
+                    results.append({"is_learning": True, "extracted_learning": None})
 
         except (subprocess.TimeoutExpired, OSError) as e:
             print(f"Warning: semantic analysis failed: {e}", file=sys.stderr)
             for _ in batch:
-                results.append({"is_learning": False, "extracted_learning": None})
+                results.append({"is_learning": True, "extracted_learning": None})
 
     return results
 
@@ -155,10 +172,10 @@ def validate_corrections(
         if len(results) == len(corrections):
             return results
     except Exception as e:
-        print(f"Warning: validate_corrections failed, defaulting to is_learning=False", file=sys.stderr)
+        print(f"Warning: validate_corrections failed, defaulting to is_learning=True", file=sys.stderr)
 
-    # フォールバック: 全件を is_learning=False として返す（安全側）
-    return [{"is_learning": False, "extracted_learning": None} for _ in corrections]
+    # フォールバック: 全件を is_learning=True として返す（regex 結果尊重）
+    return [{"is_learning": True, "extracted_learning": None} for _ in corrections]
 
 
 CONTRADICTION_PROMPT = """以下の corrections リストで、矛盾するペアを見つけてください。

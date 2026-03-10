@@ -111,38 +111,77 @@ def test_semantic_analyze_batch_split(mock_run):
 
 @patch("lib.semantic_detector.subprocess.run")
 def test_semantic_analyze_json_parse_failure(mock_run):
-    """JSON パース失敗時にフォールバック（全件 is_learning=False）。"""
+    """JSON パース失敗時にフォールバック（全件 is_learning=True）。"""
     corrections = _make_corrections(3)
     mock_run.return_value = MagicMock(stdout="invalid json response", returncode=0)
 
     results = semantic_analyze(corrections)
     assert len(results) == 3
-    assert all(r["is_learning"] is False for r in results)
+    assert all(r["is_learning"] is True for r in results)
 
 
 @patch("lib.semantic_detector.subprocess.run")
 def test_semantic_analyze_timeout(mock_run):
-    """タイムアウト時にフォールバック（is_learning=False）。"""
+    """タイムアウト時にフォールバック（is_learning=True）。"""
     corrections = _make_corrections(3)
     mock_run.side_effect = subprocess.TimeoutExpired(cmd="claude", timeout=60)
 
     results = semantic_analyze(corrections)
     assert len(results) == 3
-    assert all(r["is_learning"] is False for r in results)
+    assert all(r["is_learning"] is True for r in results)
 
 
 @patch("lib.semantic_detector.subprocess.run")
-def test_semantic_analyze_count_mismatch(mock_run):
-    """レスポンス件数が不一致のときフォールバック（is_learning=False）。"""
+def test_semantic_analyze_count_mismatch_partial_success(mock_run):
+    """レスポンス件数が不一致のとき partial success: マッチ分は LLM 判定、残りは is_learning=True。"""
     corrections = _make_corrections(3)
     response = json.dumps([
-        {"index": 0, "is_learning": True, "extracted_learning": None},
+        {"index": 0, "is_learning": False, "extracted_learning": None},
     ])
     mock_run.return_value = MagicMock(stdout=response, returncode=0)
 
     results = semantic_analyze(corrections)
     assert len(results) == 3
-    assert all(r["is_learning"] is False for r in results)
+    # index 0 は LLM の判定 (False) を適用
+    assert results[0]["is_learning"] is False
+    # index 1, 2 は未マッチのため is_learning=True でパススルー
+    assert results[1]["is_learning"] is True
+    assert results[2]["is_learning"] is True
+
+
+@patch("lib.semantic_detector.subprocess.run")
+def test_semantic_analyze_empty_response(mock_run):
+    """LLM が空リストを返した場合、全件 is_learning=True でパススルー。"""
+    corrections = _make_corrections(3)
+    mock_run.return_value = MagicMock(stdout="[]", returncode=0)
+
+    results = semantic_analyze(corrections)
+    assert len(results) == 3
+    assert all(r["is_learning"] is True for r in results)
+
+
+@patch("lib.semantic_detector.subprocess.run")
+def test_semantic_analyze_partial_success_multiple(mock_run):
+    """7件中5件返却の partial success: マッチ分は LLM 判定、残り2件は is_learning=True。"""
+    corrections = _make_corrections(7)
+    response = json.dumps([
+        {"index": 0, "is_learning": True, "extracted_learning": "l0"},
+        {"index": 1, "is_learning": False, "extracted_learning": None},
+        {"index": 3, "is_learning": True, "extracted_learning": "l3"},
+        {"index": 4, "is_learning": False, "extracted_learning": None},
+        {"index": 6, "is_learning": True, "extracted_learning": "l6"},
+    ])
+    mock_run.return_value = MagicMock(stdout=response, returncode=0)
+
+    results = semantic_analyze(corrections)
+    assert len(results) == 7
+    assert results[0]["is_learning"] is True
+    assert results[1]["is_learning"] is False
+    assert results[2]["is_learning"] is True   # unmatched → True
+    assert results[3]["is_learning"] is True
+    assert results[4]["is_learning"] is False
+    assert results[5]["is_learning"] is True   # unmatched → True
+    assert results[6]["is_learning"] is True
 
 
 @patch("lib.semantic_detector.subprocess.run")
@@ -172,24 +211,24 @@ def test_validate_corrections_success(mock_run):
 
 @patch("lib.semantic_detector.subprocess.run")
 def test_validate_corrections_fallback_on_exception(mock_run):
-    """例外時に全件 is_learning=False のフォールバック。"""
+    """例外時に全件 is_learning=True のフォールバック。"""
     corrections = _make_corrections(3)
     mock_run.side_effect = Exception("unexpected error")
 
     results = validate_corrections(corrections)
     assert len(results) == 3
-    assert all(r["is_learning"] is False for r in results)
+    assert all(r["is_learning"] is True for r in results)
 
 
 @patch("lib.semantic_detector.subprocess.run")
 def test_validate_corrections_fallback_on_timeout(mock_run):
-    """タイムアウト時のフォールバック（is_learning=False）。"""
+    """タイムアウト時のフォールバック（is_learning=True）。"""
     corrections = _make_corrections(2)
     mock_run.side_effect = subprocess.TimeoutExpired(cmd="claude", timeout=60)
 
     results = validate_corrections(corrections)
     assert len(results) == 2
-    assert all(r["is_learning"] is False for r in results)
+    assert all(r["is_learning"] is True for r in results)
 
 
 # --- detect_contradictions ---
@@ -245,15 +284,15 @@ def test_detect_contradictions_llm_failure(mock_run, capsys):
 
 
 @patch("lib.semantic_detector.subprocess.run")
-def test_validate_corrections_fallback_is_false(mock_run):
-    """フォールバック時 is_learning=False であることを確認。"""
+def test_validate_corrections_fallback_is_true(mock_run):
+    """フォールバック時 is_learning=True であることを確認。"""
     corrections = _make_corrections(5)
     # 全失敗ケース: 例外発生
     mock_run.side_effect = Exception("unexpected failure")
 
     results = validate_corrections(corrections)
     assert len(results) == 5
-    assert all(r["is_learning"] is False for r in results)
+    assert all(r["is_learning"] is True for r in results)
     assert all(r["extracted_learning"] is None for r in results)
 
 

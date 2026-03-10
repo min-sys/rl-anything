@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.0.4] - 2026-03-11
+
+### Fixed
+- **semantic_detector**: フォールバックを `is_learning=False`（全件除外）→ `is_learning=True`（パススルー）に修正 (#25)
+  - partial success 対応: LLM が一部のみ返却時、index マッチングで成功分を適用し残りをパススルー
+  - validate_corrections の例外フォールバックも同様に修正
+- **discover**: `load_claude_reflect_data()` に `reflect_status == "pending"` フィルタ追加 (#25)
+  - evolve の reflect_data_count と reflect の認識を一致させる
+- **optimize**: `last_skill` が None の場合の AttributeError を修正 (#24)
+
 ## [1.0.3] - 2026-03-09
 
 ### Added

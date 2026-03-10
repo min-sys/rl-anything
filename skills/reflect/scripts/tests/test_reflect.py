@@ -479,6 +479,45 @@ class TestCLI:
         assert output["status"] == "empty"
 
 
+# --- Test: semantic validation failure does not zero out corrections ---
+
+class TestSemanticValidationFallback:
+    def test_validation_failure_preserves_corrections(self):
+        """semantic validation が例外で失敗しても corrections が 0 件にならない。"""
+        corrections = [
+            _make_correction(message="use bun instead of npm"),
+            _make_correction(message="always use TypeScript"),
+        ]
+        # validate_corrections が例外時に is_learning=True でフォールバックすることを確認
+        with mock.patch("reflect.validate_corrections") as mock_validate:
+            mock_validate.return_value = [
+                {"is_learning": True, "extracted_learning": None},
+                {"is_learning": True, "extracted_learning": None},
+            ]
+            result = reflect.apply_semantic_validation(corrections)
+        assert len(result) == 2
+        assert all(r["is_learning"] is True for r in result)
+
+    def test_validation_count_mismatch_preserves_corrections(self):
+        """semantic validation の件数不一致でも corrections が全件除外されない。"""
+        corrections = [
+            _make_correction(message="msg1"),
+            _make_correction(message="msg2"),
+            _make_correction(message="msg3"),
+        ]
+        # validate_corrections が partial success で一部 True を返す
+        with mock.patch("reflect.validate_corrections") as mock_validate:
+            mock_validate.return_value = [
+                {"is_learning": False, "extracted_learning": None},
+                {"is_learning": True, "extracted_learning": None},
+                {"is_learning": True, "extracted_learning": None},
+            ]
+            result = reflect.apply_semantic_validation(corrections)
+        # is_learning フィルタ後でも 0 件にはならない
+        learning_items = [r for r in result if r.get("is_learning", True)]
+        assert len(learning_items) >= 1
+
+
 # --- Test: find_memory_update_candidates ---
 
 class TestFindMemoryUpdateCandidates:

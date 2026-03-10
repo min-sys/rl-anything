@@ -459,13 +459,18 @@ def validate_rule_content(content: str) -> bool:
 
 
 def load_claude_reflect_data() -> List[Dict[str, Any]]:
-    """corrections.jsonl からの修正データ取り込み（オプション）。未生成時はスキップ。"""
+    """corrections.jsonl から pending の修正データのみ取り込む。未生成時はスキップ。
+
+    reflect が処理するのは pending のみであるため、
+    evolve の reflect_data_count と reflect の認識を一致させる。
+    """
     corrections_file = DATA_DIR / "corrections.jsonl"
 
     if not corrections_file.exists():
         return []
 
-    return load_jsonl(corrections_file)
+    records = load_jsonl(corrections_file)
+    return [r for r in records if r.get("reflect_status", "pending") == "pending"]
 
 
 # ---------- enrich (Jaccard 照合、旧 enrich.py から統合) ----------
