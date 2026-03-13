@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from reflect_utils import (
     _parse_rule_frontmatter,
     detect_project_signals,
+    detect_side_effect_correction,
     find_claude_files,
     read_auto_memory,
     split_memory_sections,
@@ -432,6 +433,87 @@ def test_suggest_guardrail_overrides_project_signal(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     (tmp_path / "CLAUDE.md").write_text("## Skills\n\n- /channel-routing: Bot設定。Trigger: チャンネル\n")
     correction = {"message": "/channel-routing は使わない", "correction_type": "guardrail", "guardrail": True, "confidence": 0.90}
+    result = suggest_claude_file(correction, project_root=tmp_path)
+    assert result is not None
+    assert "guardrails.md" in result[0]
+
+
+# ══════════════════════════════════════════════════════
+# detect_side_effect_correction
+# ══════════════════════════════════════════════════════
+
+
+class TestDetectSideEffectCorrection:
+    def test_ja_keyword_side_effect(self):
+        assert detect_side_effect_correction("副作用を確認していなかった") is True
+
+    def test_ja_keyword_residual(self):
+        assert detect_side_effect_correction("データが残留していた") is True
+
+    def test_ja_keyword_unintended(self):
+        assert detect_side_effect_correction("意図しない変更が発生") is True
+
+    def test_ja_keyword_recursive(self):
+        assert detect_side_effect_correction("再帰的トリガーが発火した") is True
+
+    def test_en_keyword_side_effect(self):
+        assert detect_side_effect_correction("unintended side effect found") is True
+
+    def test_en_keyword_leftover(self):
+        assert detect_side_effect_correction("leftover data in the database") is True
+
+    def test_compound_pending_table(self):
+        assert detect_side_effect_correction("pending テーブルに残留していた") is True
+
+    def test_compound_pending_residual(self):
+        assert detect_side_effect_correction("pending 状態のデータが残留") is True
+
+    def test_pending_alone_no_match(self):
+        """「pending」単体ではマッチしない。"""
+        assert detect_side_effect_correction("pending の状態を確認") is False
+
+    def test_recursive_alone_no_match(self):
+        """「再帰」単体ではマッチしない（「再帰的」のみ許可）。"""
+        assert detect_side_effect_correction("再帰関数を修正した") is False
+
+    def test_no_keywords(self):
+        assert detect_side_effect_correction("テストを追加してください") is False
+
+    def test_empty_message(self):
+        assert detect_side_effect_correction("") is False
+
+
+# ══════════════════════════════════════════════════════
+# suggest_claude_file: 副作用ルーティング統合テスト
+# ══════════════════════════════════════════════════════
+
+
+def test_suggest_side_effect_routing(tmp_path, monkeypatch):
+    """副作用キーワードを含む correction が verification.md にルーティングされる。"""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "CLAUDE.md").write_text("## Skills\n\n- /test: test\n")
+    correction = {"message": "副作用を確認していなかった", "correction_type": "correction", "confidence": 0.90}
+    result = suggest_claude_file(correction, project_root=tmp_path)
+    assert result is not None
+    assert "verification.md" in result[0]
+    assert result[1] == 0.85
+
+
+def test_suggest_side_effect_after_project_signals(tmp_path, monkeypatch):
+    """project signals が True なら副作用チェックはスキップされる。"""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "CLAUDE.md").write_text("## Skills\n\n- /channel-routing: Bot設定。Trigger: 副作用\n")
+    correction = {"message": "/channel-routing で副作用が発生", "correction_type": "correction", "confidence": 0.90}
+    result = suggest_claude_file(correction, project_root=tmp_path)
+    assert result is not None
+    # project signals が優先 → project-specific.md
+    assert "project-specific.md" in result[0]
+
+
+def test_suggest_guardrail_overrides_side_effect(tmp_path, monkeypatch):
+    """guardrail は副作用チェックより優先。"""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    correction = {"message": "副作用を確認しない", "correction_type": "guardrail", "guardrail": True, "confidence": 0.90}
     result = suggest_claude_file(correction, project_root=tmp_path)
     assert result is not None
     assert "guardrails.md" in result[0]

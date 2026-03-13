@@ -262,7 +262,7 @@ _RATIONALE_TEMPLATES = {
     TOOL_USAGE_HOOK_CANDIDATE: "Bash での Built-in 代替可能コマンド使用（{count} 回検出）を自動検出する PreToolUse hook の追加を提案します。",
     "untagged_reference_candidates": "スキル「{skill_name}」は呼び出し実績がなく reference type が未設定です。frontmatter に `type: reference` を追加します。",
     SKILL_EVOLVE_CANDIDATE: "スキル「{skill_name}」の自己進化適性: {suitability}（{total_score}/15点）。自己進化パターン（Pre-flight Check, pitfalls.md, Failure-triggered Learning）の組み込みを提案します。",
-    VERIFICATION_RULE_CANDIDATE: "プロジェクト内に {evidence_count} 箇所のモジュール間データ変換パターンが検出されました（confidence: {confidence}）。「{description}」ルールの追加を提案します。",
+    VERIFICATION_RULE_CANDIDATE: "{description}が {evidence_count} 箇所検出されました（confidence: {confidence}）。ルールの追加を提案します。",
 }
 
 

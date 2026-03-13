@@ -14,6 +14,10 @@
   - discover に verification_needs 検出統合、evolve Phase 3.5 に issue 変換
   - remediation に verification_rule_candidate ハンドラ追加（fix/verify/rationale/proposals）
   - issue_schema に VERIFICATION_RULE_CANDIDATE + make_verification_rule_issue() factory 追加
+- **verification_catalog**: `side-effect-verification` エントリ追加（DB操作/MQ/外部API の3カテゴリ副作用検出）
+  - テストファイル除外フィルタ、detected_categories 別フィールド、content-aware インストール済みチェック
+  - reflect_utils に corrections ベースの副作用パターン検出 + ルーティング追加（優先度3、FP抑制複合パターン）
+  - remediation の rationale テンプレートを汎用化
 
 ### Fixed
 - **evolve**: discover → remediation のデータフロー断絶を修正（issue 変換のフィールド名不一致）

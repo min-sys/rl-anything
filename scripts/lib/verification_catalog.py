@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 # ── 閾値定数 ──────────────────────────────────────────
 DATA_CONTRACT_MIN_PATTERNS = 3
+SIDE_EFFECT_MIN_PATTERNS = 3
 DETECTION_TIMEOUT_SECONDS = 5
 MAX_CATALOG_ENTRIES = 10
 LARGE_REPO_FILE_THRESHOLD = 1000
@@ -31,6 +32,39 @@ _TYPESCRIPT_RULE_TEMPLATE = """# データ変換コードの契約確認
 モジュール間のデータ変換・統合コードを書く前に、ソース関数の戻り型（interface/type）を Read で確認する。自作テストデータは自作の誤りを検出できないため、既存テストの fixture も参照する。
 """
 
+_SIDE_EFFECT_RULE_TEMPLATE = """# 副作用チェック
+テスト検証時、正パスに加えて副作用を確認する: 意図しない書き込み・状態残留・再帰的トリガー。
+"""
+
+# ── 副作用検出パターン（3カテゴリ）────────────────────
+_SIDE_EFFECT_DB_PATTERNS = re.compile(
+    r"(?:session\.add|cursor\.execute|\.commit\(\)|INSERT\s+INTO|UPDATE\s+\w|DELETE\s+FROM"
+    r"|prisma\.\w+\.create|\.save\(\)|knex\.\w*insert)",
+    re.IGNORECASE,
+)
+_SIDE_EFFECT_MQ_PATTERNS = re.compile(
+    r"(?:sqs\.send_message|\.publish\(|channel\.basic_publish"
+    r"|sendMessage|channel\.sendToQueue)",
+)
+_SIDE_EFFECT_API_PATTERNS = re.compile(
+    r"(?:requests\.post|httpx\.post|aiohttp\.\w*post"
+    r"|fetch\(|axios\.post|webhook)",
+    re.IGNORECASE,
+)
+
+_SIDE_EFFECT_CATEGORIES = {
+    "db": _SIDE_EFFECT_DB_PATTERNS,
+    "mq": _SIDE_EFFECT_MQ_PATTERNS,
+    "api": _SIDE_EFFECT_API_PATTERNS,
+}
+
+# テストファイル除外パターン
+_TEST_FILE_PATTERNS = re.compile(
+    r"(?:^test_.*\.py$|.*_test\.py$|.*\.test\.tsx?$)"
+)
+
+_TEST_DIR_NAMES = {"__tests__"}
+
 # ── カタログ定義 ──────────────────────────────────────
 VERIFICATION_CATALOG: List[Dict[str, Any]] = [
     {
@@ -40,6 +74,15 @@ VERIFICATION_CATALOG: List[Dict[str, Any]] = [
         "rule_template": _PYTHON_RULE_TEMPLATE.strip(),
         "rule_filename": "verify-data-contract.md",
         "detection_fn": "detect_data_contract_verification",
+        "applicability": "conditional",
+    },
+    {
+        "id": "side-effect-verification",
+        "type": "rule",
+        "description": "テスト検証時に副作用（DB残留・共有リソース書き込み・非同期連鎖）を確認する",
+        "rule_template": _SIDE_EFFECT_RULE_TEMPLATE.strip(),
+        "rule_filename": "verify-side-effects.md",
+        "detection_fn": "detect_side_effect_verification",
         "applicability": "conditional",
     },
 ]
@@ -171,10 +214,75 @@ def detect_data_contract_verification(project_dir: Path) -> Dict[str, Any]:
     }
 
 
+def _is_test_file(filepath: Path) -> bool:
+    """テストファイルかどうかを判定する。"""
+    if _TEST_FILE_PATTERNS.match(filepath.name):
+        return True
+    return any(part in _TEST_DIR_NAMES for part in filepath.parts)
+
+
+def detect_side_effect_verification(project_dir: Path) -> Dict[str, Any]:
+    """side-effect-verification の検出関数。
+
+    プロジェクト内の共有リソースアクセスパターン（DB操作・MQ・外部API）を走査し、
+    副作用チェックルールの必要性を判定する。
+    """
+    if not project_dir.is_dir():
+        return _safe_result("project_dir does not exist")
+
+    evidence: List[str] = []
+    detected_categories: set = set()
+    try:
+        for filepath in _iter_source_files(project_dir):
+            if _is_test_file(filepath):
+                continue
+            try:
+                content = filepath.read_text(encoding="utf-8", errors="ignore")
+            except (PermissionError, OSError):
+                continue
+            for cat_name, pattern in _SIDE_EFFECT_CATEGORIES.items():
+                if pattern.search(content):
+                    try:
+                        rel = str(filepath.relative_to(project_dir))
+                    except ValueError:
+                        rel = str(filepath)
+                    if rel not in evidence:
+                        evidence.append(rel)
+                    detected_categories.add(cat_name)
+            if len(evidence) >= 10:
+                break
+    except Exception as e:
+        return _safe_result(str(e))
+
+    count = len(evidence)
+    categories = sorted(detected_categories)
+    if count >= SIDE_EFFECT_MIN_PATTERNS:
+        confidence = min(0.7, 0.5 + count * 0.04)
+        cat_str = "・".join({"db": "DB操作", "mq": "メッセージキュー", "api": "外部API"}.get(c, c) for c in categories)
+        return {
+            "applicable": True,
+            "evidence": evidence,
+            "detected_categories": categories,
+            "confidence": confidence,
+            "llm_escalation_prompt": (
+                f"以下のプロジェクトで {count} 箇所の共有リソースアクセスパターン（{cat_str}）が検出されました。"
+                f"このプロジェクトに「テスト検証時に副作用を確認する」ルールは有用ですか？"
+                f"yes/no で回答してください。\n\n検出ファイル:\n" + "\n".join(evidence[:5])
+            ),
+        }
+    return {
+        "applicable": False,
+        "evidence": evidence,
+        "detected_categories": categories,
+        "confidence": 0.0,
+    }
+
+
 # ── 検出関数ディスパッチ ─────────────────────────────
 
 _DETECTION_FN_DISPATCH: Dict[str, Any] = {
     "detect_data_contract_verification": detect_data_contract_verification,
+    "detect_side_effect_verification": detect_side_effect_verification,
 }
 
 
@@ -205,13 +313,36 @@ def _run_detection_fn(fn_name: str, project_dir: Path) -> Dict[str, Any]:
 
 # ── 公開 API ─────────────────────────────────────────
 
+_SIDE_EFFECT_CONTENT_KEYWORDS = ["副作用", "side effect"]
+
+
 def check_verification_installed(entry: Dict[str, Any], project_dir: Path) -> bool:
-    """対象プロジェクトにエントリのルールが導入済みかチェックする。"""
+    """対象プロジェクトにエントリのルールが導入済みかチェックする。
+
+    1. rule_filename のファイルが存在するか
+    2. side-effect-verification の場合、既存ルールファイルに副作用キーワードが含まれるか
+    """
     rule_filename = entry.get("rule_filename", "")
     if not rule_filename:
         return False
-    rule_path = project_dir / ".claude" / "rules" / rule_filename
-    return rule_path.exists()
+    rules_dir = project_dir / ".claude" / "rules"
+    rule_path = rules_dir / rule_filename
+    if rule_path.exists():
+        return True
+
+    # content-aware チェック（side-effect-verification のみ）
+    if entry.get("id") == "side-effect-verification" and rules_dir.is_dir():
+        for rule_file in rules_dir.glob("*.md"):
+            if rule_file.name == rule_filename:
+                continue
+            try:
+                content = rule_file.read_text(encoding="utf-8", errors="ignore")
+                if any(kw in content for kw in _SIDE_EFFECT_CONTENT_KEYWORDS):
+                    return True
+            except (PermissionError, OSError):
+                continue
+
+    return False
 
 
 def get_rule_template(entry: Dict[str, Any], project_dir: Path) -> str:

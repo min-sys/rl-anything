@@ -24,6 +24,13 @@ _AUTO_MEMORY_TOPICS = {
     "debugging": ["debug", "error", "log", "trace", "breakpoint"],
 }
 
+# 副作用検出キーワード
+_SIDE_EFFECT_KEYWORDS_JA = ["副作用", "残留", "意図しない", "再帰的"]
+_SIDE_EFFECT_KEYWORDS_EN = ["side effect", "unintended", "residual", "recursive", "leftover"]
+_SIDE_EFFECT_COMPOUND_PATTERNS = [
+    re.compile(r"pending.*(?:残留|table|テーブル)", re.IGNORECASE),
+]
+
 # モデル名キーワード
 _MODEL_KEYWORDS = [
     "gpt-", "claude-", "gemini-", "o3", "o4", "model", "llm",
@@ -151,6 +158,21 @@ def detect_project_signals(
     return False
 
 
+def detect_side_effect_correction(message: str) -> bool:
+    """correction メッセージに副作用見落としパターンが含まれるかを判定する。"""
+    msg_lower = message.lower()
+    for kw in _SIDE_EFFECT_KEYWORDS_JA:
+        if kw in message:
+            return True
+    for kw in _SIDE_EFFECT_KEYWORDS_EN:
+        if kw in msg_lower:
+            return True
+    for pattern in _SIDE_EFFECT_COMPOUND_PATTERNS:
+        if pattern.search(message):
+            return True
+    return False
+
+
 def suggest_claude_file(
     correction: Dict[str, Any],
     project_root: Optional[Path] = None,
@@ -178,7 +200,11 @@ def suggest_claude_file(
     if detect_project_signals(message, project_root=root):
         return (str(root / ".claude" / "rules" / "project-specific.md"), 0.85)
 
-    # 3. モデル名キーワード → ~/.claude/CLAUDE.md or model-preferences rule
+    # 3. 副作用見落としパターン → .claude/rules/verification.md
+    if detect_side_effect_correction(message):
+        return (str(root / ".claude" / "rules" / "verification.md"), 0.85)
+
+    # 4. モデル名キーワード → ~/.claude/CLAUDE.md or model-preferences rule
     if any(kw in msg_lower for kw in _MODEL_KEYWORDS):
         # model-preferences rule があればそちらを優先
         model_rule = root / ".claude" / "rules" / "model-preferences.md"
@@ -186,11 +212,11 @@ def suggest_claude_file(
             return (str(model_rule), 0.85)
         return (str(Path.home() / ".claude" / "CLAUDE.md"), 0.85)
 
-    # 4. "always/never/prefer" → ~/.claude/CLAUDE.md (global behavior)
+    # 5. "always/never/prefer" → ~/.claude/CLAUDE.md (global behavior)
     if re.search(r"\b(always|never|prefer)\b", msg_lower):
         return (str(Path.home() / ".claude" / "CLAUDE.md"), 0.80)
 
-    # 4. rule の paths: frontmatter にマッチ
+    # 6. rule の paths: frontmatter にマッチ
     rules_dir = root / ".claude" / "rules"
     if rules_dir.is_dir():
         for rule_file in sorted(rules_dir.glob("*.md")):
@@ -204,14 +230,14 @@ def suggest_claude_file(
                 if isinstance(p, str) and p in msg_lower:
                     return (str(rule_file), 0.80)
 
-    # 5. サブディレクトリ名にマッチ
+    # 7. サブディレクトリ名にマッチ
     for item in sorted(root.iterdir()):
         if item.is_dir() and not item.name.startswith("."):
             claude_file = item / "CLAUDE.md"
             if claude_file.exists() and item.name.lower() in msg_lower:
                 return (str(claude_file), 0.75)
 
-    # 6. 低信頼度 (confidence < 0.75) → auto-memory
+    # 8. 低信頼度 (confidence < 0.75) → auto-memory
     if confidence < 0.75:
         topic = suggest_auto_memory_topic(message)
         project_dir = os.environ.get("CLAUDE_PROJECT_DIR", str(root))
