@@ -22,6 +22,7 @@ HISTORY_DIR = (
 )
 
 MIN_DATA_COUNT = 30
+BOOTSTRAP_MIN = 5
 CORRELATION_WINDOW = 20
 CORRELATION_THRESHOLD = 0.50
 REJECTION_PATTERN_THRESHOLD = 3
@@ -160,7 +161,8 @@ def run_fitness_evolution(history: Optional[List[Dict[str, Any]]] = None) -> Dic
 
     # データ十分性チェック
     decisions = [r for r in history if r.get("human_accepted") is not None]
-    if len(decisions) < MIN_DATA_COUNT:
+
+    if len(decisions) < BOOTSTRAP_MIN:
         return {
             "status": "insufficient_data",
             "data_count": len(decisions),
@@ -169,7 +171,36 @@ def run_fitness_evolution(history: Optional[List[Dict[str, Any]]] = None) -> Dic
                        f"あと {MIN_DATA_COUNT - len(decisions)} 件の accept/reject が必要。",
         }
 
-    # 分析
+    if len(decisions) < MIN_DATA_COUNT:
+        # Bootstrap モード: 簡易分析
+        scores = [r.get("best_fitness", 0.0) for r in decisions if r.get("best_fitness") is not None]
+        accepted_count = sum(1 for d in decisions if d.get("human_accepted"))
+        approval_rate = accepted_count / len(decisions) if decisions else 0.0
+        mean_score = sum(scores) / len(scores) if scores else 0.0
+
+        # スコア分布
+        score_distribution = {}
+        if scores:
+            score_distribution = {
+                "min": min(scores),
+                "max": max(scores),
+                "mean": mean_score,
+                "median": sorted(scores)[len(scores) // 2],
+            }
+
+        return {
+            "status": "bootstrap",
+            "data_count": len(decisions),
+            "required": MIN_DATA_COUNT,
+            "message": f"簡易分析モード ({len(decisions)}/{MIN_DATA_COUNT}件)",
+            "bootstrap_analysis": {
+                "approval_rate": approval_rate,
+                "mean_score": mean_score,
+                "score_distribution": score_distribution,
+            },
+        }
+
+    # 完全分析
     correlation = analyze_correlations(history)
     rejections = analyze_rejection_reasons(history)
     adversarial = get_adversarial_templates()

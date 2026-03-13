@@ -1,10 +1,10 @@
-"""汎用 YAML frontmatter パーサー。
+"""汎用 YAML frontmatter パーサー / ライター。
 
-SKILL.md / rule ファイルの YAML frontmatter を解析する共通ユーティリティ。
+SKILL.md / rule ファイルの YAML frontmatter を解析・更新する共通ユーティリティ。
 prune.py と reflect_utils.py の両方から利用する。
 """
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 import yaml
 
@@ -39,6 +39,54 @@ def parse_frontmatter(filepath: Path) -> Dict[str, Any]:
         return parsed if isinstance(parsed, dict) else {}
     except yaml.YAMLError:
         return {}
+
+
+def update_frontmatter(filepath: Path, updates: Dict[str, Any]) -> Tuple[bool, str]:
+    """frontmatter のキー/値を追加・更新してファイルを書き戻す。
+
+    Args:
+        filepath: 対象ファイルのパス
+        updates: 追加/更新するキー/値の辞書
+
+    Returns:
+        (success, error_message): 成功時は (True, "")、失敗時は (False, エラー詳細)
+    """
+    try:
+        text = filepath.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as e:
+        return False, str(e)
+
+    if not text.strip():
+        return False, "empty_file"
+
+    if text.startswith("---"):
+        end = text.find("---", 3)
+        if end == -1:
+            return False, "yaml_parse_error"
+
+        yaml_str = text[3:end].strip()
+        try:
+            parsed = yaml.safe_load(yaml_str)
+            if not isinstance(parsed, dict):
+                parsed = {}
+        except yaml.YAMLError:
+            return False, "yaml_parse_error"
+
+        parsed.update(updates)
+        new_yaml = yaml.dump(parsed, default_flow_style=False, allow_unicode=True).rstrip()
+        body = text[end + 3:]  # content after closing ---
+        new_text = f"---\n{new_yaml}\n---{body}"
+    else:
+        # No existing frontmatter — add one at the top
+        new_yaml = yaml.dump(updates, default_flow_style=False, allow_unicode=True).rstrip()
+        new_text = f"---\n{new_yaml}\n---\n{text}"
+
+    try:
+        filepath.write_text(new_text, encoding="utf-8")
+    except OSError as e:
+        return False, str(e)
+
+    return True, ""
 
 
 def extract_description(filepath: Path) -> str:

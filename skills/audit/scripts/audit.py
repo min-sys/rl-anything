@@ -1180,6 +1180,21 @@ def collect_issues(project_dir: Path) -> List[Dict[str, Any]]:
     except Exception:
         pass  # レイヤー診断のエラーは既存機能に影響しない
 
+    # untagged_reference_candidates（reference type 未設定スキル）
+    try:
+        usage_records = load_usage_data(project_root=project_dir)
+        usage = aggregate_usage(usage_records, exclude_plugins=True)
+        untagged = detect_untagged_reference_candidates(artifacts, usage)
+        for candidate in untagged:
+            issues.append({
+                "type": "untagged_reference_candidates",
+                "file": candidate["file"],
+                "detail": {"skill_name": candidate["skill_name"]},
+                "source": "detect_untagged_reference_candidates",
+            })
+    except Exception:
+        pass  # untagged 検出のエラーは既存機能に影響しない
+
     return issues
 
 

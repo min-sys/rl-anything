@@ -116,6 +116,65 @@ def _build_trigger_summary() -> Dict[str, Any]:
     }
 
 
+def compute_trend(
+    current: Dict[str, Any],
+    previous: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """前回 snapshot との差分を算出しトレンド情報を返す。
+
+    Args:
+        current: 今回の tool_usage_snapshot (builtin_replaceable, sleep_patterns, bash_ratio)
+        previous: 前回の tool_usage_snapshot (None = 初回)
+
+    Returns:
+        各指標のトレンド情報を含む辞書
+    """
+    if previous is None:
+        return {"has_previous": False}
+
+    trends: Dict[str, Any] = {"has_previous": True}
+
+    # 件数ベースの指標
+    for key in ("builtin_replaceable", "sleep_patterns"):
+        cur = current.get(key, 0)
+        prev = previous.get(key, 0)
+        diff = cur - prev
+        if prev > 0:
+            pct = diff / prev * 100
+        else:
+            pct = 0.0 if diff == 0 else 100.0
+
+        if diff < 0:
+            label = f"↓ {abs(diff)}件減少 ({pct:+.0f}%)"
+        elif diff > 0:
+            label = f"↑ {diff}件増加 ({pct:+.0f}%)"
+        else:
+            label = "→ 変化なし"
+
+        trends[key] = {"current": cur, "previous": prev, "diff": diff, "pct": pct, "label": label}
+
+    # ratio ベースの指標 (bash_ratio)
+    cur_ratio = current.get("bash_ratio", 0.0)
+    prev_ratio = previous.get("bash_ratio", 0.0)
+    pp_diff = (cur_ratio - prev_ratio) * 100  # パーセントポイント差
+
+    if abs(pp_diff) < 0.05:
+        ratio_label = f"{cur_ratio * 100:.1f}% → 変化なし"
+    elif pp_diff < 0:
+        ratio_label = f"{prev_ratio * 100:.1f}% → {cur_ratio * 100:.1f}% (↓{abs(pp_diff):.1f}pp)"
+    else:
+        ratio_label = f"{prev_ratio * 100:.1f}% → {cur_ratio * 100:.1f}% (↑{pp_diff:.1f}pp)"
+
+    trends["bash_ratio"] = {
+        "current": cur_ratio,
+        "previous": prev_ratio,
+        "pp_diff": pp_diff,
+        "label": ratio_label,
+    }
+
+    return trends
+
+
 def check_data_sufficiency() -> Dict[str, Any]:
     """観測データの十分性をチェックする。
 
@@ -383,6 +442,27 @@ def run_evolve(
                 "proposals_count": len(se_phase.get("proposals", [])),
             })
             state["calibration_history"] = history
+        # Tool usage snapshot for trend tracking
+        discover_data = result["phases"].get("discover", {})
+        tool_usage = discover_data.get("tool_usage_patterns", {})
+        if tool_usage:
+            state["tool_usage_snapshot"] = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "builtin_replaceable": sum(
+                    item.get("count", 0)
+                    for item in tool_usage.get("builtin_replaceable", [])
+                ),
+                "sleep_patterns": sum(
+                    p.get("count", 0)
+                    for p in tool_usage.get("repeating_patterns", [])
+                    if "sleep" in p.get("pattern", "").lower()
+                ),
+                "bash_ratio": (
+                    tool_usage.get("bash_calls", 0) / tool_usage.get("total_tool_calls", 1)
+                    if tool_usage.get("total_tool_calls", 0) > 0
+                    else 0.0
+                ),
+            }
         save_evolve_state(state)
 
     return result

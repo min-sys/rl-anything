@@ -2,6 +2,18 @@
 
 ## [1.2.0] - 2026-03-13
 
+### Added
+- **evolve**: Mitigation Trend — ツール使用分析のトレンド表示（↑↓→ 件数差・増減率%・pp差）
+  - evolve-state.json に `tool_usage_snapshot` を保存、前回との差分を算出
+- **evolve**: Bash 割合に目標閾値（≤40%）と達成/未達ラベルを併記
+  - BUILTIN_THRESHOLD/SLEEP_THRESHOLD も閾値表示
+- **remediation**: Reference Type Auto-fix — `untagged_reference_candidates` の自動修正
+  - `update_frontmatter()` で YAML frontmatter に `type: reference` を追加
+  - confidence 0.90 で proposable 分類
+- **remediation**: line_limit_violation の auto_fixable 拡張（1行超過 → confidence 0.95）
+  - LLM 1パス圧縮による自動修正 + 失敗時 proposable 降格フォールバック
+- **fitness_evolution**: Bootstrap モード（5-29件: 簡易分析、0-4件: insufficient_data）
+
 ### Changed
 - **prune**: Step 3 の2段階承認フロー（一括方針選択→個別選択）を廃止し、最初から個別レビューに変更
   - 各スキルの SKILL.md を読み取り、4観点（未使用の背景/今後の使用可能性/重複・統合/参照価値）の分析テキストを出力

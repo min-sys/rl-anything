@@ -85,13 +85,17 @@ def compute_confidence_score(issue: Dict[str, Any]) -> float:
     if issue_type == "line_limit_violation":
         lines = detail.get("lines", 0)
         limit = detail.get("limit", 1)
+        excess = lines - limit if limit > 0 else lines
         ratio = lines / limit if limit > 0 else 999
         if ratio >= MAJOR_EXCESS_RATIO:
             # 大幅超過 → 自動修正困難
             return 0.3
-        elif ratio <= 1.02:
-            # 1〜2% 超過 → 空行除去等で対応可能
+        elif excess == 1:
+            # 1行超過 → LLM 圧縮で対応可能
             return 0.95
+        elif excess <= 2 and ratio <= 1.02:
+            # 2行以内かつ2%以内 → 高めの信頼度だが auto_fixable にはしない
+            return 0.7
         elif ratio <= 1.10:
             # 10% 以内の超過 → 高めの信頼度
             return 0.7
@@ -139,6 +143,9 @@ def compute_confidence_score(issue: Dict[str, Any]) -> float:
 
     if issue_type == "tool_usage_hook_candidate":
         return 0.75  # hook テンプレートの汎用性にバリエーション
+
+    if issue_type == "untagged_reference_candidates":
+        return 0.90  # audit のフィルタ済み候補のため高信頼
 
     return 0.5
 
@@ -211,6 +218,7 @@ _RATIONALE_TEMPLATES = {
     "claudemd_missing_section": "CLAUDE.md に {section} セクションがありませんが、{skill_count} 個のスキルが存在します。セクションの追加を検討してください。",
     "tool_usage_rule_candidate": "Bash で {commands} が計 {count} 回使用されています。{alternatives} ツールで代替可能です。global rule の追加を提案します。",
     "tool_usage_hook_candidate": "Bash での Built-in 代替可能コマンド使用（{count} 回検出）を自動検出する PreToolUse hook の追加を提案します。",
+    "untagged_reference_candidates": "スキル「{skill_name}」は呼び出し実績がなく reference type が未設定です。frontmatter に `type: reference` を追加します。",
 }
 
 
@@ -308,6 +316,11 @@ def generate_rationale(issue: Dict[str, Any], category: str) -> str:
     if issue_type == "tool_usage_hook_candidate":
         return _RATIONALE_TEMPLATES["tool_usage_hook_candidate"].format(
             count=detail.get("total_count", 0),
+        )
+
+    if issue_type == "untagged_reference_candidates":
+        return _RATIONALE_TEMPLATES["untagged_reference_candidates"].format(
+            skill_name=detail.get("skill_name", "unknown"),
         )
 
     return f"問題タイプ「{issue_type}」が検出されました。"
@@ -651,9 +664,144 @@ def fix_hook_scaffold(
     return results
 
 
+def fix_untagged_reference(
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """untagged_reference_candidates の frontmatter に type: reference を追加する。
+
+    Returns:
+        [{"issue": ..., "original_content": str, "fixed": bool, "error": str|None}, ...]
+    """
+    import sys
+    _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+    sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+    from frontmatter import update_frontmatter
+
+    results = []
+    for issue in issues:
+        if issue["type"] != "untagged_reference_candidates":
+            continue
+
+        file_path = issue["file"]
+        path = Path(file_path)
+
+        try:
+            original_content = path.read_text(encoding="utf-8")
+        except OSError as e:
+            results.append({
+                "issue": issue, "original_content": "", "fixed": False,
+                "error": str(e),
+            })
+            continue
+
+        success, error = update_frontmatter(path, {"type": "reference"})
+        results.append({
+            "issue": issue,
+            "original_content": original_content,
+            "fixed": success,
+            "error": error if error else None,
+        })
+
+    return results
+
+
+def fix_line_limit_violation(
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """行数制限違反を LLM 1パス圧縮で修正する。
+
+    auto_fixable な line_limit_violation のみ対象。
+    LLM 失敗時は proposable に降格しエラーを記録する。
+
+    Returns:
+        [{"issue": ..., "original_content": str, "fixed": bool, "error": str|None}, ...]
+    """
+    import subprocess
+
+    results = []
+    for issue in issues:
+        if issue["type"] != "line_limit_violation":
+            continue
+
+        file_path = issue["file"]
+        detail = issue.get("detail", {})
+        limit = detail.get("limit", 3)
+        path = Path(file_path)
+
+        try:
+            original_content = path.read_text(encoding="utf-8")
+        except OSError as e:
+            results.append({
+                "issue": issue, "original_content": "", "fixed": False,
+                "error": str(e),
+            })
+            continue
+
+        prompt = (
+            f"以下のファイル内容を {limit} 行以内に圧縮してください。"
+            f"意味と構造を保ちつつ、冗長な表現を削除して簡潔にしてください。"
+            f"出力は圧縮後のファイル内容のみ（説明不要）。\n\n"
+            f"```\n{original_content}```"
+        )
+
+        try:
+            result_proc = subprocess.run(
+                ["claude", "--print", "-p", prompt],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result_proc.returncode != 0:
+                issue["category"] = "proposable"
+                results.append({
+                    "issue": issue, "original_content": original_content,
+                    "fixed": False, "error": f"llm_error: exit code {result_proc.returncode}",
+                })
+                continue
+
+            compressed = result_proc.stdout.strip()
+            # コードブロック除去
+            if compressed.startswith("```") and compressed.endswith("```"):
+                lines = compressed.split("\n")
+                compressed = "\n".join(lines[1:-1])
+
+            compressed_lines = compressed.count("\n") + (1 if compressed and not compressed.endswith("\n") else 0)
+            if compressed_lines > limit:
+                issue["category"] = "proposable"
+                results.append({
+                    "issue": issue, "original_content": original_content,
+                    "fixed": False, "error": "compression_insufficient",
+                })
+                continue
+
+            # 末尾改行を保証
+            if not compressed.endswith("\n"):
+                compressed += "\n"
+            path.write_text(compressed, encoding="utf-8")
+            results.append({
+                "issue": issue, "original_content": original_content,
+                "fixed": True, "error": None,
+            })
+
+        except subprocess.TimeoutExpired:
+            issue["category"] = "proposable"
+            results.append({
+                "issue": issue, "original_content": original_content,
+                "fixed": False, "error": "llm_timeout",
+            })
+        except OSError as e:
+            issue["category"] = "proposable"
+            results.append({
+                "issue": issue, "original_content": original_content,
+                "fixed": False, "error": str(e),
+            })
+
+    return results
+
+
 FIX_DISPATCH: Dict[str, Any] = {
     "stale_ref": fix_stale_references,
     "stale_rule": fix_stale_rules,
+    "line_limit_violation": fix_line_limit_violation,
+    "untagged_reference_candidates": fix_untagged_reference,
     "claudemd_phantom_ref": fix_claudemd_phantom_refs,
     "claudemd_missing_section": fix_claudemd_missing_section,
     "tool_usage_rule_candidate": fix_global_rule,
@@ -709,6 +857,10 @@ def generate_proposals(
         elif issue["type"] == "tool_usage_hook_candidate":
             detail = issue.get("detail", {})
             proposal = f"{detail.get('script_path', '~/.claude/hooks/check-bash-builtin.py')} に PreToolUse hook を生成"
+        elif issue["type"] == "untagged_reference_candidates":
+            detail = issue.get("detail", {})
+            skill_name = detail.get("skill_name", "unknown")
+            proposal = f"スキル「{skill_name}」の frontmatter に `type: reference` を追加"
         else:
             proposal = f"{issue['type']} に対する修正案を検討してください。"
 
@@ -814,6 +966,19 @@ def _verify_hook_scaffold(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, 
     return {"resolved": True, "remaining": None}
 
 
+def _verify_untagged_reference(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, Any]:
+    """untagged_reference_candidates の検証: type: reference が frontmatter に存在するか。"""
+    import sys
+    _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+    sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+    from frontmatter import parse_frontmatter
+
+    fm = parse_frontmatter(Path(fixed_file))
+    if fm.get("type") == "reference":
+        return {"resolved": True, "remaining": None}
+    return {"resolved": False, "remaining": "frontmatter に type: reference が存在しません"}
+
+
 VERIFY_DISPATCH: Dict[str, Any] = {
     "stale_ref": _verify_stale_ref,
     "line_limit_violation": _verify_line_limit_violation,
@@ -821,6 +986,7 @@ VERIFY_DISPATCH: Dict[str, Any] = {
     "claudemd_phantom_ref": _verify_claudemd_phantom_ref,
     "claudemd_missing_section": _verify_claudemd_missing_section,
     "stale_memory": _verify_stale_memory,
+    "untagged_reference_candidates": _verify_untagged_reference,
     "tool_usage_rule_candidate": _verify_global_rule,
     "tool_usage_hook_candidate": _verify_hook_scaffold,
 }
