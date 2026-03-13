@@ -24,6 +24,7 @@ from reflect_utils import (
     suggest_auto_memory_topic,
     suggest_claude_file,
 )
+from line_limit import check_line_limit, suggest_separation
 from semantic_detector import detect_contradictions, validate_corrections
 from similarity import tokenize
 
@@ -194,6 +195,18 @@ def route_corrections(
             updated["routing_hint"] = "skip"
         else:
             updated["routing_hint"] = "project"
+
+        # rule ファイルへの反映先の行数チェック
+        sf = updated.get("suggested_file")
+        if sf and ".claude/rules/" in sf and Path(sf).exists():
+            current = Path(sf).read_text(encoding="utf-8")
+            if not check_line_limit(sf, current):
+                proposal = suggest_separation(sf, current)
+                if proposal:
+                    updated["line_limit_warning"] = (
+                        f"反映先 {sf} は既に行数制限を超過しています。"
+                        f"詳細を {proposal.reference_path} に分離することを検討してください。"
+                    )
 
         result.append(updated)
     return result
@@ -407,6 +420,9 @@ def build_output(
             "duplicate_in": c.get("duplicate_in"),
             "extracted_learning": c.get("extracted_learning"),
         }
+
+        if c.get("line_limit_warning"):
+            entry["line_limit_warning"] = c["line_limit_warning"]
 
         if apply_all:
             entry["apply"] = c.get("confidence", 0.5) >= min_confidence

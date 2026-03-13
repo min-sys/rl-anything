@@ -31,7 +31,7 @@ MAX_CORRECTIONS_PER_PATCH = 10
 # 行数制限は共通モジュールから取得
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
-from line_limit import MAX_RULE_LINES, MAX_SKILL_LINES, check_line_limit
+from line_limit import MAX_RULE_LINES, MAX_SKILL_LINES, check_line_limit, suggest_separation
 from regression_gate import GateResult, check_gates
 
 # corrections パス
@@ -349,6 +349,16 @@ class DirectPatchOptimizer:
         if not passed:
             reason_msg = self._format_gate_reason(gate_reason)
             print(f"品質ゲート不合格: {reason_msg}")
+            # 行数超過時の分離提案
+            suggestion = None
+            if gate_reason and gate_reason.startswith("line_limit_exceeded"):
+                proposal = suggest_separation(str(self.target_path), patched_content)
+                if proposal:
+                    suggestion = (
+                        f"提案: 詳細を {proposal.reference_path} に分離し、"
+                        f"rule は要約+参照リンクのみにすることで行数制限内に収められます。"
+                    )
+                    print(suggestion)
             self._record_pitfall(str(self.target_path), "gate", gate_reason or "unknown", 0.0)
             result = {
                 "run_id": self.run_id,
@@ -359,6 +369,7 @@ class DirectPatchOptimizer:
                 "fitness_func": self.fitness_func,
                 "gate_rejected": True,
                 "gate_reason": gate_reason,
+                "suggestion": suggestion,
                 "best_individual": {
                     "content": original_content,
                     "content_length": len(original_content),

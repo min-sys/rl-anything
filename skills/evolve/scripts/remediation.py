@@ -763,10 +763,106 @@ def fix_untagged_reference(
     return results
 
 
+def _is_rule_file(file_path: str) -> bool:
+    """rule ファイルかどうかを判定する。"""
+    return ".claude/rules/" in file_path
+
+
+def _fix_rule_by_separation(
+    issue: Dict[str, Any],
+    path: Path,
+    original_content: str,
+    limit: int,
+) -> Dict[str, Any]:
+    """rule ファイルの行数超過を references への分離で修正する。"""
+    import subprocess
+    import sys
+
+    _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+    sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+    from line_limit import suggest_separation
+
+    proposal = suggest_separation(str(path), original_content)
+    if not proposal:
+        return {
+            "issue": issue, "original_content": original_content,
+            "fixed": False, "error": "separation_not_applicable",
+        }
+
+    prompt = (
+        f"以下の rule ファイルの内容を {limit} 行以内の要約+参照リンクに書き換えてください。\n"
+        f"詳細は別ファイルに分離されるので、rule には核心の1行ルールと参照リンクのみ残してください。\n"
+        f"参照リンク: `{proposal.reference_path}`\n"
+        f"出力は書き換え後の rule 内容のみ（説明不要）。\n\n"
+        f"```\n{original_content}```"
+    )
+
+    try:
+        result_proc = subprocess.run(
+            ["claude", "--print", "-p", prompt],
+            capture_output=True, text=True, timeout=60,
+        )
+        if result_proc.returncode != 0:
+            issue["category"] = "proposable"
+            return {
+                "issue": issue, "original_content": original_content,
+                "fixed": False, "error": f"llm_error: exit code {result_proc.returncode}",
+            }
+
+        summary = result_proc.stdout.strip()
+        if summary.startswith("```") and summary.endswith("```"):
+            lines = summary.split("\n")
+            summary = "\n".join(lines[1:-1])
+
+        summary_lines = summary.count("\n") + (1 if summary and not summary.endswith("\n") else 0)
+        if summary_lines > limit:
+            issue["category"] = "proposable"
+            return {
+                "issue": issue, "original_content": original_content,
+                "fixed": False, "error": "separation_summary_too_long",
+            }
+
+        if not summary.endswith("\n"):
+            summary += "\n"
+
+        # 分離先ディレクトリ作成 + 詳細内容書き出し
+        ref_path = Path(proposal.reference_path)
+        ref_path.parent.mkdir(parents=True, exist_ok=True)
+        ref_path.write_text(original_content, encoding="utf-8")
+
+        # rule を要約+参照リンクに書き換え
+        path.write_text(summary, encoding="utf-8")
+
+        return {
+            "issue": issue, "original_content": original_content,
+            "fixed": True, "error": None,
+            "separation": {
+                "reference_path": str(ref_path),
+                "summary": summary,
+            },
+        }
+
+    except subprocess.TimeoutExpired:
+        issue["category"] = "proposable"
+        return {
+            "issue": issue, "original_content": original_content,
+            "fixed": False, "error": "llm_timeout",
+        }
+    except OSError as e:
+        issue["category"] = "proposable"
+        return {
+            "issue": issue, "original_content": original_content,
+            "fixed": False, "error": str(e),
+        }
+
+
 def fix_line_limit_violation(
     issues: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """行数制限違反を LLM 1パス圧縮で修正する。
+    """行数制限違反を修正する。
+
+    rule ファイル: references への分離（要約+参照リンク書き換え + 詳細ファイル生成）。
+    その他: LLM 1パス圧縮。
 
     auto_fixable な line_limit_violation のみ対象。
     LLM 失敗時は proposable に降格しエラーを記録する。
@@ -793,6 +889,11 @@ def fix_line_limit_violation(
                 "issue": issue, "original_content": "", "fixed": False,
                 "error": str(e),
             })
+            continue
+
+        # rule ファイルは分離モードで修正
+        if _is_rule_file(file_path):
+            results.append(_fix_rule_by_separation(issue, path, original_content, limit))
             continue
 
         prompt = (
@@ -1072,7 +1173,7 @@ def _verify_stale_ref(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, Any]
 
 
 def _verify_line_limit_violation(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, Any]:
-    """line_limit_violation の検証。"""
+    """line_limit_violation の検証。分離モードの場合は分離先ファイルの存在も確認する。"""
     content = Path(fixed_file).read_text(encoding="utf-8")
     current_lines = content.count("\n") + 1
     limit = detail.get("limit", 0)
@@ -1081,6 +1182,18 @@ def _verify_line_limit_violation(fixed_file: str, detail: Dict[str, Any]) -> Dic
             "resolved": False,
             "remaining": f"行数 {current_lines}/{limit} — まだ超過しています",
         }
+    # 分離先ファイルの存在確認（rule ファイルの場合）
+    if _is_rule_file(fixed_file):
+        import sys
+        _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+        sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+        from line_limit import _resolve_reference_path
+        ref_path = _resolve_reference_path(Path(fixed_file))
+        if not ref_path.exists():
+            return {
+                "resolved": False,
+                "remaining": f"分離先ファイル {ref_path} が存在しません",
+            }
     return {"resolved": True, "remaining": None}
 
 

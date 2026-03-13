@@ -335,6 +335,50 @@ class TestDirectPatchOptimizer:
         assert passed is True
         assert reason is None
 
+    def test_gate_rejected_rule_行数超過_分離提案あり(self, temp_dir):
+        """rule ファイルが行数超過で gate リジェクト時に suggestion が含まれる。"""
+        rules_dir = temp_dir / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        rule_path = rules_dir / "my-rule.md"
+        rule_path.write_text("line1\nline2\nline3", encoding="utf-8")
+
+        optimizer = DirectPatchOptimizer(target_path=str(rule_path))
+        optimizer.run_dir = temp_dir / "test_run"
+
+        # 6行超過のパッチを返すモック
+        long_content = "\n".join([f"line {i}" for i in range(10)])
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = f"```markdown\n{long_content}\n```"
+
+        with patch("optimize._CORRECTIONS_PATH", temp_dir / "missing.jsonl"), \
+             patch("optimize.subprocess.run", return_value=mock_result):
+            result = optimizer.run()
+
+        assert result.get("gate_rejected") is True
+        assert result.get("suggestion") is not None
+        assert "references" in result["suggestion"]
+
+    def test_gate_rejected_skill_行数超過_分離提案なし(self, temp_dir):
+        """skill ファイルが行数超過で gate リジェクト時に suggestion は None。"""
+        skill_path = temp_dir / "SKILL.md"
+        skill_path.write_text("# Skill", encoding="utf-8")
+
+        optimizer = DirectPatchOptimizer(target_path=str(skill_path))
+        optimizer.run_dir = temp_dir / "test_run"
+
+        long_content = "\n".join([f"line {i}" for i in range(1000)])
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = f"```markdown\n{long_content}\n```"
+
+        with patch("optimize._CORRECTIONS_PATH", temp_dir / "missing.jsonl"), \
+             patch("optimize.subprocess.run", return_value=mock_result):
+            result = optimizer.run()
+
+        assert result.get("gate_rejected") is True
+        assert result.get("suggestion") is None
+
     def test_format_gate_reason_frontmatter_lost(self):
         msg = DirectPatchOptimizer._format_gate_reason("frontmatter_lost")
         assert "frontmatter" in msg

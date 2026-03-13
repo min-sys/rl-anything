@@ -212,6 +212,31 @@ class TestRouteCorrections:
             result = reflect.route_corrections(corrections, tmp_path)
         assert result[0]["suggested_file"] is None
 
+    def test_line_limit_warning_on_overflowed_rule(self, tmp_path):
+        """反映先 rule が既に行数超過の場合 line_limit_warning が付与される。"""
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        rule = rules_dir / "big-rule.md"
+        rule.write_text("line1\nline2\nline3\nline4\nline5\nline6\n")
+
+        corrections = [dict(_make_correction(), _scope="same-project")]
+        with mock.patch("reflect.suggest_claude_file", return_value=(str(rule), 0.80)):
+            result = reflect.route_corrections(corrections, tmp_path)
+        assert "line_limit_warning" in result[0]
+        assert "分離" in result[0]["line_limit_warning"]
+
+    def test_no_line_limit_warning_within_limit(self, tmp_path):
+        """反映先 rule が行数制限内の場合 line_limit_warning は付与されない。"""
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        rule = rules_dir / "ok-rule.md"
+        rule.write_text("# Rule\nShort.\n")
+
+        corrections = [dict(_make_correction(), _scope="same-project")]
+        with mock.patch("reflect.suggest_claude_file", return_value=(str(rule), 0.80)):
+            result = reflect.route_corrections(corrections, tmp_path)
+        assert "line_limit_warning" not in result[0]
+
 
 # --- Test: --view mode ---
 

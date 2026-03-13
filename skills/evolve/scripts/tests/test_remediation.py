@@ -19,10 +19,12 @@ from remediation import (
     generate_rationale,
     fix_stale_references,
     fix_stale_rules,
+    fix_line_limit_violation,
     fix_claudemd_phantom_refs,
     fix_claudemd_missing_section,
     fix_global_rule,
     fix_hook_scaffold,
+    _is_rule_file,
     FIX_DISPATCH,
     VERIFY_DISPATCH,
     generate_proposals,
@@ -937,3 +939,104 @@ class TestToolUsageProposals:
         assert len(proposals) == 1
         assert "hook" in proposals[0]["proposal"].lower() or "Hook" in proposals[0]["proposal"]
         assert "check-bash-builtin.py" in proposals[0]["proposal"]
+
+
+# ---------- rule 分離モードテスト ----------
+
+class TestRuleSeparation:
+    def test_is_rule_file_true(self):
+        assert _is_rule_file("/project/.claude/rules/foo.md") is True
+
+    def test_is_rule_file_false(self):
+        assert _is_rule_file("/project/.claude/skills/foo/SKILL.md") is False
+
+    def test_fix_line_limit_rule_separation(self, tmp_path):
+        """rule ファイルの line_limit_violation は分離モードで修正される。"""
+        import subprocess as subprocess_mod
+        from unittest.mock import patch, MagicMock
+
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        rule = rules_dir / "verbose-rule.md"
+        rule.write_text("# Rule\nLine 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6\n")
+
+        issues = [{
+            "type": "line_limit_violation",
+            "file": str(rule),
+            "detail": {"lines": 7, "limit": 5},
+            "category": "auto_fixable",
+        }]
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = "# Rule\n詳細は references/verbose-rule.md を参照。\n"
+
+        with patch.object(subprocess_mod, "run", return_value=mock_proc):
+            results = fix_line_limit_violation(issues)
+
+        assert len(results) == 1
+        assert results[0]["fixed"] is True
+        assert "separation" in results[0]
+        # 分離先ファイルが生成されている
+        ref_path = Path(results[0]["separation"]["reference_path"])
+        assert ref_path.exists()
+
+    def test_fix_line_limit_skill_compression(self, tmp_path):
+        """skill ファイルは従来通り LLM 圧縮で修正される。"""
+        import subprocess as subprocess_mod
+        from unittest.mock import patch, MagicMock
+
+        skill = tmp_path / "SKILL.md"
+        long_content = "\n".join([f"line {i}" for i in range(600)])
+        skill.write_text(long_content)
+
+        issues = [{
+            "type": "line_limit_violation",
+            "file": str(skill),
+            "detail": {"lines": 600, "limit": 500},
+            "category": "auto_fixable",
+        }]
+
+        compressed = "\n".join([f"line {i}" for i in range(400)])
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = compressed
+
+        with patch.object(subprocess_mod, "run", return_value=mock_proc):
+            results = fix_line_limit_violation(issues)
+
+        assert len(results) == 1
+        assert results[0]["fixed"] is True
+        assert "separation" not in results[0]
+
+    def test_verify_line_limit_rule_with_ref(self, tmp_path):
+        """rule + 分離先ファイルが存在する場合 → resolved。"""
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        rule = rules_dir / "my-rule.md"
+        rule.write_text("# Rule\nSee ref.\n")
+        refs_dir = tmp_path / ".claude" / "references"
+        refs_dir.mkdir(parents=True)
+        (refs_dir / "my-rule.md").write_text("# Detail\n")
+
+        issue = {
+            "type": "line_limit_violation",
+            "detail": {"limit": 5},
+        }
+        result = verify_fix(str(rule), issue)
+        assert result["resolved"] is True
+
+    def test_verify_line_limit_rule_without_ref(self, tmp_path):
+        """rule ファイルの検証で分離先ファイルが存在しない場合 → not resolved。"""
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        rule = rules_dir / "my-rule.md"
+        rule.write_text("# Rule\nShort.\n")
+
+        issue = {
+            "type": "line_limit_violation",
+            "detail": {"limit": 5},
+        }
+        result = verify_fix(str(rule), issue)
+        assert result["resolved"] is False
+        assert "分離先ファイル" in result["remaining"]

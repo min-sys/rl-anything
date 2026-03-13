@@ -12,7 +12,9 @@ from lib.line_limit import (
     MAX_PROJECT_RULE_LINES,
     MAX_RULE_LINES,
     MAX_SKILL_LINES,
+    SeparationProposal,
     check_line_limit,
+    suggest_separation,
 )
 
 
@@ -80,3 +82,60 @@ def test_global_rule_limit():
     content = "line1\nline2\nline3\nline4"
     home = str(Path.home())
     assert check_line_limit(f"{home}/.claude/rules/my-rule.md", content) is False
+
+
+# --- suggest_separation tests ---
+
+
+def test_suggest_separation_global_rule_exceeds():
+    """グローバル rule が3行超過で SeparationProposal を返す。"""
+    home = str(Path.home())
+    target = f"{home}/.claude/rules/foo.md"
+    content = "line1\nline2\nline3\nline4"  # 4 lines > 3
+    result = suggest_separation(target, content)
+    assert result is not None
+    assert isinstance(result, SeparationProposal)
+    assert result.target_path == target
+    assert "references/foo.md" in result.reference_path
+    assert result.excess_lines == 1
+    assert "references/" in result.summary_template
+
+
+def test_suggest_separation_project_rule_exceeds():
+    """PJ rule が5行超過で SeparationProposal を返す。"""
+    target = "/project/.claude/rules/bar.md"
+    content = "\n".join([f"line{i}" for i in range(6)])  # 6 lines > 5
+    result = suggest_separation(target, content)
+    assert result is not None
+    assert "references/bar.md" in result.reference_path
+    assert result.excess_lines == 1
+
+
+def test_suggest_separation_within_limit():
+    """行数制限内では None を返す。"""
+    target = "/project/.claude/rules/ok.md"
+    content = "line1\nline2\nline3"  # 3 lines <= 5
+    assert suggest_separation(target, content) is None
+
+
+def test_suggest_separation_skill_file():
+    """skill ファイルでは None を返す。"""
+    target = "/project/.claude/skills/my-skill/SKILL.md"
+    content = "\n".join(["line"] * 600)
+    assert suggest_separation(target, content) is None
+
+
+def test_suggest_separation_deduplication(tmp_path):
+    """分離先パスが既存ファイルと衝突する場合サフィックスを付与する。"""
+    rules_dir = tmp_path / ".claude" / "rules"
+    rules_dir.mkdir(parents=True)
+    refs_dir = tmp_path / ".claude" / "references"
+    refs_dir.mkdir(parents=True)
+    # 衝突するファイルを作成
+    (refs_dir / "foo.md").write_text("existing", encoding="utf-8")
+
+    target = str(rules_dir / "foo.md")
+    content = "\n".join([f"line{i}" for i in range(6)])  # 超過
+    result = suggest_separation(target, content)
+    assert result is not None
+    assert result.reference_path.endswith("foo_2.md")
