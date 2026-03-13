@@ -31,6 +31,22 @@ from remediation import (
     rollback_fix,
     record_outcome,
 )
+from issue_schema import (
+    TOOL_USAGE_RULE_CANDIDATE,
+    TOOL_USAGE_HOOK_CANDIDATE,
+    SKILL_EVOLVE_CANDIDATE,
+    RULE_FILENAME,
+    RULE_CONTENT,
+    RULE_TARGET_COMMANDS,
+    RULE_ALTERNATIVE_TOOLS,
+    RULE_TOTAL_COUNT,
+    HOOK_SCRIPT_PATH,
+    HOOK_SCRIPT_CONTENT,
+    HOOK_SETTINGS_DIFF,
+    HOOK_TOTAL_COUNT,
+    SE_SKILL_NAME,
+    SE_TOTAL_SCORE,
+)
 
 
 # ---------- 分類テスト ----------
@@ -696,13 +712,13 @@ class TestCheckRegressionRulesLineLimit:
 class TestToolUsageConfidenceScore:
     def test_tool_usage_rule_candidate_score(self):
         """tool_usage_rule_candidate → 0.85。"""
-        issue = {"type": "tool_usage_rule_candidate", "detail": {}}
+        issue = {"type": TOOL_USAGE_RULE_CANDIDATE, "detail": {}}
         score = compute_confidence_score(issue)
         assert score == 0.85
 
     def test_tool_usage_hook_candidate_score(self):
         """tool_usage_hook_candidate → 0.75。"""
-        issue = {"type": "tool_usage_hook_candidate", "detail": {}}
+        issue = {"type": TOOL_USAGE_HOOK_CANDIDATE, "detail": {}}
         score = compute_confidence_score(issue)
         assert score == 0.75
 
@@ -714,13 +730,13 @@ class TestToolUsageClassification:
         """global scope の tool_usage_rule_candidate → proposable。"""
         home = str(Path.home())
         issue = {
-            "type": "tool_usage_rule_candidate",
+            "type": TOOL_USAGE_RULE_CANDIDATE,
             "file": f"{home}/.claude/rules/avoid-bash-builtin.md",
             "detail": {
-                "filename": "avoid-bash-builtin.md",
-                "content": "# Rule\nContent\n",
-                "target_commands": ["grep", "cat"],
-                "total_count": 15,
+                RULE_FILENAME: "avoid-bash-builtin.md",
+                RULE_CONTENT: "# Rule\nContent\n",
+                RULE_TARGET_COMMANDS: ["grep", "cat"],
+                RULE_TOTAL_COUNT: 15,
             },
             "source": "tool_usage_analyzer",
         }
@@ -733,12 +749,12 @@ class TestToolUsageClassification:
         """global scope の tool_usage_hook_candidate → proposable。"""
         home = str(Path.home())
         issue = {
-            "type": "tool_usage_hook_candidate",
+            "type": TOOL_USAGE_HOOK_CANDIDATE,
             "file": f"{home}/.claude/hooks/check-bash-builtin.py",
             "detail": {
-                "script_path": f"{home}/.claude/hooks/check-bash-builtin.py",
-                "script_content": "#!/usr/bin/env python3\n",
-                "total_count": 20,
+                HOOK_SCRIPT_PATH: f"{home}/.claude/hooks/check-bash-builtin.py",
+                HOOK_SCRIPT_CONTENT: "#!/usr/bin/env python3\n",
+                HOOK_TOTAL_COUNT: 20,
             },
             "source": "tool_usage_analyzer",
         }
@@ -753,11 +769,11 @@ class TestToolUsageClassification:
 class TestToolUsageRationale:
     def test_tool_usage_rule_candidate_rationale(self):
         issue = {
-            "type": "tool_usage_rule_candidate",
+            "type": TOOL_USAGE_RULE_CANDIDATE,
             "detail": {
-                "target_commands": ["grep", "cat"],
-                "total_count": 15,
-                "alternative_tools": ["Grep", "Read"],
+                RULE_TARGET_COMMANDS: ["grep", "cat"],
+                RULE_TOTAL_COUNT: 15,
+                RULE_ALTERNATIVE_TOOLS: ["Grep", "Read"],
             },
         }
         r = generate_rationale(issue, "proposable")
@@ -768,8 +784,8 @@ class TestToolUsageRationale:
 
     def test_tool_usage_hook_candidate_rationale(self):
         issue = {
-            "type": "tool_usage_hook_candidate",
-            "detail": {"total_count": 20},
+            "type": TOOL_USAGE_HOOK_CANDIDATE,
+            "detail": {HOOK_TOTAL_COUNT: 20},
         }
         r = generate_rationale(issue, "proposable")
         assert "20" in r
@@ -786,11 +802,11 @@ class TestFixGlobalRule:
         rules_dir.mkdir(parents=True)
 
         issues = [{
-            "type": "tool_usage_rule_candidate",
+            "type": TOOL_USAGE_RULE_CANDIDATE,
             "file": str(rules_dir / "avoid-bash-builtin.md"),
             "detail": {
-                "filename": "avoid-bash-builtin.md",
-                "content": "# Bash Built-in 代替コマンド禁止\ngrep は Grep を使用する。\nパイプは Bash で OK。\n",
+                RULE_FILENAME: "avoid-bash-builtin.md",
+                RULE_CONTENT: "# Bash Built-in 代替コマンド禁止\ngrep は Grep を使用する。\nパイプは Bash で OK。\n",
             },
         }]
         results = fix_global_rule(issues)
@@ -815,9 +831,9 @@ class TestFixGlobalRule:
         """filename or content 未指定 → error。"""
         monkeypatch.setattr("remediation.Path.home", lambda: tmp_path)
         issues = [{
-            "type": "tool_usage_rule_candidate",
+            "type": TOOL_USAGE_RULE_CANDIDATE,
             "file": "/tmp/test.md",
-            "detail": {"filename": "", "content": ""},
+            "detail": {RULE_FILENAME: "", RULE_CONTENT: ""},
         }]
         results = fix_global_rule(issues)
         assert len(results) == 1
@@ -832,12 +848,12 @@ class TestFixHookScaffold:
         """hook スクリプトが正しく書き込まれる。"""
         script_path = tmp_path / "hooks" / "check-bash-builtin.py"
         issues = [{
-            "type": "tool_usage_hook_candidate",
+            "type": TOOL_USAGE_HOOK_CANDIDATE,
             "file": str(script_path),
             "detail": {
-                "script_path": str(script_path),
-                "script_content": "#!/usr/bin/env python3\n# hook script\nprint('hello')\n",
-                "settings_diff": '{"hooks": {}}',
+                HOOK_SCRIPT_PATH: str(script_path),
+                HOOK_SCRIPT_CONTENT: "#!/usr/bin/env python3\n# hook script\nprint('hello')\n",
+                HOOK_SETTINGS_DIFF: '{"hooks": {}}',
             },
         }]
         results = fix_hook_scaffold(issues)
@@ -861,9 +877,9 @@ class TestFixHookScaffold:
     def test_error_on_missing_script_content(self, tmp_path):
         """script_path or script_content 未指定 → error。"""
         issues = [{
-            "type": "tool_usage_hook_candidate",
+            "type": TOOL_USAGE_HOOK_CANDIDATE,
             "file": "/tmp/test.py",
-            "detail": {"script_path": "", "script_content": ""},
+            "detail": {HOOK_SCRIPT_PATH: "", HOOK_SCRIPT_CONTENT: ""},
         }]
         results = fix_hook_scaffold(issues)
         assert len(results) == 1
@@ -875,16 +891,16 @@ class TestFixHookScaffold:
 
 class TestToolUsageDispatch:
     def test_fix_dispatch_rule_candidate(self):
-        assert FIX_DISPATCH["tool_usage_rule_candidate"] is fix_global_rule
+        assert FIX_DISPATCH[TOOL_USAGE_RULE_CANDIDATE] is fix_global_rule
 
     def test_fix_dispatch_hook_candidate(self):
-        assert FIX_DISPATCH["tool_usage_hook_candidate"] is fix_hook_scaffold
+        assert FIX_DISPATCH[TOOL_USAGE_HOOK_CANDIDATE] is fix_hook_scaffold
 
     def test_verify_dispatch_rule_candidate(self):
-        assert VERIFY_DISPATCH["tool_usage_rule_candidate"] is not None
+        assert VERIFY_DISPATCH[TOOL_USAGE_RULE_CANDIDATE] is not None
 
     def test_verify_dispatch_hook_candidate(self):
-        assert VERIFY_DISPATCH["tool_usage_hook_candidate"] is not None
+        assert VERIFY_DISPATCH[TOOL_USAGE_HOOK_CANDIDATE] is not None
 
 
 # ---------- tool_usage 関連: generate_proposals テスト ----------
@@ -892,12 +908,12 @@ class TestToolUsageDispatch:
 class TestToolUsageProposals:
     def test_rule_candidate_proposal(self):
         issues = [{
-            "type": "tool_usage_rule_candidate",
+            "type": TOOL_USAGE_RULE_CANDIDATE,
             "file": "~/.claude/rules/avoid-bash-builtin.md",
             "detail": {
-                "filename": "avoid-bash-builtin.md",
-                "target_commands": ["grep", "cat"],
-                "total_count": 15,
+                RULE_FILENAME: "avoid-bash-builtin.md",
+                RULE_TARGET_COMMANDS: ["grep", "cat"],
+                RULE_TOTAL_COUNT: 15,
             },
             "category": "proposable",
         }]
@@ -909,11 +925,11 @@ class TestToolUsageProposals:
 
     def test_hook_candidate_proposal(self):
         issues = [{
-            "type": "tool_usage_hook_candidate",
+            "type": TOOL_USAGE_HOOK_CANDIDATE,
             "file": "~/.claude/hooks/check-bash-builtin.py",
             "detail": {
-                "script_path": "~/.claude/hooks/check-bash-builtin.py",
-                "total_count": 20,
+                HOOK_SCRIPT_PATH: "~/.claude/hooks/check-bash-builtin.py",
+                HOOK_TOTAL_COUNT: 20,
             },
             "category": "proposable",
         }]

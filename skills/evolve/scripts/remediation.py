@@ -8,9 +8,32 @@ auto_fixable / proposable / manual_required に動的分類し、
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+_plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+from issue_schema import (  # noqa: E402
+    TOOL_USAGE_RULE_CANDIDATE,
+    TOOL_USAGE_HOOK_CANDIDATE,
+    SKILL_EVOLVE_CANDIDATE,
+    RULE_FILENAME,
+    RULE_CONTENT,
+    RULE_TARGET_COMMANDS,
+    RULE_ALTERNATIVE_TOOLS,
+    RULE_TOTAL_COUNT,
+    HOOK_SCRIPT_PATH,
+    HOOK_SCRIPT_CONTENT,
+    HOOK_SETTINGS_DIFF,
+    HOOK_TOTAL_COUNT,
+    SE_SKILL_NAME,
+    SE_SKILL_DIR,
+    SE_SUITABILITY,
+    SE_TOTAL_SCORE,
+    SE_SCORES,
+)
 
 # 分類閾値
 AUTO_FIX_CONFIDENCE = 0.9
@@ -138,14 +161,22 @@ def compute_confidence_score(issue: Dict[str, Any]) -> float:
     if issue_type == "claudemd_missing_section":
         return 0.95  # セクション有無は確実に判定可能
 
-    if issue_type == "tool_usage_rule_candidate":
+    if issue_type == TOOL_USAGE_RULE_CANDIDATE:
         return 0.85  # パターンマッチは確実だが global 影響
 
-    if issue_type == "tool_usage_hook_candidate":
+    if issue_type == TOOL_USAGE_HOOK_CANDIDATE:
         return 0.75  # hook テンプレートの汎用性にバリエーション
 
     if issue_type == "untagged_reference_candidates":
         return 0.90  # audit のフィルタ済み候補のため高信頼
+
+    if issue_type == SKILL_EVOLVE_CANDIDATE:
+        suitability = detail.get(SE_SUITABILITY, "low")
+        if suitability == "high":
+            return 0.85
+        elif suitability == "medium":
+            return 0.60
+        return 0.3  # low → 対象外
 
     return 0.5
 
@@ -216,9 +247,10 @@ _RATIONALE_TEMPLATES = {
     "hooks_unconfigured": "hooks 設定が見つかりません。observe hooks の設定を検討してください。",
     "claudemd_phantom_ref": "CLAUDE.md 内で言及された{ref_type}「{name}」が存在しません。",
     "claudemd_missing_section": "CLAUDE.md に {section} セクションがありませんが、{skill_count} 個のスキルが存在します。セクションの追加を検討してください。",
-    "tool_usage_rule_candidate": "Bash で {commands} が計 {count} 回使用されています。{alternatives} ツールで代替可能です。global rule の追加を提案します。",
-    "tool_usage_hook_candidate": "Bash での Built-in 代替可能コマンド使用（{count} 回検出）を自動検出する PreToolUse hook の追加を提案します。",
+    TOOL_USAGE_RULE_CANDIDATE: "Bash で {commands} が計 {count} 回使用されています。{alternatives} ツールで代替可能です。global rule の追加を提案します。",
+    TOOL_USAGE_HOOK_CANDIDATE: "Bash での Built-in 代替可能コマンド使用（{count} 回検出）を自動検出する PreToolUse hook の追加を提案します。",
     "untagged_reference_candidates": "スキル「{skill_name}」は呼び出し実績がなく reference type が未設定です。frontmatter に `type: reference` を追加します。",
+    SKILL_EVOLVE_CANDIDATE: "スキル「{skill_name}」の自己進化適性: {suitability}（{total_score}/15点）。自己進化パターン（Pre-flight Check, pitfalls.md, Failure-triggered Learning）の組み込みを提案します。",
 }
 
 
@@ -306,21 +338,28 @@ def generate_rationale(issue: Dict[str, Any], category: str) -> str:
             skill_count=detail.get("skill_count", 0),
         )
 
-    if issue_type == "tool_usage_rule_candidate":
-        return _RATIONALE_TEMPLATES["tool_usage_rule_candidate"].format(
-            commands=", ".join(detail.get("target_commands", ["unknown"])),
-            count=detail.get("total_count", 0),
-            alternatives=", ".join(detail.get("alternative_tools", ["unknown"])),
+    if issue_type == TOOL_USAGE_RULE_CANDIDATE:
+        return _RATIONALE_TEMPLATES[TOOL_USAGE_RULE_CANDIDATE].format(
+            commands=", ".join(detail.get(RULE_TARGET_COMMANDS, ["unknown"])),
+            count=detail.get(RULE_TOTAL_COUNT, 0),
+            alternatives=", ".join(detail.get(RULE_ALTERNATIVE_TOOLS, ["unknown"])),
         )
 
-    if issue_type == "tool_usage_hook_candidate":
-        return _RATIONALE_TEMPLATES["tool_usage_hook_candidate"].format(
-            count=detail.get("total_count", 0),
+    if issue_type == TOOL_USAGE_HOOK_CANDIDATE:
+        return _RATIONALE_TEMPLATES[TOOL_USAGE_HOOK_CANDIDATE].format(
+            count=detail.get(HOOK_TOTAL_COUNT, 0),
         )
 
     if issue_type == "untagged_reference_candidates":
         return _RATIONALE_TEMPLATES["untagged_reference_candidates"].format(
             skill_name=detail.get("skill_name", "unknown"),
+        )
+
+    if issue_type == SKILL_EVOLVE_CANDIDATE:
+        return _RATIONALE_TEMPLATES[SKILL_EVOLVE_CANDIDATE].format(
+            skill_name=detail.get(SE_SKILL_NAME, "unknown"),
+            suitability=detail.get(SE_SUITABILITY, "unknown"),
+            total_score=detail.get(SE_TOTAL_SCORE, 0),
         )
 
     return f"問題タイプ「{issue_type}」が検出されました。"
@@ -584,11 +623,11 @@ def fix_global_rule(
     """
     results = []
     for issue in issues:
-        if issue["type"] != "tool_usage_rule_candidate":
+        if issue["type"] != TOOL_USAGE_RULE_CANDIDATE:
             continue
         detail = issue.get("detail", {})
-        filename = detail.get("filename", "")
-        content = detail.get("content", "")
+        filename = detail.get(RULE_FILENAME, "")
+        content = detail.get(RULE_CONTENT, "")
         if not filename or not content:
             results.append({
                 "issue": issue, "original_content": "", "fixed": False,
@@ -628,11 +667,11 @@ def fix_hook_scaffold(
     """
     results = []
     for issue in issues:
-        if issue["type"] != "tool_usage_hook_candidate":
+        if issue["type"] != TOOL_USAGE_HOOK_CANDIDATE:
             continue
         detail = issue.get("detail", {})
-        script_path = detail.get("script_path", "")
-        script_content = detail.get("script_content", "")
+        script_path = detail.get(HOOK_SCRIPT_PATH, "")
+        script_content = detail.get(HOOK_SCRIPT_CONTENT, "")
         if not script_path or not script_content:
             results.append({
                 "issue": issue, "original_content": "", "fixed": False,
@@ -654,7 +693,7 @@ def fix_hook_scaffold(
             results.append({
                 "issue": issue, "original_content": original, "fixed": True,
                 "error": None,
-                "settings_diff": detail.get("settings_diff", ""),
+                "settings_diff": detail.get(HOOK_SETTINGS_DIFF, ""),
             })
         except OSError as e:
             results.append({
@@ -797,6 +836,71 @@ def fix_line_limit_violation(
     return results
 
 
+def fix_skill_evolve(
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """スキルに自己進化パターンを適用する。
+
+    Returns:
+        [{"issue": ..., "original_content": str, "fixed": bool, "error": str|None}, ...]
+    """
+    import sys
+    _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+    sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+    from skill_evolve import evolve_skill_proposal
+
+    results = []
+    for issue in issues:
+        if issue["type"] != SKILL_EVOLVE_CANDIDATE:
+            continue
+        detail = issue.get("detail", {})
+        skill_name = detail.get(SE_SKILL_NAME, "")
+        skill_dir = Path(detail.get(SE_SKILL_DIR, ""))
+
+        if not skill_dir.exists():
+            results.append({
+                "issue": issue, "original_content": "", "fixed": False,
+                "error": f"skill_dir not found: {skill_dir}",
+            })
+            continue
+
+        proposal = evolve_skill_proposal(skill_name, skill_dir)
+        if proposal.get("error"):
+            results.append({
+                "issue": issue, "original_content": "", "fixed": False,
+                "error": proposal["error"],
+            })
+            continue
+
+        # SKILL.md にセクション追記
+        skill_md = Path(proposal["skill_md_path"])
+        try:
+            original_content = skill_md.read_text(encoding="utf-8") if skill_md.exists() else ""
+        except OSError:
+            original_content = ""
+
+        try:
+            new_content = original_content.rstrip() + "\n\n" + proposal["sections_to_add"] + "\n"
+            skill_md.write_text(new_content, encoding="utf-8")
+
+            # references/pitfalls.md 作成
+            pitfalls_path = Path(proposal["pitfalls_path"])
+            pitfalls_path.parent.mkdir(parents=True, exist_ok=True)
+            pitfalls_path.write_text(proposal["pitfalls_template"], encoding="utf-8")
+
+            results.append({
+                "issue": issue, "original_content": original_content,
+                "fixed": True, "error": None,
+            })
+        except OSError as e:
+            results.append({
+                "issue": issue, "original_content": original_content,
+                "fixed": False, "error": str(e),
+            })
+
+    return results
+
+
 FIX_DISPATCH: Dict[str, Any] = {
     "stale_ref": fix_stale_references,
     "stale_rule": fix_stale_rules,
@@ -804,8 +908,9 @@ FIX_DISPATCH: Dict[str, Any] = {
     "untagged_reference_candidates": fix_untagged_reference,
     "claudemd_phantom_ref": fix_claudemd_phantom_refs,
     "claudemd_missing_section": fix_claudemd_missing_section,
-    "tool_usage_rule_candidate": fix_global_rule,
-    "tool_usage_hook_candidate": fix_hook_scaffold,
+    TOOL_USAGE_RULE_CANDIDATE: fix_global_rule,
+    TOOL_USAGE_HOOK_CANDIDATE: fix_hook_scaffold,
+    SKILL_EVOLVE_CANDIDATE: fix_skill_evolve,
 }
 
 
@@ -850,17 +955,22 @@ def generate_proposals(
             a = sections[0] if len(sections) > 0 else "unknown"
             b = sections[1] if len(sections) > 1 else "unknown"
             proposal = f"セクション「{a}」と「{b}」の統合"
-        elif issue["type"] == "tool_usage_rule_candidate":
+        elif issue["type"] == TOOL_USAGE_RULE_CANDIDATE:
             detail = issue.get("detail", {})
-            cmds = ", ".join(detail.get("target_commands", []))
-            proposal = f"~/.claude/rules/{detail.get('filename', 'avoid-bash-builtin.md')} に Bash {cmds} 禁止ルールを作成"
-        elif issue["type"] == "tool_usage_hook_candidate":
+            cmds = ", ".join(detail.get(RULE_TARGET_COMMANDS, []))
+            proposal = f"~/.claude/rules/{detail.get(RULE_FILENAME, 'avoid-bash-builtin.md')} に Bash {cmds} 禁止ルールを作成"
+        elif issue["type"] == TOOL_USAGE_HOOK_CANDIDATE:
             detail = issue.get("detail", {})
-            proposal = f"{detail.get('script_path', '~/.claude/hooks/check-bash-builtin.py')} に PreToolUse hook を生成"
+            proposal = f"{detail.get(HOOK_SCRIPT_PATH, '~/.claude/hooks/check-bash-builtin.py')} に PreToolUse hook を生成"
         elif issue["type"] == "untagged_reference_candidates":
             detail = issue.get("detail", {})
             skill_name = detail.get("skill_name", "unknown")
             proposal = f"スキル「{skill_name}」の frontmatter に `type: reference` を追加"
+        elif issue["type"] == SKILL_EVOLVE_CANDIDATE:
+            detail = issue.get("detail", {})
+            skill_name = detail.get(SE_SKILL_NAME, "unknown")
+            score = detail.get(SE_TOTAL_SCORE, 0)
+            proposal = f"スキル「{skill_name}」({score}/15点) に自己進化パターンを組み込み"
         else:
             proposal = f"{issue['type']} に対する修正案を検討してください。"
 
@@ -959,7 +1069,7 @@ def _verify_global_rule(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, An
 
 def _verify_hook_scaffold(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, Any]:
     """hook スクリプトの存在確認。"""
-    script_path = detail.get("script_path", fixed_file)
+    script_path = detail.get(HOOK_SCRIPT_PATH, fixed_file)
     path = Path(script_path)
     if not path.exists():
         return {"resolved": False, "remaining": "hook スクリプトが存在しません"}
@@ -979,6 +1089,32 @@ def _verify_untagged_reference(fixed_file: str, detail: Dict[str, Any]) -> Dict[
     return {"resolved": False, "remaining": "frontmatter に type: reference が存在しません"}
 
 
+def _verify_skill_evolve(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, Any]:
+    """skill_evolve_candidate の検証。"""
+    skill_dir = Path(detail.get("skill_dir", Path(fixed_file).parent))
+
+    # 1. references/pitfalls.md が存在するか
+    pitfalls = skill_dir / "references" / "pitfalls.md"
+    if not pitfalls.exists():
+        return {"resolved": False, "remaining": "references/pitfalls.md が存在しません"}
+
+    # 2. SKILL.md に自己更新セクションが存在するか
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        return {"resolved": False, "remaining": "SKILL.md が存在しません"}
+
+    content = skill_md.read_text(encoding="utf-8")
+    missing = []
+    if not re.search(r"(?i)failure[- ]triggered\s+learning", content):
+        missing.append("Failure-triggered Learning")
+    if not re.search(r"(?i)pre[- ]flight", content):
+        missing.append("Pre-flight Check")
+    if missing:
+        return {"resolved": False, "remaining": f"セクション欠落: {', '.join(missing)}"}
+
+    return {"resolved": True, "remaining": None}
+
+
 VERIFY_DISPATCH: Dict[str, Any] = {
     "stale_ref": _verify_stale_ref,
     "line_limit_violation": _verify_line_limit_violation,
@@ -987,8 +1123,9 @@ VERIFY_DISPATCH: Dict[str, Any] = {
     "claudemd_missing_section": _verify_claudemd_missing_section,
     "stale_memory": _verify_stale_memory,
     "untagged_reference_candidates": _verify_untagged_reference,
-    "tool_usage_rule_candidate": _verify_global_rule,
-    "tool_usage_hook_candidate": _verify_hook_scaffold,
+    TOOL_USAGE_RULE_CANDIDATE: _verify_global_rule,
+    TOOL_USAGE_HOOK_CANDIDATE: _verify_hook_scaffold,
+    SKILL_EVOLVE_CANDIDATE: _verify_skill_evolve,
 }
 
 

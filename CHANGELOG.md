@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.3.0] - 2026-03-13
+
+### Added
+- **issue_schema**: `scripts/lib/issue_schema.py` — モジュール間 issue データ受け渡しの共有スキーマ定数 + factory 関数
+  - issue type 定数（TOOL_USAGE_RULE_CANDIDATE, TOOL_USAGE_HOOK_CANDIDATE, SKILL_EVOLVE_CANDIDATE）
+  - detail フィールド定数（RULE_FILENAME, HOOK_SCRIPT_PATH, SE_SKILL_NAME 等）
+  - `make_rule_candidate_issue()`, `make_hook_candidate_issue()`, `make_skill_evolve_issue()` factory 関数
+- **evolve**: skill_evolve assessment を Phase 3.4 に統合（remediation の前に実行）
+
+### Fixed
+- **evolve**: discover → remediation のデータフロー断絶を修正（issue 変換のフィールド名不一致）
+  - rule_candidate: path/commands/alternatives/count/rule_content → filename/target_commands/alternative_tools/total_count/content
+  - hook_candidate: path/content → script_path/script_content/settings_diff/target_commands/total_count
+- **tool_usage_analyzer**: hook テンプレートの出力を JSON stdout から `exit 2` + stderr に変更（Claude Code Hooks Guide 準拠）
+
+### Changed
+- **remediation**: 全 issue type 比較・detail フィールド参照を issue_schema 定数に統一
+- **test**: remediation / skill_evolve テストの issue dict を定数参照 + factory 関数に移行
+
 ## [1.2.0] - 2026-03-13
 
 ### Added

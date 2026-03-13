@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "discover" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "prune" / "scripts"))
@@ -305,12 +306,65 @@ def run_evolve(
     except Exception as e:
         result["phases"]["audit"] = {"error": str(e)}
 
-    # Phase 3.5: Remediation（audit の後）
+    # Phase 3.4: Skill Self-Evolution Assessment（適性判定 — remediation の前に実行）
+    try:
+        sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+        from skill_evolve import skill_evolve_assessment
+        proj = Path(project_dir) if project_dir else Path.cwd()
+        se_assessment = skill_evolve_assessment(proj, project=proj.name)
+        result["phases"]["skill_evolve"] = {
+            "assessments": se_assessment,
+            "total_skills": len(se_assessment),
+            "already_evolved": sum(1 for a in se_assessment if a.get("already_evolved")),
+            "high_suitability": sum(1 for a in se_assessment if a.get("suitability") == "high"),
+            "medium_suitability": sum(1 for a in se_assessment if a.get("suitability") == "medium"),
+            "rejected": sum(1 for a in se_assessment if a.get("suitability") == "rejected"),
+        }
+    except Exception as e:
+        result["phases"]["skill_evolve"] = {"error": str(e)}
+
+    # Phase 3.5: Remediation（audit + discover + skill_evolve の結果を統合）
     try:
         from audit import collect_issues
         from remediation import classify_issues as classify_remediation_issues
         proj = Path(project_dir) if project_dir else Path.cwd()
         issues = collect_issues(proj)
+
+        # --- discover の tool_usage 結果を issue に変換 ---
+        from issue_schema import (
+            make_rule_candidate_issue,
+            make_hook_candidate_issue,
+            make_skill_evolve_issue,
+        )
+        discover_data = result["phases"].get("discover", {})
+        tool_usage = discover_data.get("tool_usage_patterns", {})
+        if tool_usage:
+            rule_candidates = tool_usage.get("rule_candidates", [])
+            rules_dir_str = str(Path.home() / ".claude" / "rules")
+            for rc in rule_candidates:
+                issues.append(make_rule_candidate_issue(
+                    rc, rules_dir_str=rules_dir_str,
+                ))
+            hook_candidate = tool_usage.get("hook_candidate")
+            if hook_candidate and not tool_usage.get("hook_status", {}).get("installed"):
+                total_count = sum(
+                    item.get("count", 0)
+                    for item in tool_usage.get("builtin_replaceable", [])
+                )
+                issues.append(make_hook_candidate_issue(
+                    hook_candidate, total_count,
+                ))
+
+        # --- skill_evolve の適性判定結果を issue に変換 ---
+        se_phase = result["phases"].get("skill_evolve", {})
+        for assessment in se_phase.get("assessments", []):
+            suitability = assessment.get("suitability", "low")
+            if suitability in ("high", "medium"):
+                skill_md_path = str(Path(assessment["skill_dir"]) / "SKILL.md")
+                issues.append(make_skill_evolve_issue(
+                    assessment, skill_md_path,
+                ))
+
         classified = classify_remediation_issues(issues)
         remediation_data = {
             "total_issues": len(issues),
@@ -341,6 +395,22 @@ def run_evolve(
         result["phases"]["prune"] = prune_result
     except Exception as e:
         result["phases"]["prune"] = {"error": str(e)}
+
+    # Phase 4.5: Pitfall Hygiene（自己進化済みスキルの剪定）
+    try:
+        sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+        from pitfall_manager import pitfall_hygiene as run_pitfall_hygiene
+        # 適性判定から frequency_scores を取得
+        se_phase = result["phases"].get("skill_evolve", {})
+        freq_scores = {}
+        for a in se_phase.get("assessments", []):
+            if a.get("scores"):
+                freq_scores[a["skill_name"]] = a["scores"].get("frequency", 1)
+        proj = Path(project_dir) if project_dir else Path.cwd()
+        hygiene_result = run_pitfall_hygiene(proj, frequency_scores=freq_scores)
+        result["phases"]["pitfall_hygiene"] = hygiene_result
+    except Exception as e:
+        result["phases"]["pitfall_hygiene"] = {"error": str(e)}
 
     # Phase 5: Fitness Evolution（評価関数の改善チェック）
     try:

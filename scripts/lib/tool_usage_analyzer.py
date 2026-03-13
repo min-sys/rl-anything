@@ -383,10 +383,7 @@ def check_command(command):
         if head == cmd and opt in command:
             return None
     alternative = REPLACEABLE[head]
-    return {{
-        "decision": "block",
-        "reason": f"`{{head}}` の代わりに {{alternative}} ツールを使用してください。Built-in ツールの方がユーザー体験が良く、権限管理も適切です。",
-    }}
+    return f"`{{head}}` の代わりに {{alternative}} ツールを使用してください。Built-in ツールの方がユーザー体験が良く、権限管理も適切です。"
 
 
 def main():
@@ -399,9 +396,10 @@ def main():
     command = data.get("tool_input", {{}}).get("command", "")
     if not command:
         sys.exit(0)
-    result = check_command(command)
-    if result:
-        json.dump(result, sys.stdout, ensure_ascii=False)
+    reason = check_command(command)
+    if reason:
+        print(reason, file=sys.stderr)
+        sys.exit(2)
 
 
 if __name__ == "__main__":
