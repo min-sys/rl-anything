@@ -11,9 +11,11 @@ import pytest
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
 sys.path.insert(0, str(_plugin_root / "skills" / "prune" / "scripts"))
+sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 
 import audit
 import prune
+import skill_origin
 
 
 class TestClassifyArtifactOrigin:
@@ -105,18 +107,26 @@ class TestClassifyArtifactOrigin:
     def test_installed_plugins_json_missing(self):
         """installed_plugins.json が存在しない場合、フォールバックで空セットを返す。"""
         audit._plugin_skill_map_cache = None
-        with mock.patch("pathlib.Path.read_text", side_effect=OSError("No such file")):
+        skill_origin.invalidate_cache()
+        with mock.patch("skill_origin._installed_plugins_path",
+                        return_value=Path("/nonexistent/installed_plugins.json")):
             names = audit._load_plugin_skill_names()
             assert names == frozenset()
         audit._plugin_skill_map_cache = None
+        skill_origin.invalidate_cache()
 
-    def test_installed_plugins_json_malformed(self):
+    def test_installed_plugins_json_malformed(self, tmp_path):
         """installed_plugins.json が不正な JSON の場合、フォールバックで空セットを返す。"""
         audit._plugin_skill_map_cache = None
-        with mock.patch("pathlib.Path.read_text", return_value="not valid json"):
+        skill_origin.invalidate_cache()
+        bad_json = tmp_path / "installed_plugins.json"
+        bad_json.write_text("not valid json", encoding="utf-8")
+        with mock.patch("skill_origin._installed_plugins_path",
+                        return_value=bad_json):
             names = audit._load_plugin_skill_names()
             assert names == frozenset()
         audit._plugin_skill_map_cache = None
+        skill_origin.invalidate_cache()
 
     def test_plugin_skill_names_cache(self):
         """_load_plugin_skill_names のキャッシュが動作する。"""

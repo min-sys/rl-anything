@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### Added
+- **skill_origin**: `scripts/lib/skill_origin.py` — プラグイン由来スキルの origin 判定・編集保護・代替先提案モジュール
+  - `classify_skill_origin()`: installed_plugins.json + パスベースのハイブリッド判定（mtime cache invalidation）
+  - `is_protected_skill()`: plugin origin のスキルを編集保護対象と判定
+  - `suggest_local_alternative()`: 保護スキルのプロジェクト側代替パス（references/pitfalls.md）を提案
+  - `generate_protection_warning()`: 保護スキルへの編集警告メッセージ生成
+  - `format_pitfall_candidate()`: pitfall_manager Candidate フォーマット生成
+  - graceful degradation: 不正JSON/未知version/存在しないパスへの安全なフォールバック
+- **reflect**: `suggest_claude_file()` に last-skill コンテキスト層を追加（位置6: always/never 後、frontmatter paths 前）
+  - `_resolve_skill_references_path()`: last_skill のスキル references/ パス解決（保護スキルはローカル代替先にリダイレクト）
+  - `LAST_SKILL_CONFIDENCE = 0.88` 定数追加
+- **remediation**: `classify_issue()` に保護スキルチェック追加 — 保護スキルへの修正は proposable に降格 + `protection_warning` 付与
+- **discover**: plugin_summary に `protected: True` フィールド追加
+
+### Changed
+- **audit**: `_load_plugin_skill_map()`, `classify_artifact_origin()`, `classify_usage_skill()` を `skill_origin.py` に委譲（後方互換ラッパーとして残存）
+
 ## [1.4.0] - 2026-03-15
 
 ### Added

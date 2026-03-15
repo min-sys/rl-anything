@@ -212,7 +212,7 @@ def detect_behavior_patterns(
         }
         patterns.append(pattern)
 
-    # プラグイン利用サマリを末尾に付加
+    # プラグイン利用サマリを末尾に付加（保護状態を表示）
     if plugin_counter:
         patterns.append({
             "type": "plugin_summary",
@@ -220,6 +220,7 @@ def detect_behavior_patterns(
             "count": sum(plugin_counter.values()),
             "suggestion": "info_only",
             "plugin_breakdown": dict(plugin_counter.most_common()),
+            "protected": True,
         })
 
     # 組み込み Agent 利用サマリを末尾に付加
@@ -830,6 +831,23 @@ def run_discover(
     )
     if installed:
         result["installed_artifacts"] = installed
+
+    # pitfall 自動検出
+    try:
+        _lib_path = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "lib"
+        if str(_lib_path) not in sys.path:
+            sys.path.insert(0, str(_lib_path))
+        from pitfall_manager import extract_pitfall_candidates
+        from telemetry_query import query_corrections, query_errors
+        proj = project_root or Path.cwd()
+        proj_name = proj.name
+        corrections_data = query_corrections(project=proj_name)
+        errors_data = query_errors(project=proj_name)
+        pitfall_result = extract_pitfall_candidates(corrections_data, errors=errors_data)
+        if pitfall_result["candidates"]:
+            result["pitfall_candidates"] = pitfall_result["candidates"]
+    except Exception as e:
+        result["pitfall_candidates_error"] = str(e)
 
     return result
 

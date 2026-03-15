@@ -9,7 +9,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from reflect_utils import (
+    LAST_SKILL_CONFIDENCE,
     _parse_rule_frontmatter,
+    _resolve_skill_references_path,
     detect_project_signals,
     detect_side_effect_correction,
     find_claude_files,
@@ -517,3 +519,78 @@ def test_suggest_guardrail_overrides_side_effect(tmp_path, monkeypatch):
     result = suggest_claude_file(correction, project_root=tmp_path)
     assert result is not None
     assert "guardrails.md" in result[0]
+
+
+# ══════════════════════════════════════════════════════
+# last_skill コンテキストルーティング
+# ══════════════════════════════════════════════════════
+
+
+class TestLastSkillRouting:
+    """last_skill 層のルーティングテスト。"""
+
+    def test_last_skill_routes_to_references(self, tmp_path):
+        """last_skill が非保護スキルなら references/pitfalls.md にルーティング。"""
+        correction = {
+            "message": "ブラウザ検証で要素が見つからない時は wait を入れる",
+            "correction_type": "correction",
+            "confidence": 0.80,
+            "last_skill": "atlas-browser",
+        }
+        result = suggest_claude_file(correction, project_root=tmp_path)
+        assert result is not None
+        assert "atlas-browser/references/pitfalls.md" in result[0]
+        assert result[1] == LAST_SKILL_CONFIDENCE
+
+    def test_last_skill_null_fallback(self, tmp_path):
+        """last_skill が None の場合は既存ルーティングにフォールバック。"""
+        correction = {
+            "message": "テストを追加してください",
+            "correction_type": "correction",
+            "confidence": 0.80,
+            "last_skill": None,
+        }
+        result = suggest_claude_file(correction, project_root=tmp_path)
+        # last_skill が None → 後続の層に委譲（マッチなしなら None）
+        assert result is None
+
+    def test_last_skill_overrides_keyword(self, tmp_path, monkeypatch):
+        """last_skill はキーワードマッチより優先される（always/never 除く）。"""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / "CLAUDE.md").write_text("## Skills\n\n- /test: test\n")
+        correction = {
+            "message": "検証時にスナップショット比較を使う",
+            "correction_type": "correction",
+            "confidence": 0.80,
+            "last_skill": "atlas-browser",
+        }
+        result = suggest_claude_file(correction, project_root=tmp_path)
+        assert result is not None
+        assert "atlas-browser" in result[0]
+        assert result[1] == LAST_SKILL_CONFIDENCE
+
+    def test_always_overrides_last_skill(self, tmp_path, monkeypatch):
+        """always キーワードは last_skill より優先。"""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        (tmp_path / "CLAUDE.md").write_text("## Skills\n\n- /test: test\n")
+        correction = {
+            "message": "always use bun for this",
+            "correction_type": "explicit",
+            "confidence": 0.90,
+            "last_skill": "atlas-browser",
+        }
+        result = suggest_claude_file(correction, project_root=tmp_path)
+        assert result is not None
+        assert "CLAUDE.md" in result[0]
+        assert result[1] == 0.80  # always/never 層の confidence
+
+    def test_resolve_skill_references_path(self, tmp_path):
+        """_resolve_skill_references_path の基本動作。"""
+        result = _resolve_skill_references_path("my-skill", tmp_path)
+        assert result is not None
+        assert "my-skill/references/pitfalls.md" in result[0]
+        assert result[1] == LAST_SKILL_CONFIDENCE
+
+    def test_last_skill_confidence_constant(self):
+        """LAST_SKILL_CONFIDENCE 定数の値。"""
+        assert LAST_SKILL_CONFIDENCE == 0.88

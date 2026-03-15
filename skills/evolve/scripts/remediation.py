@@ -15,6 +15,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+from skill_origin import (  # noqa: E402
+    is_protected_skill,
+    suggest_local_alternative,
+    generate_protection_warning,
+)
 from issue_schema import (  # noqa: E402
     TOOL_USAGE_RULE_CANDIDATE,
     TOOL_USAGE_HOOK_CANDIDATE,
@@ -203,8 +208,28 @@ def classify_issue(issue: Dict[str, Any]) -> Dict[str, Any]:
     confidence = compute_confidence_score(issue)
     scope = compute_impact_scope(issue["file"])
 
+    # 保護スキルへの書込チェック: 保護対象は proposable に降格 + 警告
+    file_path = Path(issue["file"])
+    protection_warning = None
+    if is_protected_skill(file_path):
+        skill_name = file_path.parent.name if file_path.name != file_path.parent.name else file_path.stem
+        # スキルディレクトリ名を推定
+        parts = file_path.parts
+        try:
+            skills_idx = len(parts) - 1 - list(reversed(parts)).index("skills")
+            if skills_idx + 1 < len(parts):
+                skill_name = parts[skills_idx + 1]
+        except ValueError:
+            pass
+        project_root = Path.cwd()
+        alt_path, _ = suggest_local_alternative(skill_name, project_root)
+        protection_warning = generate_protection_warning(skill_name, alt_path)
+
     # 動的分類
-    if confidence >= AUTO_FIX_CONFIDENCE and scope in ("file", "project"):
+    if protection_warning:
+        # 保護スキルへの修正は proposable に降格（ユーザー承認必須）
+        category = "proposable"
+    elif confidence >= AUTO_FIX_CONFIDENCE and scope in ("file", "project"):
         category = "auto_fixable"
     elif scope == "global" and confidence >= PROPOSABLE_CONFIDENCE:
         # global scope は auto_fixable にせず proposable に留める（ユーザー承認必須）
@@ -214,12 +239,15 @@ def classify_issue(issue: Dict[str, Any]) -> Dict[str, Any]:
     else:
         category = "proposable"
 
-    return {
+    result = {
         **issue,
         "confidence_score": confidence,
         "impact_scope": scope,
         "category": category,
     }
+    if protection_warning:
+        result["protection_warning"] = protection_warning
+    return result
 
 
 def classify_issues(issues: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:

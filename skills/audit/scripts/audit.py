@@ -17,6 +17,14 @@ sys.path.insert(0, str(_plugin_root / "scripts"))
 
 from reflect_utils import read_all_memory_entries, read_auto_memory, split_memory_sections
 from hardcoded_detector import detect_hardcoded_values
+from skill_origin import (
+    classify_skill_origin as _so_classify_skill_origin,
+    get_plugin_skill_map as _so_get_plugin_skill_map,
+    get_plugin_skill_names as _so_get_plugin_skill_names,
+    build_plugin_prefixes as _so_build_plugin_prefixes,
+    classify_usage_skill as _so_classify_usage_skill,
+    invalidate_cache as _so_invalidate_cache,
+)
 
 # 行数制限
 LIMITS = {
@@ -51,48 +59,24 @@ _STOPWORDS = frozenset({
 NEAR_LIMIT_RATIO = 0.8
 
 
-# キャッシュ: プラグインスキル名 → プラグイン名のマッピング
+# キャッシュ: skill_origin.py に委譲（後方互換ラッパー）
+# テスト後方互換: audit._plugin_skill_map_cache を直接セットするテスト向け
 _plugin_skill_map_cache: Optional[Dict[str, str]] = None
 
 
 def _load_plugin_skill_map() -> Dict[str, str]:
     """installed_plugins.json → {skill_name: plugin_name} マッピングを構築。
 
-    .claude/skills/ と skills/ の両方のレイアウトに対応。
-    結果はモジュールレベルでキャッシュされ、2回目以降は再読み込みしない。
-    ファイルが存在しない・不正な場合は空の dict を返す。
+    skill_origin.py に委譲。後方互換のためラッパーとして残す。
+    テストが _plugin_skill_map_cache を直接セットした場合はそちらを優先。
     """
-    global _plugin_skill_map_cache
     if _plugin_skill_map_cache is not None:
+        _build_plugin_prefixes(_plugin_skill_map_cache)
         return _plugin_skill_map_cache
-
-    mapping: Dict[str, str] = {}
-    installed_plugins_path = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
-    try:
-        data = json.loads(installed_plugins_path.read_text(encoding="utf-8"))
-        plugins = data.get("plugins", {})
-        for plugin_key, entries in plugins.items():
-            if not isinstance(entries, list):
-                continue
-            plugin_name = plugin_key.split("@")[0]
-            for entry in entries:
-                install_path = entry.get("installPath")
-                if not install_path:
-                    continue
-                for skills_dir in [Path(install_path) / ".claude" / "skills",
-                                   Path(install_path) / "skills"]:
-                    if skills_dir.is_dir():
-                        for child in skills_dir.iterdir():
-                            if child.is_dir():
-                                mapping[child.name] = plugin_name
-    except (OSError, json.JSONDecodeError, TypeError, KeyError):
-        pass
-
-    # prefix パターンをスキル名から自動推定し保存（classify_usage_skill で使用）
+    mapping = _so_get_plugin_skill_map()
+    # prefix も構築（classify_usage_skill の後方互換用）
     _build_plugin_prefixes(mapping)
-
-    _plugin_skill_map_cache = mapping
-    return _plugin_skill_map_cache
+    return mapping
 
 
 # プラグイン名 → prefix パターンのキャッシュ
@@ -100,139 +84,71 @@ _plugin_prefix_cache: Optional[Dict[str, List[str]]] = None
 
 
 def _build_plugin_prefixes(mapping: Dict[str, str]) -> None:
-    """インストール済みスキル名から各プラグインの prefix パターンを推定する。
-
-    例: {"openspec-propose": "rl-anything", "openspec-refine": "rl-anything"}
-    → prefixes["rl-anything"] に "openspec-" を追加（3個以上のスキルが共有する prefix）
-
-    これにより opsx:* のような旧スキル名は拾えないが、
-    classify_usage_skill() の prefix フォールバックで対応する。
-    """
+    """skill_origin.py に委譲。後方互換ラッパー。"""
     global _plugin_prefix_cache
-    from collections import defaultdict
-
-    plugin_skills: Dict[str, List[str]] = defaultdict(list)
-    for skill_name, plugin_name in mapping.items():
-        plugin_skills[plugin_name].append(skill_name)
-
-    prefixes: Dict[str, List[str]] = {}
-    for plugin_name, skills in plugin_skills.items():
-        # 共通 prefix を探索（- or : で区切られた prefix）
-        prefix_counts: Dict[str, int] = defaultdict(int)
-        for skill in skills:
-            for sep in ("-", ":"):
-                idx = skill.find(sep)
-                if idx > 0:
-                    prefix_counts[skill[:idx + 1]] += 1
-        # 2個以上のスキルが共有する prefix を採用
-        found = [p for p, c in prefix_counts.items() if c >= 2]
-        if found:
-            prefixes[plugin_name] = found
-
-    _plugin_prefix_cache = prefixes
+    _plugin_prefix_cache = _so_build_plugin_prefixes(mapping)
 
 
 def classify_usage_skill(skill_name: str) -> Optional[str]:
     """usage レコードのスキル名をプラグインに分類する。
 
-    1. 完全一致（_load_plugin_skill_map）
-    2. prefix マッチ（自動推定 prefix）
-    3. plugin_name: prefix マッチ（例: rl-anything:audit）
-    4. Agent:plugin-agent パターン
-
-    Returns:
-        プラグイン名、またはマッチしない場合 None
+    skill_origin.py に委譲。後方互換ラッパー。
     """
-    plugin_map = _load_plugin_skill_map()
-
-    # 1. 完全一致
-    if skill_name in plugin_map:
-        return plugin_map[skill_name]
-
-    # 2. prefix マッチ（openspec- 等の自動推定 prefix）
-    if _plugin_prefix_cache:
-        for plugin_name, prefixes in _plugin_prefix_cache.items():
-            for prefix in prefixes:
-                if skill_name.startswith(prefix):
-                    return plugin_name
-
-    # 3. plugin_name: prefix マッチ（例: rl-anything:audit → rl-anything）
-    colon_idx = skill_name.find(":")
-    if colon_idx > 0 and not skill_name.startswith("Agent:"):
-        prefix_part = skill_name[:colon_idx]
-        # プラグイン名と完全一致
-        plugin_names = set(plugin_map.values())
-        if prefix_part in plugin_names:
-            return prefix_part
-        # prefix 部分がプラグインスキル名の共通 prefix に含まれるか
-        if _plugin_prefix_cache:
-            for plugin_name, prefixes in _plugin_prefix_cache.items():
-                for pfx in prefixes:
-                    # prefix_part が pfx のベース名と一致（例: "opsx" vs "openspec-"）
-                    pfx_base = pfx.rstrip("-:")
-                    if prefix_part == pfx_base or pfx_base.startswith(prefix_part):
-                        return plugin_name
-
-    # 4. Agent:plugin-agent パターン（例: Agent:openspec-uiux-reviewer）
-    if skill_name.startswith("Agent:"):
-        agent_name = skill_name[6:]
-        if agent_name in plugin_map:
-            return plugin_map[agent_name]
-        if _plugin_prefix_cache:
-            for plugin_name, prefixes in _plugin_prefix_cache.items():
-                for prefix in prefixes:
-                    if agent_name.startswith(prefix):
-                        return plugin_name
-
-    return None
+    # prefix キャッシュ初期化を保証
+    _load_plugin_skill_map()
+    return _so_classify_usage_skill(skill_name)
 
 
 def _load_plugin_skill_names() -> frozenset:
-    """後方互換ラッパー。_load_plugin_skill_map() のキーセットを返す。"""
+    """後方互換ラッパー。テストが _plugin_skill_map_cache を直接セットした場合はそちらを優先。"""
+    if _plugin_skill_map_cache is not None:
+        return frozenset(_plugin_skill_map_cache.keys())
     return frozenset(_load_plugin_skill_map().keys())
 
 
 def classify_artifact_origin(path: Path) -> str:
-    """スキル/ルールの出自を分類する。
+    """スキル/ルールの出自を分類する。skill_origin.py に委譲。
+
+    テストが _plugin_skill_map_cache を直接セットした場合は、
+    そのキャッシュを使ってインライン判定する（後方互換）。
 
     Returns:
-        "plugin" — ~/.claude/plugins/cache/ 配下（または CLAUDE_PLUGINS_DIR）、
-                    もしくは .claude/skills/ 配下でプラグインがインストールしたスキル名に一致
+        "plugin" — プラグイン由来
         "global" — ~/.claude/skills/ 配下
         "custom" — その他（プロジェクトローカル等）
     """
-    resolved = path.expanduser().resolve()
-    resolved_str = str(resolved)
+    if _plugin_skill_map_cache is not None:
+        # テスト後方互換: ローカルキャッシュが設定されている場合はインライン判定
+        resolved = path.expanduser().resolve()
+        resolved_str = str(resolved)
 
-    # プラグインキャッシュパス（環境変数でオーバーライド可能）
-    plugins_dir = os.environ.get("CLAUDE_PLUGINS_DIR")
-    if plugins_dir:
-        plugins_path = str(Path(plugins_dir).resolve())
-    else:
-        plugins_path = str(Path.home() / ".claude" / "plugins" / "cache")
+        plugins_dir = os.environ.get("CLAUDE_PLUGINS_DIR")
+        if plugins_dir:
+            plugins_path = str(Path(plugins_dir).resolve())
+        else:
+            plugins_path = str(Path.home() / ".claude" / "plugins" / "cache")
 
-    if resolved_str.startswith(plugins_path):
-        return "plugin"
+        if resolved_str.startswith(plugins_path):
+            return "plugin"
 
-    global_skills_path = str(Path.home() / ".claude" / "skills")
-    if resolved_str.startswith(global_skills_path):
-        return "global"
+        global_skills_path = str(Path.home() / ".claude" / "skills")
+        if resolved_str.startswith(global_skills_path):
+            return "global"
 
-    # プロジェクトの .claude/skills/ 配下にあるスキルが
-    # プラグインによりインストールされたものかチェック
-    if "/.claude/skills/" in resolved_str:
-        parts = resolved.parts
-        try:
-            skills_idx = len(parts) - 1 - list(reversed(parts)).index("skills")
-            if skills_idx + 1 < len(parts):
-                skill_dir_name = parts[skills_idx + 1]
-                plugin_skill_names = _load_plugin_skill_names()
-                if skill_dir_name in plugin_skill_names:
-                    return "plugin"
-        except ValueError:
-            pass
+        if "/.claude/skills/" in resolved_str:
+            parts = resolved.parts
+            try:
+                skills_idx = len(parts) - 1 - list(reversed(parts)).index("skills")
+                if skills_idx + 1 < len(parts):
+                    skill_dir_name = parts[skills_idx + 1]
+                    if skill_dir_name in _plugin_skill_map_cache:
+                        return "plugin"
+            except ValueError:
+                pass
 
-    return "custom"
+        return "custom"
+
+    return _so_classify_skill_origin(path)
 
 
 def find_artifacts(project_dir: Path) -> Dict[str, List[Path]]:

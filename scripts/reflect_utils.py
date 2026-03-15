@@ -12,6 +12,11 @@ from typing import Any, Dict, List, Optional, Tuple
 import yaml
 
 from lib.frontmatter import parse_frontmatter as _parse_rule_frontmatter  # noqa: F401 — 共通化済み
+from lib.skill_origin import (
+    classify_skill_origin,
+    is_protected_skill,
+    suggest_local_alternative,
+)
 from lib.skill_triggers import extract_skill_triggers
 
 # Auto-memory トピック分類キーワード
@@ -36,6 +41,9 @@ _MODEL_KEYWORDS = [
     "gpt-", "claude-", "gemini-", "o3", "o4", "model", "llm",
     "sonnet", "opus", "haiku",
 ]
+
+# last_skill コンテキスト層の confidence 値
+LAST_SKILL_CONFIDENCE = 0.88
 
 
 def find_claude_files(project_root: Optional[Path] = None) -> Dict[str, List[Path]]:
@@ -173,6 +181,32 @@ def detect_side_effect_correction(message: str) -> bool:
     return False
 
 
+def _resolve_skill_references_path(
+    skill_name: str,
+    project_root: Path,
+) -> Optional[Tuple[str, float]]:
+    """last_skill のスキル references/ パスを解決する。
+
+    保護スキルの場合はプロジェクト側のローカル代替先にリダイレクトする。
+
+    Returns:
+        (ファイルパス文字列, confidence) のタプル。解決不能な場合は None。
+    """
+    # スキルパスの候補を探索
+    skill_dir = project_root / ".claude" / "skills" / skill_name
+    global_skill_dir = Path.home() / ".claude" / "skills" / skill_name
+
+    # 保護チェック: プラグイン由来の場合はローカル代替先にリダイレクト
+    for candidate_dir in [skill_dir, global_skill_dir]:
+        if candidate_dir.is_dir() and is_protected_skill(candidate_dir):
+            alt_path, _exists = suggest_local_alternative(skill_name, project_root)
+            return (alt_path, LAST_SKILL_CONFIDENCE)
+
+    # 非保護スキル: そのスキルの references/pitfalls.md を提案
+    refs_path = skill_dir / "references" / "pitfalls.md"
+    return (str(refs_path), LAST_SKILL_CONFIDENCE)
+
+
 def suggest_claude_file(
     correction: Dict[str, Any],
     project_root: Optional[Path] = None,
@@ -216,7 +250,14 @@ def suggest_claude_file(
     if re.search(r"\b(always|never|prefer)\b", msg_lower):
         return (str(Path.home() / ".claude" / "CLAUDE.md"), 0.80)
 
-    # 6. rule の paths: frontmatter にマッチ
+    # 6. last_skill コンテキスト → スキルの references/ にルーティング
+    last_skill = correction.get("last_skill")
+    if last_skill:
+        result = _resolve_skill_references_path(last_skill, root)
+        if result is not None:
+            return result
+
+    # 7. rule の paths: frontmatter にマッチ
     rules_dir = root / ".claude" / "rules"
     if rules_dir.is_dir():
         for rule_file in sorted(rules_dir.glob("*.md")):
@@ -230,14 +271,14 @@ def suggest_claude_file(
                 if isinstance(p, str) and p in msg_lower:
                     return (str(rule_file), 0.80)
 
-    # 7. サブディレクトリ名にマッチ
+    # 8. サブディレクトリ名にマッチ
     for item in sorted(root.iterdir()):
         if item.is_dir() and not item.name.startswith("."):
             claude_file = item / "CLAUDE.md"
             if claude_file.exists() and item.name.lower() in msg_lower:
                 return (str(claude_file), 0.75)
 
-    # 8. 低信頼度 (confidence < 0.75) → auto-memory
+    # 9. 低信頼度 (confidence < 0.75) → auto-memory
     if confidence < 0.75:
         topic = suggest_auto_memory_topic(message)
         project_dir = os.environ.get("CLAUDE_PROJECT_DIR", str(root))
