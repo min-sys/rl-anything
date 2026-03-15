@@ -272,7 +272,7 @@ Audit レポートを表示。全体の進捗サマリを出力。
 レポートには以下のセクションが含まれる:
 - **Usage (last 30 days)**: PJ 固有スキルのみのメインランキング（プラグインスキルは除外）
 - **Plugin usage**: プラグイン別の総使用回数サマリ（例: `openspec(340) / rl-anything(30)`）
-- **OpenSpec Workflow Analytics**: openspec プラグインが検出された場合、ファネル（propose→archive の完走率）、フェーズ別効率、品質トレンド、最適化候補を表示
+- **OpenSpec Workflow Analytics**: openspec プラグインが検出された場合、ファネル（propose→refine→apply→archive の4段階完走率、verify は廃止のため除外）、フェーズ別効率、品質トレンド、最適化候補を表示
 - **/simplify ゲート結果**: Step 5.6 で /simplify を実行した場合、「/simplify: N件の改善を適用」または「/simplify: 実行済み・変更なし」「/simplify: スキップ（対象なし or 未対応バージョン）」を Compile セクションに表示
 
 ### Step 10: 推奨アクション（MUST — スキップ厳禁）

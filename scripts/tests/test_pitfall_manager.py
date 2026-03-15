@@ -155,7 +155,7 @@ def test_warm_tier():
 def test_cold_tier():
     sections = parse_pitfalls(SAMPLE_PITFALLS)
     cold = get_cold_tier(sections)
-    assert len(cold) == 2  # Candidate + Graduated
+    assert len(cold) == 3  # Graduated + Candidate + New
 
 
 # --- 状態遷移 ---
@@ -623,3 +623,8 @@ def test_hygiene_new_fields(tmp_path):
     assert isinstance(result["archive_candidates"], list)
     assert isinstance(result["codegen_proposals"], list)
     assert isinstance(result["line_count"], int)
+    # 新フィールド: issues + preflight_candidates
+    assert "issues" in result
+    assert "preflight_candidates" in result
+    assert isinstance(result["issues"], list)
+    assert isinstance(result["preflight_candidates"], list)

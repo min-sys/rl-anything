@@ -19,6 +19,10 @@ from remediation import (
     generate_rationale,
     fix_stale_references,
     fix_stale_rules,
+    fix_stale_memory,
+    fix_pitfall_archive,
+    fix_split_candidate,
+    fix_preflight_scriptification,
     fix_line_limit_violation,
     fix_claudemd_phantom_refs,
     fix_claudemd_missing_section,
@@ -32,6 +36,8 @@ from remediation import (
     check_regression,
     rollback_fix,
     record_outcome,
+    DUPLICATE_PROPOSABLE_SIMILARITY,
+    DUPLICATE_PROPOSABLE_CONFIDENCE,
 )
 from issue_schema import (
     TOOL_USAGE_RULE_CANDIDATE,
@@ -1040,3 +1046,149 @@ class TestRuleSeparation:
         result = verify_fix(str(rule), issue)
         assert result["resolved"] is False
         assert "分離先ファイル" in result["remaining"]
+
+
+# ---------- fix_stale_memory テスト ----------
+
+class TestFixStaleMemory:
+    def test_removes_stale_entry_from_memory_md(self, tmp_path):
+        """MEMORY.md からstaleエントリのポインタ行を削除する。"""
+        memory = tmp_path / "MEMORY.md"
+        memory.write_text(
+            "# Memory\n\n"
+            "- [feedback_old](feedback_old.md) — 古い設定\n"
+            "- [user_role](user_role.md) — ユーザー情報\n"
+        )
+        issues = [{
+            "type": "stale_memory",
+            "file": str(memory),
+            "detail": {"path": "feedback_old.md"},
+            "source": "layer_diagnose",
+        }]
+        results = fix_stale_memory(issues)
+        assert len(results) == 1
+        assert results[0]["fixed"] is True
+        content = memory.read_text()
+        assert "feedback_old" not in content
+        assert "user_role" in content
+
+    def test_multiple_stale_entries(self, tmp_path):
+        """複数のstaleエントリを一括削除する。"""
+        memory = tmp_path / "MEMORY.md"
+        memory.write_text(
+            "# Memory\n\n"
+            "- [a](a.md)\n"
+            "- [b](b.md)\n"
+            "- [c](c.md)\n"
+        )
+        issues = [
+            {"type": "stale_memory", "file": str(memory), "detail": {"path": "a.md"}},
+            {"type": "stale_memory", "file": str(memory), "detail": {"path": "c.md"}},
+        ]
+        results = fix_stale_memory(issues)
+        assert all(r["fixed"] for r in results)
+        content = memory.read_text()
+        assert "a.md" not in content
+        assert "b.md" in content
+        assert "c.md" not in content
+
+    def test_skips_non_matching_type(self, tmp_path):
+        """type が stale_memory でない場合は無視。"""
+        issues = [{"type": "stale_ref", "file": str(tmp_path / "MEMORY.md"), "detail": {}}]
+        results = fix_stale_memory(issues)
+        assert len(results) == 0
+
+    def test_file_not_found(self, tmp_path):
+        """ファイルが存在しない場合はエラー。"""
+        issues = [{
+            "type": "stale_memory",
+            "file": str(tmp_path / "nonexistent.md"),
+            "detail": {"path": "old.md"},
+        }]
+        results = fix_stale_memory(issues)
+        assert len(results) == 1
+        assert results[0]["fixed"] is False
+
+
+# ---------- fix_stale_memory dispatch テスト ----------
+
+class TestStaleMemoryDispatch:
+    def test_fix_dispatch_registered(self):
+        assert FIX_DISPATCH["stale_memory"] is fix_stale_memory
+
+    def test_verify_dispatch_registered(self):
+        assert "stale_memory" in VERIFY_DISPATCH
+
+
+# ---------- duplicate confidence 昇格テスト ----------
+
+class TestDuplicateConfidenceUpgrade:
+    def test_high_similarity_proposable(self):
+        """similarity >= 0.75 → confidence 0.60 → proposable。"""
+        issue = {
+            "type": "duplicate",
+            "file": "/project/.claude/rules/aws-deploy.md",
+            "detail": {"name": "aws-deploy", "paths": ["a", "b"], "similarity": 0.81},
+        }
+        score = compute_confidence_score(issue)
+        assert score == DUPLICATE_PROPOSABLE_CONFIDENCE
+        result = classify_issue(issue)
+        assert result["category"] == "proposable"
+
+    def test_low_similarity_manual_required(self):
+        """similarity < 0.75 → flat 0.4 → manual_required。"""
+        issue = {
+            "type": "duplicate",
+            "file": "/project/.claude/rules/test.md",
+            "detail": {"name": "test", "paths": ["a", "b"], "similarity": 0.55},
+        }
+        score = compute_confidence_score(issue)
+        assert score < 0.5
+        result = classify_issue(issue)
+        assert result["category"] == "manual_required"
+
+    def test_no_similarity_field_remains_0_4(self):
+        """similarity フィールドがない場合は従来通り 0.4。"""
+        issue = {
+            "type": "duplicate",
+            "file": "/project/.claude/rules/test.md",
+            "detail": {"name": "test", "paths": ["a", "b"]},
+        }
+        score = compute_confidence_score(issue)
+        assert score == 0.4
+
+
+# ---------- pitfall archive dispatch テスト ----------
+
+class TestPitfallArchiveDispatch:
+    def test_fix_dispatch_cap_exceeded(self):
+        assert FIX_DISPATCH["cap_exceeded"] is fix_pitfall_archive
+
+    def test_fix_dispatch_line_guard(self):
+        assert FIX_DISPATCH["line_guard"] is fix_pitfall_archive
+
+    def test_verify_dispatch_cap_exceeded(self):
+        assert "cap_exceeded" in VERIFY_DISPATCH
+
+    def test_verify_dispatch_line_guard(self):
+        assert "line_guard" in VERIFY_DISPATCH
+
+
+# ---------- split_candidate dispatch テスト ----------
+
+class TestSplitCandidateDispatch:
+    def test_fix_dispatch_registered(self):
+        assert FIX_DISPATCH["split_candidate"] is fix_split_candidate
+
+    def test_verify_dispatch_registered(self):
+        assert "split_candidate" in VERIFY_DISPATCH
+
+
+# ---------- preflight_scriptification dispatch テスト ----------
+
+class TestPreflightScriptificationDispatch:
+    def test_fix_dispatch_registered(self):
+        assert FIX_DISPATCH["preflight_scriptification"] is fix_preflight_scriptification
+
+    def test_verify_dispatch_registered(self):
+        assert "preflight_scriptification" in VERIFY_DISPATCH

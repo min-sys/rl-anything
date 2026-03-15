@@ -43,10 +43,21 @@ Archive a completed change in the experimental workflow.
 
    Count tasks marked with `- [ ]` (incomplete) vs `- [x]` (complete).
 
-   **If incomplete tasks found:**
-   - Display warning showing count of incomplete tasks
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
-   - Proceed if user confirms
+   **Completion threshold**: `ARCHIVE_COMPLETION_THRESHOLD = 0.80` (80%)
+
+   Calculate completion rate: `complete / total`.
+
+   **If completion rate < 80%:**
+   - Display warning: "タスク完了率 {rate}%（{complete}/{total}）— 未完了タスクがあります"
+   - Show list of incomplete tasks
+   - Use **AskUserQuestion tool** with options: "続行する", "中止する"
+   - Proceed only if user confirms
+
+   **If completion rate >= 80% but incomplete tasks exist:**
+   - Display note showing count of incomplete tasks (informational, not blocking)
+   - Proceed without confirmation
+
+   **If all tasks complete (100%):** Proceed without warning.
 
    **If no tasks file exists:** Proceed without task-related warning.
 

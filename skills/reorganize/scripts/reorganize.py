@@ -19,6 +19,7 @@ from audit import (
     find_artifacts,
 )
 from similarity import build_tfidf_matrix
+from issue_schema import make_split_candidate_issue
 
 DEFAULT_REORGANIZE_THRESHOLD = 0.7
 SPLIT_LINE_THRESHOLD = 300
@@ -190,10 +191,14 @@ def run_reorganize(project_dir: str = None) -> dict:
     # 分割候補
     split_candidates = detect_split_candidates(artifacts)
 
+    # split_candidates を issue_schema 形式に変換
+    issues = [make_split_candidate_issue(sc) for sc in split_candidates]
+
     return {
         "skipped": False,
         "clusters": clusters,
         "split_candidates": split_candidates,
+        "issues": issues,
         "total_clusters": len(clusters),
         "total_split_candidates": len(split_candidates),
     }

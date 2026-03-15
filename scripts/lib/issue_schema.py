@@ -11,6 +11,11 @@ TOOL_USAGE_RULE_CANDIDATE = "tool_usage_rule_candidate"
 TOOL_USAGE_HOOK_CANDIDATE = "tool_usage_hook_candidate"
 SKILL_EVOLVE_CANDIDATE = "skill_evolve_candidate"
 VERIFICATION_RULE_CANDIDATE = "verification_rule_candidate"
+SPLIT_CANDIDATE = "split_candidate"
+
+# ── split_candidate 定数 ────────────────────────────
+
+SPLIT_CANDIDATE_CONFIDENCE = 0.70
 
 # ── tool_usage_rule_candidate detail フィールド ─────
 
@@ -113,6 +118,23 @@ def make_verification_rule_issue(
             VRC_DETECTION_CONFIDENCE: detection_result.get("confidence", 0.0),
         },
         "source": "verification_catalog",
+    }
+
+
+def make_split_candidate_issue(
+    split_candidate: Dict[str, Any],
+) -> Dict[str, Any]:
+    """reorganize の split_candidate → issue dict 変換。"""
+    skill_name = split_candidate.get("skill_name", "")
+    return {
+        "type": SPLIT_CANDIDATE,
+        "file": f".claude/skills/{skill_name}/SKILL.md",
+        "detail": {
+            "skill_name": skill_name,
+            "line_count": split_candidate.get("line_count", 0),
+            "threshold": split_candidate.get("threshold", 300),
+        },
+        "source": "reorganize",
     }
 
 

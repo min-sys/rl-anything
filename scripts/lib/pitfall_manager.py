@@ -19,6 +19,13 @@ _plugin_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 
 from similarity import jaccard_coefficient, tokenize
+
+# Cold 層自動アーカイブ定数
+CAP_EXCEEDED_CONFIDENCE = 0.90
+PREFLIGHT_MATURITY_RATIO = 0.50
+# スクリプト化可能なカテゴリ
+SCRIPTIFIABLE_CATEGORIES = frozenset({"action", "tool_use", "output"})
+
 from skill_evolve import (
     ACTIVE_PITFALL_CAP,
     CANDIDATE_PROMOTION_COUNT,
@@ -275,8 +282,17 @@ def get_warm_tier(sections: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, A
 
 
 def get_cold_tier(sections: Dict[str, List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
-    """Cold 層: Candidate + Graduated を返す。"""
-    return sections.get("candidate", []) + sections.get("graduated", [])
+    """Cold 層: Graduated + Candidate + New を返す。
+
+    アーカイブ優先順: Graduated > Candidate > New
+    """
+    cold = list(sections.get("graduated", []))
+    cold.extend(sections.get("candidate", []))
+    # New は active セクション内で Status=New のもの
+    for item in sections.get("active", []):
+        if item["fields"].get("Status") == "New":
+            cold.append(item)
+    return cold
 
 
 # --- 状態機械 ---
@@ -850,6 +866,8 @@ def pitfall_hygiene(
     cap_exceeded: List[Dict[str, Any]] = []
     stale_warnings: List[Dict[str, Any]] = []
     all_root_causes: Dict[str, List[str]] = {}  # category → [skill_names]
+    hygiene_issues: List[Dict[str, Any]] = []
+    preflight_candidates: List[Dict[str, Any]] = []
     skills_checked = 0
     total_line_count = 0
 
@@ -918,16 +936,50 @@ def pitfall_hygiene(
             if proposal:
                 codegen_proposals.append(proposal)
 
+        # Pre-flight スクリプト化候補検出
+        for item in sections.get("active", []):
+            if item["fields"].get("Status") != "Active":
+                continue
+            avoidance = int(item["fields"].get("Avoidance-count", "0") or "0")
+            root_cause = item["fields"].get("Root-cause", "")
+            category = root_cause.split("—")[0].strip().lower() if "—" in root_cause else ""
+            if (
+                category in SCRIPTIFIABLE_CATEGORIES
+                and item["fields"].get("Pre-flight対応", "").lower().startswith("yes")
+                and avoidance >= threshold * PREFLIGHT_MATURITY_RATIO
+            ):
+                template = suggest_preflight_script(item)
+                preflight_candidates.append({
+                    "pitfall_id": item["title"],
+                    "skill_name": skill_name,
+                    "category": category,
+                    "avoidance_count": avoidance,
+                    "template": template.get("template_path", "") if template else "",
+                })
+
         # Active 上限チェック
         active_count = sum(
             1 for item in sections.get("active", [])
             if item["fields"].get("Status") == "Active"
         )
+        cold_count = len(get_cold_tier(sections))
         if active_count > ACTIVE_PITFALL_CAP:
             cap_exceeded.append({
                 "skill_name": skill_name,
                 "active_count": active_count,
                 "cap": ACTIVE_PITFALL_CAP,
+                "cold_count": cold_count,
+            })
+            hygiene_issues.append({
+                "type": "cap_exceeded",
+                "file": str(pitfalls_path),
+                "detail": {
+                    "skill_name": skill_name,
+                    "active_count": active_count,
+                    "cap": ACTIVE_PITFALL_CAP,
+                    "cold_count": cold_count,
+                },
+                "source": "pitfall_hygiene",
             })
 
         # TTL アーカイブ候補
@@ -943,6 +995,17 @@ def pitfall_hygiene(
             for lgc in line_guard["line_guard_candidates"]:
                 lgc["skill_name"] = skill_name
             all_archive_candidates.extend(line_guard["line_guard_candidates"])
+            hygiene_issues.append({
+                "type": "line_guard",
+                "file": str(pitfalls_path),
+                "detail": {
+                    "skill_name": skill_name,
+                    "line_count": line_guard["line_count"],
+                    "max_lines": PITFALL_MAX_LINES,
+                    "cold_count": cold_count,
+                },
+                "source": "pitfall_hygiene",
+            })
 
         # 横断分析: 根本原因カテゴリ集計
         for item in sections.get("active", []):
@@ -962,6 +1025,21 @@ def pitfall_hygiene(
         if len(skills) >= 3
     }
 
+    # preflight_candidates → issue 化
+    for pc in preflight_candidates:
+        hygiene_issues.append({
+            "type": "preflight_scriptification",
+            "file": "",  # pitfall 単位なのでファイル不要
+            "detail": {
+                "pitfall_title": pc["pitfall_id"],
+                "skill_name": pc["skill_name"],
+                "category": pc["category"],
+                "avoidance_count": pc["avoidance_count"],
+                "template_path": pc.get("template", ""),
+            },
+            "source": "pitfall_hygiene",
+        })
+
     return {
         "skills_checked": skills_checked,
         "graduation_candidates": sorted(
@@ -976,4 +1054,6 @@ def pitfall_hygiene(
         "cap_exceeded": cap_exceeded,
         "stale_warnings": stale_warnings,
         "cross_skill_analysis": cross_skill if cross_skill else {"status": "問題なし"},
+        "issues": hygiene_issues,
+        "preflight_candidates": preflight_candidates,
     }

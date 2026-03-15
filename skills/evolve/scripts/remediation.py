@@ -51,6 +51,8 @@ from issue_schema import (  # noqa: E402
 AUTO_FIX_CONFIDENCE = 0.9
 PROPOSABLE_CONFIDENCE = 0.5
 MAJOR_EXCESS_RATIO = 1.6  # 行数が制限値の160%以上 → manual_required
+DUPLICATE_PROPOSABLE_SIMILARITY = 0.75  # duplicate の proposable 昇格閾値
+DUPLICATE_PROPOSABLE_CONFIDENCE = 0.60  # similarity >= 閾値時の confidence
 
 # impact_scope の判定に使うパス
 _GLOBAL_SCOPE_PATTERNS = {"CLAUDE.md"}
@@ -144,7 +146,10 @@ def compute_confidence_score(issue: Dict[str, Any]) -> float:
         return 0.7
 
     if issue_type == "duplicate":
-        return 0.4  # 重複の統合は複雑
+        similarity = detail.get("similarity", 0.0)
+        if similarity >= DUPLICATE_PROPOSABLE_SIMILARITY:
+            return DUPLICATE_PROPOSABLE_CONFIDENCE
+        return 0.4  # 低similarity重複の統合は複雑
 
     if issue_type == "hardcoded_value":
         # 検出結果自体の confidence_score を使用
@@ -178,6 +183,18 @@ def compute_confidence_score(issue: Dict[str, Any]) -> float:
 
     if issue_type == TOOL_USAGE_HOOK_CANDIDATE:
         return 0.75  # hook テンプレートの汎用性にバリエーション
+
+    if issue_type == "cap_exceeded":
+        return 0.90  # Active 超過は明確に判定可能
+
+    if issue_type == "line_guard":
+        return 0.90  # 行数超過は明確に判定可能
+
+    if issue_type == "split_candidate":
+        return 0.70  # 分割判断にはドメイン知識が必要
+
+    if issue_type == "preflight_scriptification":
+        return 0.70  # スクリプト化候補は proposable
 
     if issue_type == "untagged_reference_candidates":
         return 0.90  # audit のフィルタ済み候補のため高信頼
@@ -291,6 +308,10 @@ _RATIONALE_TEMPLATES = {
     "untagged_reference_candidates": "スキル「{skill_name}」は呼び出し実績がなく reference type が未設定です。frontmatter に `type: reference` を追加します。",
     SKILL_EVOLVE_CANDIDATE: "スキル「{skill_name}」の自己進化適性: {suitability}（{total_score}/15点）。自己進化パターン（Pre-flight Check, pitfalls.md, Failure-triggered Learning）の組み込みを提案します。",
     VERIFICATION_RULE_CANDIDATE: "{description}が {evidence_count} 箇所検出されました（confidence: {confidence}）。ルールの追加を提案します。",
+    "cap_exceeded": "Active pitfall が {active_count}/{cap} 件で上限を超過しています。Cold 層（Graduated/Candidate/New）から優先順にアーカイブします。",
+    "line_guard": "pitfalls.md が {line_count}/{max_lines} 行で上限を超過しています。Cold 層から優先順にアーカイブします。",
+    "split_candidate": "スキル「{skill_name}」({line_count}/{threshold}行) が分割閾値を超過しています。references/ への切り出しを提案します。",
+    "preflight_scriptification": "pitfall「{pitfall_title}」(カテゴリ: {category}) のPre-flightスクリプト化を提案します。",
 }
 
 
@@ -407,6 +428,31 @@ def generate_rationale(issue: Dict[str, Any], category: str) -> str:
             evidence_count=len(detail.get(VRC_EVIDENCE, [])),
             confidence=detail.get(VRC_DETECTION_CONFIDENCE, 0.0),
             description=detail.get(VRC_DESCRIPTION, "unknown"),
+        )
+
+    if issue_type == "cap_exceeded":
+        return _RATIONALE_TEMPLATES["cap_exceeded"].format(
+            active_count=detail.get("active_count", 0),
+            cap=detail.get("cap", 10),
+        )
+
+    if issue_type == "line_guard":
+        return _RATIONALE_TEMPLATES["line_guard"].format(
+            line_count=detail.get("line_count", 0),
+            max_lines=detail.get("max_lines", 500),
+        )
+
+    if issue_type == "split_candidate":
+        return _RATIONALE_TEMPLATES["split_candidate"].format(
+            skill_name=detail.get("skill_name", "unknown"),
+            line_count=detail.get("line_count", 0),
+            threshold=detail.get("threshold", 300),
+        )
+
+    if issue_type == "preflight_scriptification":
+        return _RATIONALE_TEMPLATES["preflight_scriptification"].format(
+            pitfall_title=detail.get("pitfall_title", "unknown"),
+            category=detail.get("category", "unknown"),
         )
 
     return f"問題タイプ「{issue_type}」が検出されました。"
@@ -1095,8 +1141,327 @@ def fix_verification_rule(
     return results
 
 
+def fix_stale_memory(
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """MEMORY.md からstaleエントリのポインタ行を削除する。
+
+    detail.path に一致する行を MEMORY.md から削除。
+    参照先の個別メモリファイルが存在しない場合のみ対象。
+
+    Returns:
+        [{"issue": ..., "original_content": str, "fixed": bool, "error": str|None}, ...]
+    """
+    by_file: Dict[str, List[Dict[str, Any]]] = {}
+    for issue in issues:
+        if issue["type"] != "stale_memory":
+            continue
+        f = issue["file"]
+        if f not in by_file:
+            by_file[f] = []
+        by_file[f].append(issue)
+
+    results = []
+    for file_path, file_issues in by_file.items():
+        path = Path(file_path)
+        try:
+            original_content = path.read_text(encoding="utf-8")
+        except OSError as e:
+            for issue in file_issues:
+                results.append({
+                    "issue": issue,
+                    "original_content": "",
+                    "fixed": False,
+                    "error": str(e),
+                })
+            continue
+
+        lines = original_content.splitlines(keepends=True)
+        lines_to_remove = set()
+        for issue in file_issues:
+            ref_path = issue.get("detail", {}).get("path", "")
+            if not ref_path:
+                continue
+            for i, line in enumerate(lines):
+                if ref_path in line:
+                    lines_to_remove.add(i)
+
+        new_lines = [l for i, l in enumerate(lines) if i not in lines_to_remove]
+        new_content = "".join(new_lines)
+        # 連続空行の正規化
+        new_content = re.sub(r"\n{3,}", "\n\n", new_content)
+
+        try:
+            path.write_text(new_content, encoding="utf-8")
+            for issue in file_issues:
+                results.append({
+                    "issue": issue,
+                    "original_content": original_content,
+                    "fixed": True,
+                    "error": None,
+                })
+        except OSError as e:
+            for issue in file_issues:
+                results.append({
+                    "issue": issue,
+                    "original_content": original_content,
+                    "fixed": False,
+                    "error": str(e),
+                })
+
+    return results
+
+
+def fix_pitfall_archive(
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """pitfall Cold層（Graduated/Candidate/New）を pitfalls-archive.md にアーカイブする。
+
+    cap_exceeded: Active超過分をCold層から優先順にアーカイブ
+    line_guard: 行数が閾値以下になるまでCold層からアーカイブ
+
+    Returns:
+        [{"issue": ..., "original_content": str, "fixed": bool, "error": str|None}, ...]
+    """
+    from pitfall_manager import (
+        parse_pitfalls,
+        render_pitfalls,
+        ACTIVE_PITFALL_CAP,
+        PITFALL_MAX_LINES,
+    )
+
+    results = []
+    for issue in issues:
+        if issue["type"] not in ("cap_exceeded", "line_guard"):
+            continue
+
+        detail = issue.get("detail", {})
+        pitfalls_path = Path(issue["file"])
+
+        if not pitfalls_path.exists():
+            results.append({
+                "issue": issue, "original_content": "", "fixed": False,
+                "error": "pitfalls.md not found",
+            })
+            continue
+
+        try:
+            original_content = pitfalls_path.read_text(encoding="utf-8")
+        except OSError as e:
+            results.append({
+                "issue": issue, "original_content": "", "fixed": False,
+                "error": str(e),
+            })
+            continue
+
+        sections = parse_pitfalls(original_content)
+
+        # Cold層をアーカイブ優先順に収集: Graduated > Candidate > New
+        cold_items: List[Dict[str, Any]] = []
+        for item in sections.get("graduated", []):
+            cold_items.append({"item": item, "section": "graduated", "priority": 0})
+        for item in sections.get("candidate", []):
+            cold_items.append({"item": item, "section": "candidate", "priority": 1})
+        for item in sections.get("active", []):
+            if item["fields"].get("Status") == "New":
+                cold_items.append({"item": item, "section": "active", "priority": 2})
+        cold_items.sort(key=lambda x: x["priority"])
+
+        if not cold_items:
+            results.append({
+                "issue": issue, "original_content": original_content, "fixed": False,
+                "remaining": "Cold層にアーカイブ対象がありません。Active pitfallの手動レビューが必要です",
+                "error": None,
+            })
+            continue
+
+        # アーカイブ対象を選択
+        to_archive: List[Dict[str, Any]] = []
+        if issue["type"] == "cap_exceeded":
+            active_count = detail.get("active_count", 0)
+            cap = detail.get("cap", ACTIVE_PITFALL_CAP)
+            need = active_count - cap
+            for ci in cold_items:
+                if len(to_archive) >= need:
+                    break
+                to_archive.append(ci)
+        else:  # line_guard
+            current_lines = len(original_content.splitlines())
+            target = PITFALL_MAX_LINES
+            removed_lines = 0
+            for ci in cold_items:
+                if current_lines - removed_lines <= target:
+                    break
+                raw_lines = len(ci["item"].get("raw", "").splitlines())
+                to_archive.append(ci)
+                removed_lines += raw_lines
+
+        if not to_archive:
+            results.append({
+                "issue": issue, "original_content": original_content, "fixed": False,
+                "error": None, "remaining": "アーカイブ対象が不足しています",
+            })
+            continue
+
+        # archive ファイルに追記
+        archive_path = pitfalls_path.parent / "pitfalls-archive.md"
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        archive_entries = []
+        for ci in to_archive:
+            archive_entries.append(
+                f"\n{ci['item']['raw']}\n- **Archived-date**: {now}\n"
+            )
+
+        archive_content = ""
+        if archive_path.exists():
+            archive_content = archive_path.read_text(encoding="utf-8")
+        if not archive_content.strip():
+            archive_content = "# Pitfalls Archive\n"
+        archive_content += "\n".join(archive_entries)
+        archive_path.write_text(archive_content, encoding="utf-8")
+
+        # pitfalls.md から削除
+        titles = [ci["item"]["title"] for ci in to_archive]
+        for ci in to_archive:
+            section_key = ci["section"]
+            sections[section_key] = [
+                item for item in sections[section_key]
+                if item["title"] != ci["item"]["title"]
+            ]
+
+        pitfalls_path.write_text(render_pitfalls(sections), encoding="utf-8")
+
+        results.append({
+            "issue": issue, "original_content": original_content,
+            "fixed": True, "error": None,
+            "archived_titles": titles,
+        })
+
+    return results
+
+
+def fix_split_candidate(
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """スキル分割案をLLMで生成して提案テキストを表示する（ファイル変更なし）。
+
+    Returns:
+        [{"issue": ..., "original_content": "", "fixed": True, "error": None, "proposal_text": str}, ...]
+    """
+    import subprocess
+
+    results = []
+    for issue in issues:
+        if issue["type"] != "split_candidate":
+            continue
+        detail = issue.get("detail", {})
+        skill_name = detail.get("skill_name", "unknown")
+        file_path = issue["file"]
+        path = Path(file_path)
+
+        if not path.exists():
+            results.append({
+                "issue": issue, "original_content": "", "fixed": False,
+                "error": f"SKILL.md not found: {file_path}",
+            })
+            continue
+
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError as e:
+            results.append({
+                "issue": issue, "original_content": "", "fixed": False,
+                "error": str(e),
+            })
+            continue
+
+        line_count = detail.get("line_count", len(content.splitlines()))
+        threshold = detail.get("threshold", 300)
+
+        prompt = (
+            f"以下のスキル SKILL.md ({line_count}行、閾値{threshold}行) を分析し、"
+            f"references/ に切り出すべきセクションを特定してください。\n"
+            f"出力形式:\n"
+            f"- 分割先ファイル名と各ファイルの概要\n"
+            f"- 推定削減行数\n"
+            f"- SKILL.md に残す内容の概要\n\n"
+            f"```\n{content[:3000]}```"
+        )
+
+        try:
+            result_proc = subprocess.run(
+                ["claude", "--print", "-p", prompt],
+                capture_output=True, text=True, timeout=60,
+            )
+            if result_proc.returncode != 0:
+                proposal_text = (
+                    f"スキル「{skill_name}」({line_count}行) の分割を検討してください。"
+                    f"references/ にセクションを切り出し、SKILL.md を {threshold}行以下に削減することを推奨します。"
+                )
+            else:
+                proposal_text = result_proc.stdout.strip()
+        except (subprocess.TimeoutExpired, OSError):
+            proposal_text = (
+                f"スキル「{skill_name}」({line_count}行) の分割を検討してください。"
+                f"references/ にセクションを切り出し、SKILL.md を {threshold}行以下に削減することを推奨します。"
+            )
+
+        results.append({
+            "issue": issue, "original_content": "", "fixed": True,
+            "error": None, "proposal_text": proposal_text,
+        })
+
+    return results
+
+
+def fix_preflight_scriptification(
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Pre-flightスクリプト化提案をテンプレート付きで表示する（ファイル変更なし）。
+
+    Returns:
+        [{"issue": ..., "original_content": "", "fixed": True, "error": None, "proposal_text": str}, ...]
+    """
+    results = []
+    for issue in issues:
+        if issue["type"] != "preflight_scriptification":
+            continue
+        detail = issue.get("detail", {})
+        pitfall_title = detail.get("pitfall_title", "unknown")
+        category = detail.get("category", "generic")
+        template_path = detail.get("template_path", "")
+
+        template_content = ""
+        if template_path:
+            tp = Path(template_path)
+            if tp.exists():
+                try:
+                    template_content = tp.read_text(encoding="utf-8")
+                except OSError:
+                    pass
+
+        proposal_text = (
+            f"pitfall「{pitfall_title}」のPre-flightスクリプト化を提案します。\n"
+            f"カテゴリ: {category}\n"
+        )
+        if template_content:
+            proposal_text += f"テンプレート ({Path(template_path).name}):\n```bash\n{template_content}```\n"
+
+        results.append({
+            "issue": issue, "original_content": "", "fixed": True,
+            "error": None, "proposal_text": proposal_text,
+        })
+
+    return results
+
+
 FIX_DISPATCH: Dict[str, Any] = {
     "stale_ref": fix_stale_references,
+    "stale_memory": fix_stale_memory,
+    "cap_exceeded": fix_pitfall_archive,
+    "line_guard": fix_pitfall_archive,
+    "split_candidate": fix_split_candidate,
+    "preflight_scriptification": fix_preflight_scriptification,
     "stale_rule": fix_stale_rules,
     "line_limit_violation": fix_line_limit_violation,
     "untagged_reference_candidates": fix_untagged_reference,
@@ -1170,6 +1535,22 @@ def generate_proposals(
             detail = issue.get("detail", {})
             filename = detail.get(VRC_RULE_FILENAME, "unknown")
             proposal = f".claude/rules/{filename} に検証ルール「{detail.get(VRC_DESCRIPTION, '')}」を作成"
+        elif issue["type"] == "cap_exceeded":
+            detail = issue.get("detail", {})
+            proposal = f"Active pitfall ({detail.get('active_count', 0)}件) の超過分をCold層からアーカイブ"
+        elif issue["type"] == "line_guard":
+            detail = issue.get("detail", {})
+            proposal = f"pitfalls.md ({detail.get('line_count', 0)}行) のCold層をアーカイブして閾値以下に削減"
+        elif issue["type"] == "split_candidate":
+            detail = issue.get("detail", {})
+            skill_name = detail.get("skill_name", "unknown")
+            proposal = f"スキル「{skill_name}」({detail.get('line_count', 0)}行) の references/ 分割提案"
+        elif issue["type"] == "preflight_scriptification":
+            detail = issue.get("detail", {})
+            proposal = f"pitfall「{detail.get('pitfall_title', 'unknown')}」のPre-flightスクリプト化提案"
+        elif issue["type"] == "duplicate":
+            detail = issue.get("detail", {})
+            proposal = f"アーティファクト「{detail.get('name', 'unknown')}」の統合提案"
         else:
             proposal = f"{issue['type']} に対する修正案を検討してください。"
 
@@ -1337,6 +1718,49 @@ def _verify_verification_rule(fixed_file: str, detail: Dict[str, Any]) -> Dict[s
     return {"resolved": True, "remaining": None}
 
 
+def _verify_pitfall_archive(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, Any]:
+    """pitfall archive の検証: Active件数/行数が閾値以下か + archive先の存在確認。"""
+    from pitfall_manager import parse_pitfalls, ACTIVE_PITFALL_CAP, PITFALL_MAX_LINES
+
+    path = Path(fixed_file)
+    if not path.exists():
+        return {"resolved": False, "remaining": "pitfalls.md が存在しません"}
+
+    content = path.read_text(encoding="utf-8")
+    sections = parse_pitfalls(content)
+
+    # archive ファイルの存在確認
+    archive_path = path.parent / "pitfalls-archive.md"
+    if not archive_path.exists():
+        return {"resolved": False, "remaining": "pitfalls-archive.md が存在しません"}
+
+    # cap_exceeded の場合: Active件数チェック
+    active_count = sum(
+        1 for item in sections.get("active", [])
+        if item["fields"].get("Status") == "Active"
+    )
+    cap = detail.get("cap", ACTIVE_PITFALL_CAP)
+    if active_count > cap:
+        return {"resolved": False, "remaining": f"Active pitfall ({active_count}) がまだ cap ({cap}) を超過しています"}
+
+    # line_guard の場合: 行数チェック
+    line_count = len(content.splitlines())
+    if line_count > PITFALL_MAX_LINES:
+        return {"resolved": False, "remaining": f"行数 ({line_count}) がまだ閾値 ({PITFALL_MAX_LINES}) を超過しています"}
+
+    return {"resolved": True, "remaining": None}
+
+
+def _verify_split_candidate(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, Any]:
+    """split_candidate の検証: 提案テキストが生成されたことを確認（常にresolved=true）。"""
+    return {"resolved": True, "remaining": None}
+
+
+def _verify_preflight_scriptification(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, Any]:
+    """preflight_scriptification の検証: 提案テキストが生成されたことを確認（常にresolved=true）。"""
+    return {"resolved": True, "remaining": None}
+
+
 VERIFY_DISPATCH: Dict[str, Any] = {
     "stale_ref": _verify_stale_ref,
     "line_limit_violation": _verify_line_limit_violation,
@@ -1345,6 +1769,10 @@ VERIFY_DISPATCH: Dict[str, Any] = {
     "claudemd_missing_section": _verify_claudemd_missing_section,
     "stale_memory": _verify_stale_memory,
     "untagged_reference_candidates": _verify_untagged_reference,
+    "cap_exceeded": _verify_pitfall_archive,
+    "line_guard": _verify_pitfall_archive,
+    "split_candidate": _verify_split_candidate,
+    "preflight_scriptification": _verify_preflight_scriptification,
     TOOL_USAGE_RULE_CANDIDATE: _verify_global_rule,
     TOOL_USAGE_HOOK_CANDIDATE: _verify_hook_scaffold,
     SKILL_EVOLVE_CANDIDATE: _verify_skill_evolve,
