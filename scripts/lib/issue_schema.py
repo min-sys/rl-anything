@@ -13,6 +13,13 @@ SKILL_EVOLVE_CANDIDATE = "skill_evolve_candidate"
 VERIFICATION_RULE_CANDIDATE = "verification_rule_candidate"
 SPLIT_CANDIDATE = "split_candidate"
 
+# ── skill_triage 定数 ──────────────────────────────
+
+SKILL_TRIAGE_CREATE = "skill_triage_create"
+SKILL_TRIAGE_UPDATE = "skill_triage_update"
+SKILL_TRIAGE_SPLIT = "skill_triage_split"
+SKILL_TRIAGE_MERGE = "skill_triage_merge"
+
 # ── split_candidate 定数 ────────────────────────────
 
 SPLIT_CANDIDATE_CONFIDENCE = 0.70
@@ -135,6 +142,55 @@ def make_split_candidate_issue(
             "threshold": split_candidate.get("threshold", 300),
         },
         "source": "reorganize",
+    }
+
+
+# ── skill_triage detail フィールド ─────────────────
+
+ST_ACTION = "action"
+ST_SKILL = "skill"
+ST_SKILLS = "skills"
+ST_CONFIDENCE = "confidence"
+ST_EVIDENCE = "evidence"
+ST_SUGGESTION = "suggestion"
+ST_EVAL_SET_PATH = "eval_set_path"
+
+
+def make_skill_triage_issue(
+    triage_result: Dict[str, Any],
+) -> Dict[str, Any]:
+    """skill_triage の判定結果 → issue dict 変換。
+
+    CREATE/UPDATE/SPLIT/MERGE の各アクションに対応する issue type にマッピングする。
+    """
+    action = triage_result.get(ST_ACTION, "")
+    action_to_type = {
+        "CREATE": SKILL_TRIAGE_CREATE,
+        "UPDATE": SKILL_TRIAGE_UPDATE,
+        "SPLIT": SKILL_TRIAGE_SPLIT,
+        "MERGE": SKILL_TRIAGE_MERGE,
+    }
+    issue_type = action_to_type.get(action, "")
+    if not issue_type:
+        return {}
+
+    skill = triage_result.get(ST_SKILL, "") or ""
+    skills = triage_result.get(ST_SKILLS, [])
+    file_path = f".claude/skills/{skill}/SKILL.md" if skill else ""
+
+    return {
+        "type": issue_type,
+        "file": file_path,
+        "detail": {
+            ST_ACTION: action,
+            ST_SKILL: skill,
+            ST_SKILLS: skills,
+            ST_CONFIDENCE: triage_result.get(ST_CONFIDENCE, 0.0),
+            ST_EVIDENCE: triage_result.get(ST_EVIDENCE, {}),
+            ST_SUGGESTION: triage_result.get(ST_SUGGESTION, ""),
+            ST_EVAL_SET_PATH: triage_result.get(ST_EVAL_SET_PATH, ""),
+        },
+        "source": "skill_triage",
     }
 
 

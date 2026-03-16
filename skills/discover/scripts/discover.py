@@ -353,11 +353,20 @@ def detect_missed_skills(
     for skill, data in sorted(missed_map.items(), key=lambda x: len(x[1]["sessions"]), reverse=True):
         session_count = len(data["sessions"])
         if session_count >= threshold:
-            missed.append({
+            entry = {
                 "skill": skill,
                 "triggers_matched": sorted(data["triggers_matched"]),
                 "session_count": session_count,
-            })
+            }
+            # eval set ステータスを付与
+            eval_set_path = Path.home() / ".claude" / "rl-anything" / "eval-sets" / f"{skill}.json"
+            if eval_set_path.exists():
+                entry["eval_set_path"] = str(eval_set_path)
+                entry["eval_set_status"] = "available"
+            else:
+                entry["eval_set_path"] = None
+                entry["eval_set_status"] = "not_generated"
+            missed.append(entry)
 
     return {"missed": missed, "message": None}
 

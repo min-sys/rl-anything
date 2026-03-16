@@ -20,6 +20,8 @@
 | `genetic-prompt-optimizer` | corrections/context ベースの LLM 1パス直接パッチで最適化 |
 | `rl-loop-orchestrator` | ベースライン取得→バリエーション生成→評価→人間確認のループ統合 |
 | `rl-scorer` エージェント | オーケストレーター(haiku) + 3サブエージェント並列(tech/struct=haiku, domain=sonnet)で3軸採点 |
+| `skill-triage` | テレメトリ+trigger evalで CREATE/UPDATE/SPLIT/MERGE/OK の5択判定（`scripts/lib/skill_triage.py`） |
+| `trigger-eval-generator` | sessions.jsonl+usage.jsonl → skill-creator互換 evals.json 自動生成（`scripts/lib/trigger_eval_generator.py`） |
 
 ## クイックスタート
 

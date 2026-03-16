@@ -288,6 +288,25 @@ def run_evolve(
         "skipped_reason": "no_patterns_available" if not discover_data.get("matched_skills") and not discover_data.get("unmatched_patterns") else None,
     }
 
+    # Phase 2.6: Skill Triage（trigger eval + CREATE/UPDATE/SPLIT/MERGE/OK 判定）
+    try:
+        sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+        from skill_triage import triage_all_skills
+        from telemetry_query import query_sessions, query_usage
+        proj = Path(project_dir) if project_dir else Path.cwd()
+        sessions = query_sessions(project=proj.name)
+        usage_data = query_usage(project=proj.name)
+        missed = discover_data.get("missed_skill_opportunities", [])
+        triage_result = triage_all_skills(
+            sessions=sessions,
+            usage=usage_data,
+            missed_skills=missed,
+            project_root=proj,
+        )
+        result["phases"]["skill_triage"] = triage_result
+    except Exception as e:
+        result["phases"]["skill_triage"] = {"error": str(e), "skipped": True}
+
     # Phase 2.7: Layer Diagnose（全レイヤー診断）
     try:
         sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
@@ -335,6 +354,7 @@ def run_evolve(
             make_rule_candidate_issue,
             make_hook_candidate_issue,
             make_skill_evolve_issue,
+            make_skill_triage_issue,
             VERIFICATION_RULE_CANDIDATE,
             make_verification_rule_issue,
         )
@@ -366,6 +386,15 @@ def run_evolve(
                 issues.append(make_skill_evolve_issue(
                     assessment, skill_md_path,
                 ))
+
+        # --- skill_triage の結果を issue に変換 ---
+        triage_phase = result["phases"].get("skill_triage", {})
+        if not triage_phase.get("skipped"):
+            for action in ("CREATE", "UPDATE", "SPLIT", "MERGE"):
+                for triage in triage_phase.get(action, []):
+                    issue = make_skill_triage_issue(triage)
+                    if issue:
+                        issues.append(issue)
 
         # --- verification_needs を issue に変換 ---
         verification_needs = discover_data.get("verification_needs", [])
