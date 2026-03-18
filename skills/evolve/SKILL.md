@@ -244,6 +244,23 @@ evolve.py の出力に含まれる `pitfall_hygiene` フェーズ結果を確認
 - **stale_warnings**: 6ヶ月以上更新のない Active pitfall → 検証を推奨
 - **cross_skill_analysis**: 根本原因カテゴリの横断集中検出 → 共通ルール化を提案
 
+### Step 7.6: 合理化防止テーブル
+
+evolve.py の出力に含まれる `rationalization_table` フェーズ結果を確認する。
+`pitfall_hygiene()` 内で `generate_rationalization_table()` が呼ばれ、corrections のスキップパターンをテレメトリと突合した結果が格納される。
+
+- `rationalization_table` フェーズが存在しない場合: データ不足のためスキップ。「合理化防止テーブル: データ不足 — スキップ」と表示
+- `rationalization_table` フェーズが存在する場合:
+  - `table` の各エントリをテーブル形式で表示（MUST）:
+    ```
+    ### 合理化防止テーブル
+    | 言い訳 | スキップ後エラー率 | サンプル数 |
+    |--------|-------------------|-----------|
+    | {excuse} | {outcome_error_rate}% | {sample_count} |
+    ```
+  - `outcome_error_rate` が `None` の場合は「N/A」と表示
+  - `enriched_pitfalls` があれば「既存 pitfall にテレメトリデータをエンリッチ済み: {N}件」と表示
+
 ### Step 8: Fitness Evolution — 評価関数の改善チェック
 
 evolve.py の出力に含まれる `fitness_evolution` フェーズを確認する。

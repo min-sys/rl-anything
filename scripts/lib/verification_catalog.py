@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 # ── 閾値定数 ──────────────────────────────────────────
 DATA_CONTRACT_MIN_PATTERNS = 3
 SIDE_EFFECT_MIN_PATTERNS = 3
+EVIDENCE_MIN_PATTERNS = 3
 DETECTION_TIMEOUT_SECONDS = 5
 MAX_CATALOG_ENTRIES = 10
 LARGE_REPO_FILE_THRESHOLD = 1000
@@ -34,6 +35,10 @@ _TYPESCRIPT_RULE_TEMPLATE = """# データ変換コードの契約確認
 
 _SIDE_EFFECT_RULE_TEMPLATE = """# 副作用チェック
 テスト検証時、正パスに加えて副作用を確認する: 意図しない書き込み・状態残留・再帰的トリガー。
+"""
+
+_EVIDENCE_RULE_TEMPLATE = """# 証拠提示義務
+完了主張の前に検証コマンド（テスト実行・動作確認・ビルド成功）の実行結果を提示する。「できました」の前に証拠を示す。
 """
 
 # ── 副作用検出パターン（3カテゴリ）────────────────────
@@ -84,6 +89,19 @@ VERIFICATION_CATALOG: List[Dict[str, Any]] = [
         "rule_filename": "verify-side-effects.md",
         "detection_fn": "detect_side_effect_verification",
         "applicability": "conditional",
+    },
+    {
+        "id": "evidence-before-claims",
+        "type": "rule",
+        "description": "完了主張の前に検証コマンドの実行結果を提示する証拠提示義務パターン",
+        "rule_template": _EVIDENCE_RULE_TEMPLATE.strip(),
+        "rule_filename": "verify-before-claim.md",
+        "detection_fn": "detect_evidence_verification",
+        "applicability": "conditional",
+        "content_patterns": [
+            "証拠", "evidence", "verify", "確認して", "テスト実行",
+            "動作確認", "before claim", "証拠提示",
+        ],
     },
 ]
 
@@ -278,11 +296,80 @@ def detect_side_effect_verification(project_dir: Path) -> Dict[str, Any]:
     }
 
 
+# ── 証拠提示義務パターン検出 ──────────────────────────
+
+_EVIDENCE_REQUEST_PATTERNS = re.compile(
+    r"(?:テスト実行して|テスト(?:を)?(?:走らせ|回し)|確認して|動作確認|"
+    r"ビルド通して|コンパイル確認|lint通して|"
+    r"run (?:the )?tests?|verify|check (?:it|that)|"
+    r"show me (?:the )?(?:output|result)|prove|evidence)",
+    re.IGNORECASE,
+)
+
+
+def detect_evidence_verification(project_dir: Path) -> Dict[str, Any]:
+    """evidence-before-claims の検出関数。
+
+    corrections.jsonl から「証拠要求」パターンを検出する。
+    corrections は内部で telemetry_query 経由で取得する。
+
+    Args:
+        project_dir: プロジェクトディレクトリ
+
+    Returns:
+        {"applicable": bool, "evidence": [str], "confidence": float}
+    """
+    if not project_dir.is_dir():
+        return _safe_result("project_dir does not exist")
+
+    try:
+        import sys as _sys
+        _lib_dir = str(Path(__file__).resolve().parent)
+        if _lib_dir not in _sys.path:
+            _sys.path.insert(0, _lib_dir)
+        import telemetry_query
+        corrections = telemetry_query.query_corrections(
+            project=project_dir.name,
+        )
+    except (ImportError, Exception) as e:
+        return _safe_result(f"telemetry_query unavailable: {e}")
+
+    evidence: List[str] = []
+    for rec in corrections:
+        if not isinstance(rec, dict):
+            continue
+        message = rec.get("message", "")
+        if _EVIDENCE_REQUEST_PATTERNS.search(message):
+            evidence.append(message[:120])
+            if len(evidence) >= 10:
+                break
+
+    count = len(evidence)
+    if count >= EVIDENCE_MIN_PATTERNS:
+        confidence = min(0.7, 0.5 + count * 0.04)
+        return {
+            "applicable": True,
+            "evidence": evidence,
+            "confidence": confidence,
+            "llm_escalation_prompt": (
+                f"corrections に {count} 件の証拠要求パターンが検出されました。"
+                f"「完了主張の前に検証結果を提示する」ルールは有用ですか？"
+                f"yes/no で回答してください。\n\n検出パターン:\n" + "\n".join(evidence[:5])
+            ),
+        }
+    return {
+        "applicable": False,
+        "evidence": evidence,
+        "confidence": 0.0,
+    }
+
+
 # ── 検出関数ディスパッチ ─────────────────────────────
 
 _DETECTION_FN_DISPATCH: Dict[str, Any] = {
     "detect_data_contract_verification": detect_data_contract_verification,
     "detect_side_effect_verification": detect_side_effect_verification,
+    "detect_evidence_verification": detect_evidence_verification,
 }
 
 
@@ -314,13 +401,20 @@ def _run_detection_fn(fn_name: str, project_dir: Path) -> Dict[str, Any]:
 # ── 公開 API ─────────────────────────────────────────
 
 _SIDE_EFFECT_CONTENT_KEYWORDS = ["副作用", "side effect"]
+_EVIDENCE_CONTENT_KEYWORDS = ["証拠", "evidence", "verify-before", "証拠提示", "before claim"]
+
+# エントリ ID → content-aware キーワードのマッピング
+_CONTENT_KEYWORDS_MAP: Dict[str, List[str]] = {
+    "side-effect-verification": _SIDE_EFFECT_CONTENT_KEYWORDS,
+    "evidence-before-claims": _EVIDENCE_CONTENT_KEYWORDS,
+}
 
 
 def check_verification_installed(entry: Dict[str, Any], project_dir: Path) -> bool:
     """対象プロジェクトにエントリのルールが導入済みかチェックする。
 
     1. rule_filename のファイルが存在するか
-    2. side-effect-verification の場合、既存ルールファイルに副作用キーワードが含まれるか
+    2. content-aware: 既存ルールファイルにキーワードが含まれるか
     """
     rule_filename = entry.get("rule_filename", "")
     if not rule_filename:
@@ -330,14 +424,16 @@ def check_verification_installed(entry: Dict[str, Any], project_dir: Path) -> bo
     if rule_path.exists():
         return True
 
-    # content-aware チェック（side-effect-verification のみ）
-    if entry.get("id") == "side-effect-verification" and rules_dir.is_dir():
+    # content-aware チェック
+    entry_id = entry.get("id", "")
+    keywords = _CONTENT_KEYWORDS_MAP.get(entry_id)
+    if keywords and rules_dir.is_dir():
         for rule_file in rules_dir.glob("*.md"):
             if rule_file.name == rule_filename:
                 continue
             try:
                 content = rule_file.read_text(encoding="utf-8", errors="ignore")
-                if any(kw in content for kw in _SIDE_EFFECT_CONTENT_KEYWORDS):
+                if any(kw in content for kw in keywords):
                     return True
             except (PermissionError, OSError):
                 continue

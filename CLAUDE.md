@@ -52,6 +52,10 @@
 CLAUDE.md からドメイン（ゲーム/API/Bot/ドキュメント）を推定し評価軸を自動切替。
 詳細は [README.md](README.md#rl-scorer-のドメイン自動判定) を参照。
 
+## Superpowers 共存
+
+Superpowers プラグインがインストールされている場合、メタ操作時（evolve/audit/reflect/optimize/discover）は Superpowers の TDD/SDD/debugging スキルを発火させない。開発タスク時はフル活用する。
+
 ## Compaction Instructions
 
 コンテキスト圧縮時、以下の情報をサマリーに必ず含めること:

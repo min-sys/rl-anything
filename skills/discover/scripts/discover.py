@@ -634,6 +634,15 @@ RECOMMENDED_ARTIFACTS = [
         "description": "CLAUDE.md vs MEMORY.md の使い分け — 動作情報/経緯/コードから分かる情報の記載先判断",
         "hook_path": None,
     },
+    {
+        "id": "evidence-before-claims",
+        "type": "rule",
+        "path": Path.home() / ".claude" / "rules" / "verify-before-claim.md",
+        "description": "証拠提示義務 — 完了主張の前に検証コマンドの実行結果を提示する",
+        "hook_path": None,
+        "recommendation_id": "evidence_before_claims",
+        "content_patterns": ["verify-before-claim", "evidence", "証拠", r"完了.*確認"],
+    },
 ]
 
 

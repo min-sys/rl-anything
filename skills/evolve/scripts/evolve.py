@@ -452,6 +452,12 @@ def run_evolve(
     except Exception as e:
         result["phases"]["pitfall_hygiene"] = {"error": str(e)}
 
+    # Phase 4.6: Rationalization Table（合理化防止テーブル — pitfall_hygiene から取得）
+    hygiene_data = result["phases"].get("pitfall_hygiene", {})
+    rt = hygiene_data.get("rationalization_table", {})
+    if rt and not rt.get("data_insufficient"):
+        result["phases"]["rationalization_table"] = rt
+
     # Phase 5: Fitness Evolution（評価関数の改善チェック）
     try:
         from fitness_evolution import run_fitness_evolution

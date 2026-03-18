@@ -42,6 +42,15 @@ ERROR_FREQUENCY_THRESHOLD = 3
 # テレメトリの集計期間（日）
 TELEMETRY_LOOKBACK_DAYS = 30
 
+# 合理化防止テーブル定数 (superpowers-knowledge-integration)
+RATIONALIZATION_MIN_CORRECTIONS = 3
+RATIONALIZATION_SKIP_KEYWORDS = [
+    "skip", "スキップ", "省略", "bypass", "later", "後で",
+    "不要", "unnecessary", "without", "なし", "いらない",
+    "面倒", "time", "時間がない", "急ぎ",
+]
+RATIONALIZATION_OUTCOME_WINDOW_DAYS = 30
+
 # LLMキャッシュ
 _plugin_root = Path(__file__).resolve().parent.parent
 DATA_DIR = Path.home() / ".claude" / "rl-anything"

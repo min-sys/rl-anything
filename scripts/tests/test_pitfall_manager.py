@@ -628,3 +628,192 @@ def test_hygiene_new_fields(tmp_path):
     assert "preflight_candidates" in result
     assert isinstance(result["issues"], list)
     assert isinstance(result["preflight_candidates"], list)
+
+
+# --- 合理化防止テーブル (rationalization patterns) ---
+
+
+from pitfall_manager import (
+    detect_rationalization_patterns,
+    generate_rationalization_table,
+)
+from skill_evolve import (
+    RATIONALIZATION_MIN_CORRECTIONS,
+    RATIONALIZATION_SKIP_KEYWORDS,
+)
+
+
+class TestDetectRationalizationPatterns:
+    def test_skip_keywords_detected(self):
+        """skip キーワードを含む corrections → パターンが返る。"""
+        corrections = [
+            {"message": "テスト省略して進めて"},
+            {"message": "テストはスキップで"},
+            {"message": "bypass the validation step"},
+        ]
+        patterns = detect_rationalization_patterns(corrections)
+        assert len(patterns) >= 1
+        # 各パターンに必須キーが含まれる
+        for p in patterns:
+            assert "excuse" in p
+            assert "corrections" in p
+            assert "sample_count" in p
+            assert p["sample_count"] >= 1
+
+    def test_no_skip_keywords_returns_empty(self):
+        """skip キーワードを含まない corrections → 空リスト。"""
+        corrections = [
+            {"message": "テストを追加して"},
+            {"message": "デプロイ完了しました"},
+        ]
+        patterns = detect_rationalization_patterns(corrections)
+        assert patterns == []
+
+    def test_non_dict_corrections_skipped(self):
+        """dict でないレコードは無視される。"""
+        corrections = [
+            "not a dict",
+            {"message": "後でやる"},
+        ]
+        patterns = detect_rationalization_patterns(corrections)
+        assert len(patterns) == 1
+
+    def test_empty_message_skipped(self):
+        """message が空のレコードは無視される。"""
+        corrections = [
+            {"message": ""},
+            {"message": "スキップして"},
+        ]
+        patterns = detect_rationalization_patterns(corrections)
+        assert len(patterns) == 1
+
+    def test_multiple_keywords_in_single_message(self):
+        """1メッセージに複数キーワードが含まれる場合も1パターンとして検出。"""
+        corrections = [
+            {"message": "テストは不要、スキップして後でやる"},
+        ]
+        patterns = detect_rationalization_patterns(corrections)
+        assert len(patterns) == 1
+
+    def test_case_insensitive_matching(self):
+        """英語キーワードは大文字小文字を区別しない。"""
+        corrections = [
+            {"message": "SKIP this step"},
+            {"message": "Bypass validation"},
+        ]
+        patterns = detect_rationalization_patterns(corrections)
+        assert len(patterns) >= 1
+
+
+class TestGenerateRationalizationTable:
+    def test_data_insufficient_below_threshold(self):
+        """skip パターン corrections が閾値未満 → data_insufficient=True。"""
+        # 通常のメッセージのみ → skip 検出は 0 件
+        corrections = [
+            {"message": "テストを追加して"},
+            {"message": "デプロイ完了"},
+        ]
+        result = generate_rationalization_table(corrections)
+        assert result["data_insufficient"] is True
+        assert result["table"] == []
+        assert result["enriched_pitfalls"] == []
+
+    def test_table_generated_with_sufficient_corrections(self):
+        """skip corrections が閾値以上 → テーブル生成。"""
+        corrections = [
+            {"message": f"テスト省略して ({i})", "timestamp": "2026-03-10T00:00:00Z"}
+            for i in range(RATIONALIZATION_MIN_CORRECTIONS)
+        ]
+        errors = [
+            {"timestamp": "2026-03-15T00:00:00Z", "error_message": "test fail"},
+        ]
+        result = generate_rationalization_table(corrections, errors=errors)
+        assert result["data_insufficient"] is False
+        assert len(result["table"]) >= 1
+        # テーブルエントリの必須キー
+        entry = result["table"][0]
+        assert "excuse" in entry
+        assert "outcome_error_rate" in entry
+        assert "sample_count" in entry
+        assert "telemetry_source" in entry
+
+    def test_table_sorted_by_sample_count_desc(self):
+        """テーブルは sample_count の降順でソートされる。"""
+        corrections = [
+            {"message": "スキップして", "timestamp": "2026-03-10T00:00:00Z"},
+            {"message": "スキップして", "timestamp": "2026-03-11T00:00:00Z"},
+            {"message": "スキップして", "timestamp": "2026-03-12T00:00:00Z"},
+            {"message": "後でやる", "timestamp": "2026-03-10T00:00:00Z"},
+        ]
+        result = generate_rationalization_table(corrections)
+        if not result["data_insufficient"] and len(result["table"]) >= 2:
+            for i in range(len(result["table"]) - 1):
+                assert result["table"][i]["sample_count"] >= result["table"][i + 1]["sample_count"]
+
+    def test_telemetry_source_corrections_only_without_errors(self):
+        """errors が空の場合 telemetry_source は corrections_only。"""
+        corrections = [
+            {"message": f"スキップして ({i})"}
+            for i in range(RATIONALIZATION_MIN_CORRECTIONS)
+        ]
+        result = generate_rationalization_table(corrections, errors=[])
+        assert result["data_insufficient"] is False
+        for entry in result["table"]:
+            assert entry["telemetry_source"] == "corrections_only"
+
+    def test_enriched_pitfall_on_overlap(self):
+        """既存 pitfall と Jaccard 重複 → enriched_pitfalls に追加、duplicate でない。"""
+        corrections = [
+            {"message": f"テスト省略して deploy failed ({i})", "timestamp": "2026-03-10T00:00:00Z"}
+            for i in range(RATIONALIZATION_MIN_CORRECTIONS)
+        ]
+        existing_pitfalls = {
+            "active": [
+                {
+                    "title": "Deploy Error",
+                    "fields": {
+                        "Root-cause": "テスト省略して deploy failed",
+                        "Status": "Active",
+                    },
+                }
+            ],
+            "candidate": [],
+            "graduated": [],
+        }
+        result = generate_rationalization_table(
+            corrections,
+            existing_pitfalls=existing_pitfalls,
+        )
+        assert result["data_insufficient"] is False
+        # 既存 pitfall とエンリッチされる（新規 pitfall ではなく enrichment）
+        assert len(result["enriched_pitfalls"]) >= 1
+        enriched = result["enriched_pitfalls"][0]
+        assert "pitfall_title" in enriched
+        assert "matched_excuse" in enriched
+        assert "jaccard_score" in enriched
+        assert "telemetry_data" in enriched
+
+    def test_no_enrichment_without_existing_pitfalls(self):
+        """existing_pitfalls が None → enriched_pitfalls は空。"""
+        corrections = [
+            {"message": f"スキップして ({i})"}
+            for i in range(RATIONALIZATION_MIN_CORRECTIONS)
+        ]
+        result = generate_rationalization_table(corrections, existing_pitfalls=None)
+        assert result["enriched_pitfalls"] == []
+
+    def test_outcome_error_rate_with_post_errors(self):
+        """errors にタイムスタンプ付きレコード → outcome_error_rate が数値。"""
+        corrections = [
+            {"message": f"省略して ({i})", "timestamp": "2026-03-10T00:00:00Z"}
+            for i in range(RATIONALIZATION_MIN_CORRECTIONS)
+        ]
+        errors = [
+            {"timestamp": "2026-03-15T00:00:00Z", "error_message": "fail"},
+            {"timestamp": "2026-03-20T00:00:00Z", "error_message": "fail"},
+        ]
+        result = generate_rationalization_table(corrections, errors=errors)
+        assert result["data_insufficient"] is False
+        for entry in result["table"]:
+            if entry["telemetry_source"] == "usage+errors":
+                assert isinstance(entry["outcome_error_rate"], float)
