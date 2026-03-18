@@ -8,10 +8,15 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-DATA_DIR = Path.home() / ".claude" / "rl-anything"
+_PLUGIN_DATA_ENV = os.environ.get("CLAUDE_PLUGIN_DATA", "")
+DATA_DIR = Path(_PLUGIN_DATA_ENV) if _PLUGIN_DATA_ENV else Path.home() / ".claude" / "rl-anything"
 
 # ワークフロー文脈ファイルの有効期限（秒）
 _WORKFLOW_CONTEXT_EXPIRE_SECONDS = 24 * 60 * 60  # 24時間
+
+# InstructionsLoaded hook の定数
+INSTRUCTIONS_LOADED_FLAG_PREFIX = "instructions_loaded_"
+STALE_FLAG_TTL_HOURS = 24
 
 
 def ensure_data_dir() -> None:
@@ -336,6 +341,22 @@ def read_last_skill(session_id: str) -> str | None:
 def project_name_from_dir(project_dir: str) -> str:
     """プロジェクトディレクトリパスから末尾のディレクトリ名を返す。"""
     return Path(project_dir).name
+
+
+def extract_worktree_info(event: dict) -> dict | None:
+    """hook event payload から worktree 情報を抽出する。
+
+    name と branch のみを返す。path / original_repo_dir はプライバシーのため除外。
+    worktree フィールドがない、または不完全な場合は None を返す。
+    """
+    wt = event.get("worktree")
+    if not isinstance(wt, dict):
+        return None
+    name = wt.get("name")
+    branch = wt.get("branch")
+    if not name and not branch:
+        return None
+    return {"name": name or "", "branch": branch or ""}
 
 
 def append_jsonl(filepath: Path, record: dict) -> None:

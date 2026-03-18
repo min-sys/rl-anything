@@ -42,6 +42,9 @@ def handle_subagent_stop(event: dict) -> None:
         "workflow_id": wf_ctx["workflow_id"],
         "project": project,
     }
+    wt = common.extract_worktree_info(event)
+    if wt:
+        record["worktree"] = wt
     common.append_jsonl(common.DATA_DIR / "subagents.jsonl", record)
 
 

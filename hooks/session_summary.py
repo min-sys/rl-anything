@@ -118,6 +118,16 @@ def cleanup_context_file(session_id: str) -> None:
         print(f"[rl-anything:session_summary] cleanup error: {e}", file=sys.stderr)
 
 
+def _cleanup_instructions_loaded_flag(session_id: str) -> None:
+    """InstructionsLoaded の dedup フラグファイルを削除する。"""
+    flag = common.DATA_DIR / "tmp" / f"{common.INSTRUCTIONS_LOADED_FLAG_PREFIX}{session_id}"
+    try:
+        if flag.exists():
+            flag.unlink()
+    except OSError as e:
+        print(f"[rl-anything:session_summary] instructions_loaded flag cleanup error: {e}", file=sys.stderr)
+
+
 def _get_project() -> str | None:
     """CLAUDE_PROJECT_DIR から末尾ディレクトリ名を取得する。"""
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
@@ -151,6 +161,9 @@ def handle_stop(event: dict) -> None:
 
     # 文脈ファイルのクリーンアップ
     cleanup_context_file(session_id)
+
+    # InstructionsLoaded フラグファイルのクリーンアップ
+    _cleanup_instructions_loaded_flag(session_id)
 
     # Auto-evolve trigger evaluation
     _evaluate_trigger()

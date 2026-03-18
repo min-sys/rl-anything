@@ -367,6 +367,9 @@ claude plugin uninstall claude-reflect
 
 ```bash
 python3 -m pytest hooks/ skills/ scripts/tests/ scripts/rl/tests/ -v
+
+# プラグイン定義の整合性チェック
+claude plugin validate
 ```
 
 ## Acknowledgements

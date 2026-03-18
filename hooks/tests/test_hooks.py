@@ -1317,3 +1317,325 @@ class TestFalsePositives:
             hashes = common.load_false_positives()
             assert isinstance(hashes, set)
             assert len(hashes) == 0
+
+
+# --- v2.1.78: extract_worktree_info テスト ---
+
+
+class TestExtractWorktreeInfo:
+    """common.extract_worktree_info() のテスト。"""
+
+    def test_worktree_present(self):
+        """worktree フィールドがある event から name/branch を抽出する。"""
+        event = {
+            "worktree": {
+                "name": "feature-branch-wt",
+                "path": "/tmp/worktrees/feature",
+                "branch": "feature/login",
+                "original_repo_dir": "/home/user/project",
+            }
+        }
+        result = common.extract_worktree_info(event)
+        assert result == {"name": "feature-branch-wt", "branch": "feature/login"}
+
+    def test_worktree_absent(self):
+        """worktree フィールドがない event では None を返す。"""
+        event = {"tool_name": "Skill", "session_id": "s1"}
+        result = common.extract_worktree_info(event)
+        assert result is None
+
+    def test_worktree_not_dict(self):
+        """worktree が dict でない場合は None を返す。"""
+        event = {"worktree": "not-a-dict"}
+        assert common.extract_worktree_info(event) is None
+
+    def test_worktree_empty_dict(self):
+        """worktree が空 dict の場合は None を返す。"""
+        event = {"worktree": {}}
+        assert common.extract_worktree_info(event) is None
+
+    def test_worktree_name_only(self):
+        """name のみの場合でも返す。"""
+        event = {"worktree": {"name": "my-wt"}}
+        result = common.extract_worktree_info(event)
+        assert result == {"name": "my-wt", "branch": ""}
+
+    def test_worktree_branch_only(self):
+        """branch のみの場合でも返す。"""
+        event = {"worktree": {"branch": "main"}}
+        result = common.extract_worktree_info(event)
+        assert result == {"name": "", "branch": "main"}
+
+    def test_path_excluded(self):
+        """path と original_repo_dir は返却に含まれない。"""
+        event = {"worktree": {"name": "wt", "branch": "b", "path": "/secret", "original_repo_dir": "/orig"}}
+        result = common.extract_worktree_info(event)
+        assert "path" not in result
+        assert "original_repo_dir" not in result
+
+
+# --- v2.1.78: observe.py agent_id / worktree テスト ---
+
+
+class TestObserveEnrichment:
+    """observe.py の agent_id / worktree enrichment テスト。"""
+
+    def test_agent_id_recorded(self, patch_data_dir):
+        """Agent 記録に agent_id が含まれる。"""
+        event = {
+            "tool_name": "Agent",
+            "tool_input": {"subagent_type": "Explore", "prompt": "test"},
+            "tool_result": {},
+            "session_id": "sess-enrich-001",
+            "agent_id": "agent-abc-123",
+        }
+        observe.handle_post_tool_use(event)
+
+        usage_file = patch_data_dir / "usage.jsonl"
+        record = json.loads(usage_file.read_text().strip())
+        assert record["agent_id"] == "agent-abc-123"
+
+    def test_agent_worktree_recorded(self, patch_data_dir):
+        """Agent 記録に worktree 情報が含まれる。"""
+        event = {
+            "tool_name": "Agent",
+            "tool_input": {"subagent_type": "Explore", "prompt": "test"},
+            "tool_result": {},
+            "session_id": "sess-enrich-002",
+            "worktree": {"name": "wt-1", "branch": "feat/x", "path": "/tmp/wt"},
+        }
+        observe.handle_post_tool_use(event)
+
+        usage_file = patch_data_dir / "usage.jsonl"
+        record = json.loads(usage_file.read_text().strip())
+        assert record["worktree"] == {"name": "wt-1", "branch": "feat/x"}
+
+    def test_agent_no_worktree_key_omitted(self, patch_data_dir):
+        """worktree がない場合はキー自体が省略される。"""
+        event = {
+            "tool_name": "Agent",
+            "tool_input": {"subagent_type": "Explore", "prompt": "test"},
+            "tool_result": {},
+            "session_id": "sess-enrich-003",
+        }
+        observe.handle_post_tool_use(event)
+
+        usage_file = patch_data_dir / "usage.jsonl"
+        record = json.loads(usage_file.read_text().strip())
+        assert "worktree" not in record
+
+    def test_skill_worktree_recorded(self, patch_data_dir):
+        """Skill 記録にも worktree 情報が含まれる。"""
+        event = {
+            "tool_name": "Skill",
+            "tool_input": {"skill": "my-skill", "args": ""},
+            "tool_result": {},
+            "session_id": "sess-enrich-004",
+            "worktree": {"name": "wt-2", "branch": "feat/y", "path": "/tmp/wt2"},
+        }
+        observe.handle_post_tool_use(event)
+
+        usage_file = patch_data_dir / "usage.jsonl"
+        record = json.loads(usage_file.read_text().strip())
+        assert record["worktree"] == {"name": "wt-2", "branch": "feat/y"}
+
+    def test_error_worktree_recorded(self, patch_data_dir):
+        """error 記録にも worktree 情報が含まれる。"""
+        event = {
+            "tool_name": "Bash",
+            "tool_input": {"command": "false"},
+            "tool_result": {"is_error": True, "content": "failed"},
+            "session_id": "sess-enrich-005",
+            "worktree": {"name": "wt-3", "branch": "feat/z"},
+        }
+        observe.handle_post_tool_use(event)
+
+        errors_file = patch_data_dir / "errors.jsonl"
+        record = json.loads(errors_file.read_text().strip())
+        assert record["worktree"] == {"name": "wt-3", "branch": "feat/z"}
+
+
+# --- v2.1.78: subagent_observe.py worktree テスト ---
+
+
+class TestSubagentWorktree:
+    """subagent_observe.py の worktree enrichment テスト。"""
+
+    def test_worktree_recorded(self, patch_data_dir):
+        """SubagentStop event に worktree 情報が付与される。"""
+        event = {
+            "agent_type": "Explore",
+            "agent_id": "agent-wt-001",
+            "last_assistant_message": "done",
+            "agent_transcript_path": "/tmp/t.jsonl",
+            "session_id": "sess-wt-001",
+            "worktree": {"name": "wt-sub", "branch": "feat/sub", "path": "/tmp/wt"},
+        }
+        subagent_observe.handle_subagent_stop(event)
+
+        subagents_file = patch_data_dir / "subagents.jsonl"
+        record = json.loads(subagents_file.read_text().strip())
+        assert record["worktree"] == {"name": "wt-sub", "branch": "feat/sub"}
+
+    def test_no_worktree_key_omitted(self, patch_data_dir):
+        """worktree がない event ではキーが省略される。"""
+        event = {
+            "agent_type": "Explore",
+            "agent_id": "agent-wt-002",
+            "last_assistant_message": "done",
+            "agent_transcript_path": "/tmp/t.jsonl",
+            "session_id": "sess-wt-002",
+        }
+        subagent_observe.handle_subagent_stop(event)
+
+        subagents_file = patch_data_dir / "subagents.jsonl"
+        record = json.loads(subagents_file.read_text().strip())
+        assert "worktree" not in record
+
+
+# --- v2.1.78: instructions_loaded.py テスト ---
+
+import instructions_loaded
+
+
+class TestInstructionsLoaded:
+    """instructions_loaded.py のテスト。"""
+
+    def test_first_call_records(self, patch_data_dir):
+        """初回呼び出しで sessions.jsonl に記録される。"""
+        event = {"session_id": "sess-il-001"}
+        instructions_loaded.handle_instructions_loaded(event)
+
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        assert sessions_file.exists()
+        record = json.loads(sessions_file.read_text().strip())
+        assert record["type"] == "instructions_loaded"
+        assert record["session_id"] == "sess-il-001"
+
+    def test_second_call_dedup(self, patch_data_dir):
+        """同一セッションの2回目は記録しない。"""
+        event = {"session_id": "sess-il-002"}
+        instructions_loaded.handle_instructions_loaded(event)
+        instructions_loaded.handle_instructions_loaded(event)
+
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        lines = [l for l in sessions_file.read_text().strip().splitlines() if l.strip()]
+        assert len(lines) == 1
+
+    def test_different_sessions_both_record(self, patch_data_dir):
+        """異なるセッションはそれぞれ記録される。"""
+        instructions_loaded.handle_instructions_loaded({"session_id": "sess-il-003"})
+        instructions_loaded.handle_instructions_loaded({"session_id": "sess-il-004"})
+
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        lines = [l for l in sessions_file.read_text().strip().splitlines() if l.strip()]
+        assert len(lines) == 2
+
+    def test_empty_session_id_noop(self, patch_data_dir):
+        """session_id が空の場合は何もしない。"""
+        instructions_loaded.handle_instructions_loaded({"session_id": ""})
+        sessions_file = patch_data_dir / "sessions.jsonl"
+        assert not sessions_file.exists()
+
+    def test_stale_flag_cleaned(self, patch_data_dir):
+        """STALE_FLAG_TTL_HOURS 超過のフラグは削除される。"""
+        tmp_dir = patch_data_dir / "tmp"
+        tmp_dir.mkdir(exist_ok=True)
+        stale_flag = tmp_dir / f"{common.INSTRUCTIONS_LOADED_FLAG_PREFIX}stale-session"
+        stale_flag.write_text("stale-session")
+        # mtime を25時間前に設定
+        old_time = time.time() - (25 * 3600)
+        os.utime(stale_flag, (old_time, old_time))
+
+        # 新しいセッションの処理で stale が掃除される
+        instructions_loaded.handle_instructions_loaded({"session_id": "sess-il-005"})
+        assert not stale_flag.exists()
+
+
+# --- v2.1.78: stop_failure.py テスト ---
+
+import stop_failure
+
+
+class TestStopFailure:
+    """stop_failure.py のテスト。"""
+
+    def test_rate_limit_recorded(self, patch_data_dir):
+        """rate limit エラーが errors.jsonl に記録される。"""
+        event = {
+            "session_id": "sess-sf-001",
+            "error_type": "rate_limit",
+            "error_message": "Rate limit exceeded",
+        }
+        stop_failure.handle_stop_failure(event)
+
+        errors_file = patch_data_dir / "errors.jsonl"
+        assert errors_file.exists()
+        record = json.loads(errors_file.read_text().strip())
+        assert record["type"] == "api_error"
+        assert record["error_type"] == "rate_limit"
+        assert record["error"] == "Rate limit exceeded"
+        assert record["session_id"] == "sess-sf-001"
+
+    def test_auth_failure_recorded(self, patch_data_dir):
+        """認証失敗エラーが記録される。"""
+        event = {
+            "session_id": "sess-sf-002",
+            "error_type": "auth_failure",
+            "error_message": "Invalid API key",
+        }
+        stop_failure.handle_stop_failure(event)
+
+        errors_file = patch_data_dir / "errors.jsonl"
+        record = json.loads(errors_file.read_text().strip())
+        assert record["error_type"] == "auth_failure"
+
+    def test_worktree_attached(self, patch_data_dir):
+        """worktree 情報が付与される。"""
+        event = {
+            "session_id": "sess-sf-003",
+            "error_type": "rate_limit",
+            "error_message": "Rate limit",
+            "worktree": {"name": "wt-sf", "branch": "feat/sf", "path": "/tmp/wt"},
+        }
+        stop_failure.handle_stop_failure(event)
+
+        errors_file = patch_data_dir / "errors.jsonl"
+        record = json.loads(errors_file.read_text().strip())
+        assert record["worktree"] == {"name": "wt-sf", "branch": "feat/sf"}
+
+    def test_unknown_error_type(self, patch_data_dir):
+        """error_type が未設定の場合は 'unknown'。"""
+        event = {
+            "session_id": "sess-sf-004",
+            "error_message": "Something went wrong",
+        }
+        stop_failure.handle_stop_failure(event)
+
+        errors_file = patch_data_dir / "errors.jsonl"
+        record = json.loads(errors_file.read_text().strip())
+        assert record["error_type"] == "unknown"
+
+
+# --- v2.1.78: DATA_DIR CLAUDE_PLUGIN_DATA フォールバック テスト ---
+
+
+class TestDataDirFallback:
+    """DATA_DIR の CLAUDE_PLUGIN_DATA フォールバックテスト。"""
+
+    def test_plugin_data_env_used(self, tmp_path):
+        """CLAUDE_PLUGIN_DATA が設定されている場合はそちらが使われる。"""
+        plugin_data = str(tmp_path / "plugin-data")
+        with mock.patch.dict(os.environ, {"CLAUDE_PLUGIN_DATA": plugin_data}):
+            importlib.reload(common)
+            assert common.DATA_DIR == Path(plugin_data)
+        # 元に戻す
+        os.environ.pop("CLAUDE_PLUGIN_DATA", None)
+        importlib.reload(common)
+
+    def test_fallback_when_unset(self):
+        """CLAUDE_PLUGIN_DATA 未設定時は従来パスにフォールバック。"""
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("CLAUDE_PLUGIN_DATA", None)
+            importlib.reload(common)
+            assert common.DATA_DIR == Path.home() / ".claude" / "rl-anything"

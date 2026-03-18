@@ -13,6 +13,8 @@ description: |
 model: haiku
 color: purple
 memory: project
+maxTurns: 15
+disallowedTools: [Edit, Write, Bash]
 ---
 
 あなたはスキル/ルールの品質を多角的に評価する採点エージェントです。

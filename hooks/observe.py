@@ -54,6 +54,9 @@ def handle_post_tool_use(event: dict) -> None:
             "file_path": tool_input.get("args", ""),
             "project": project,
         }
+        wt_skill = common.extract_worktree_info(event)
+        if wt_skill:
+            usage_record["worktree"] = wt_skill
         common.append_jsonl(common.DATA_DIR / "usage.jsonl", usage_record)
 
         # 直前スキル名を一時ファイルに記録（correction_detect.py が参照）
@@ -79,6 +82,7 @@ def handle_post_tool_use(event: dict) -> None:
         usage_record = {
             "skill_name": f"Agent:{subagent_type}",
             "subagent_type": subagent_type,
+            "agent_id": event.get("agent_id", ""),
             "prompt": prompt,
             "session_id": session_id,
             "timestamp": now,
@@ -86,6 +90,9 @@ def handle_post_tool_use(event: dict) -> None:
             "workflow_id": wf_ctx["workflow_id"],
             "project": project,
         }
+        wt = common.extract_worktree_info(event)
+        if wt:
+            usage_record["worktree"] = wt
         common.append_jsonl(common.DATA_DIR / "usage.jsonl", usage_record)
 
     # エラーの記録
@@ -99,6 +106,9 @@ def handle_post_tool_use(event: dict) -> None:
             "session_id": session_id,
             "project": project,
         }
+        wt_err = common.extract_worktree_info(event)
+        if wt_err:
+            error_record["worktree"] = wt_err
         common.append_jsonl(common.DATA_DIR / "errors.jsonl", error_record)
 
 
