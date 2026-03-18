@@ -547,3 +547,121 @@ def _customize_template(
         pass
     # フォールバック: テンプレートそのまま
     return template
+
+
+# --- 単一スキル向け共通関数 (D3) ---
+
+
+def assess_single_skill(
+    skill_name: str,
+    skill_dir: Path,
+    *,
+    project: Optional[str] = None,
+) -> Dict[str, Any]:
+    """1スキルの自己進化適性判定結果を返す。
+
+    Returns:
+        {"skill_name": str, "skill_dir": str, "already_evolved": bool,
+         "suitability": str, "scores": {...}, "total_score": int,
+         "anti_patterns": [...], "recommendation": str}
+    """
+    skill_dir = Path(skill_dir)
+
+    # 既に自己進化済み
+    if is_self_evolved_skill(skill_dir):
+        return {
+            "skill_name": skill_name,
+            "skill_dir": str(skill_dir),
+            "already_evolved": True,
+            "suitability": "already_evolved",
+        }
+
+    # テレメトリ3軸
+    telemetry = compute_telemetry_scores(skill_name, project=project)
+
+    # LLM 2軸
+    llm = compute_llm_scores(skill_name, skill_dir)
+
+    scores = {
+        "frequency": telemetry["frequency"],
+        "diversity": telemetry["diversity"],
+        "evaluability": telemetry["evaluability"],
+        "external_dependency": llm["external_dependency"],
+        "judgment_complexity": llm["judgment_complexity"],
+        "error_count": telemetry["error_count"],
+    }
+
+    total_score = sum(scores.values())
+    suitability = classify_suitability(total_score)
+
+    # アンチパターン検出
+    anti_patterns = detect_anti_patterns(scores, skill_dir)
+    rejection_count = sum(
+        1 for ap in anti_patterns
+        if ap["pattern"] in ("Noise Collector", "Context Bloat", "Band-Aid")
+    )
+
+    if rejection_count >= ANTI_PATTERN_REJECTION_COUNT:
+        recommendation = "変換非推奨: 評価時アンチパターン{}件該当".format(rejection_count)
+        suitability = "rejected"
+    elif suitability == "high":
+        recommendation = "変換を推奨"
+    elif suitability == "medium":
+        recommendation = "変換可能 — ユーザー判断に委ねます"
+    else:
+        recommendation = "変換非推奨"
+
+    return {
+        "skill_name": skill_name,
+        "skill_dir": str(skill_dir),
+        "already_evolved": False,
+        "scores": scores,
+        "total_score": total_score,
+        "suitability": suitability,
+        "anti_patterns": anti_patterns,
+        "recommendation": recommendation,
+        "telemetry_detail": {
+            "usage_count": telemetry["usage_count"],
+            "error_count": telemetry["error_count"],
+            "error_categories": telemetry["error_categories"],
+        },
+        "llm_cached": llm["cached"],
+    }
+
+
+def apply_evolve_proposal(proposal: Dict[str, Any]) -> Dict[str, Any]:
+    """evolve_skill_proposal() の返り値を受け取り、SKILL.md セクション追記 +
+    references/pitfalls.md 作成 + バックアップ作成を実行する。
+
+    Returns:
+        {"applied": bool, "backup_path": str|None, "error": str|None}
+    """
+    if proposal.get("error"):
+        return {"applied": False, "backup_path": None, "error": proposal["error"]}
+
+    skill_md = Path(proposal["skill_md_path"])
+    pitfalls_path = Path(proposal["pitfalls_path"])
+
+    try:
+        # バックアップ作成 (D6)
+        backup_path = skill_md.with_name(skill_md.name + ".pre-evolve-backup")
+        original_content = ""
+        if skill_md.exists():
+            original_content = skill_md.read_text(encoding="utf-8")
+            backup_path.write_text(original_content, encoding="utf-8")
+
+        # SKILL.md にセクション追記
+        new_content = original_content.rstrip() + "\n\n" + proposal["sections_to_add"] + "\n"
+        skill_md.write_text(new_content, encoding="utf-8")
+
+        # references/pitfalls.md 作成
+        pitfalls_path.parent.mkdir(parents=True, exist_ok=True)
+        pitfalls_path.write_text(proposal["pitfalls_template"], encoding="utf-8")
+
+        return {
+            "applied": True,
+            "backup_path": str(backup_path),
+            "error": None,
+        }
+    except OSError as e:
+        return {"applied": False, "backup_path": None, "error": str(e)}

@@ -51,6 +51,7 @@ MAX_KEPT_RUNS = 10  # rl-loop 結果の保持数
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 from line_limit import check_line_limit as _check_line_limit
+from skill_evolve import assess_single_skill, evolve_skill_proposal, apply_evolve_proposal
 
 
 def _get_output_dir(output_dir: Optional[str] = None) -> Path:
@@ -268,6 +269,73 @@ def score_variant(content: str, target_path: str, dry_run: bool = False) -> floa
     return scores["integrated"]
 
 
+def _try_evolve_skill(
+    target_path: str,
+    auto: bool = False,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """Step 5.5: 自己進化パターン組み込みを試行する。
+
+    Returns:
+        {"evolve_suitability": str, "evolve_applied": bool, "evolve_scores": dict|None}
+    """
+    target = Path(target_path)
+    skill_dir = target.parent
+    skill_name = skill_dir.name
+
+    print("Step 5.5: 自己進化パターン判定...")
+    assessment = assess_single_skill(skill_name, skill_dir)
+    suitability = assessment.get("suitability", "low")
+    scores = assessment.get("scores")
+
+    result: Dict[str, Any] = {
+        "evolve_suitability": suitability,
+        "evolve_applied": False,
+        "evolve_scores": scores,
+    }
+
+    if suitability == "already_evolved":
+        print("  既に自己進化対応済みです。スキップ。")
+        return result
+
+    if suitability in ("low", "rejected"):
+        print(f"  適性: {suitability} — {assessment.get('recommendation', '変換非推奨')}")
+        return result
+
+    print(f"  適性: {suitability} — {assessment.get('recommendation', '')}")
+
+    if dry_run:
+        print("  [dry-run] 自己進化パターン組み込みスキップ。")
+        return result
+
+    # 承認フロー
+    approved = False
+    if auto:
+        print("  [自動承認] 自己進化パターンを組み込みます。")
+        approved = True
+    else:
+        response = input("  自己進化パターンを組み込みますか？ [y/N]: ").strip().lower()
+        approved = response in ("y", "yes")
+
+    if not approved:
+        print("  自己進化パターン組み込みを却下しました。")
+        return result
+
+    proposal = evolve_skill_proposal(skill_name, skill_dir)
+    if proposal.get("error"):
+        print(f"  エラー: {proposal['error']}")
+        return result
+
+    apply_result = apply_evolve_proposal(proposal)
+    result["evolve_applied"] = apply_result["applied"]
+    if apply_result["applied"]:
+        print(f"  自己進化パターン組み込み完了。バックアップ: {apply_result['backup_path']}")
+    else:
+        print(f"  組み込み失敗: {apply_result['error']}")
+
+    return result
+
+
 def run_loop(
     target_path: str,
     loops: int = 1,
@@ -275,6 +343,7 @@ def run_loop(
     auto: bool = False,
     dry_run: bool = False,
     output_dir: Optional[str] = None,
+    evolve: bool = False,
 ) -> List[Dict[str, Any]]:
     """メインループを実行"""
     results = []
@@ -393,7 +462,12 @@ def run_loop(
                 Path(target_path).write_text(best["content"], encoding="utf-8")
                 print(f"  適用完了: {target_path}")
 
-        loop_result = {
+        # Step 5.5: 自己進化パターン組み込み (D4: 最適化後)
+        evolve_result: Optional[Dict[str, Any]] = None
+        if evolve:
+            evolve_result = _try_evolve_skill(target_path, auto=auto, dry_run=dry_run)
+
+        loop_result: Dict[str, Any] = {
             "loop": loop_num,
             "run_id": run_id,
             "target": target_path,
@@ -405,6 +479,10 @@ def run_loop(
             "timestamp": datetime.now().isoformat(),
             "variants_count": len(variants),
         }
+        if evolve_result:
+            loop_result["evolve_suitability"] = evolve_result["evolve_suitability"]
+            loop_result["evolve_applied"] = evolve_result["evolve_applied"]
+            loop_result["evolve_scores"] = evolve_result["evolve_scores"]
         results.append(loop_result)
 
         # 履歴に追記
@@ -441,6 +519,7 @@ def main():
     parser.add_argument("--auto", action="store_true", help="自動承認モード")
     parser.add_argument("--dry-run", action="store_true", help="構造テスト")
     parser.add_argument("--output-dir", help="出力ディレクトリ（デフォルト: .rl-loop/）")
+    parser.add_argument("--evolve", action="store_true", help="自己進化パターン組み込みを有効化")
 
     args = parser.parse_args()
 
@@ -451,6 +530,7 @@ def main():
         auto=args.auto,
         dry_run=args.dry_run,
         output_dir=args.output_dir,
+        evolve=args.evolve,
     )
 
 

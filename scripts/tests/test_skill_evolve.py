@@ -20,6 +20,8 @@ from skill_evolve import (
     _score_external_dependency,
     _score_failure_diversity,
     _score_output_evaluability,
+    apply_evolve_proposal,
+    assess_single_skill,
     classify_suitability,
     detect_anti_patterns,
     evolve_skill_proposal,
@@ -393,3 +395,201 @@ def test_low_suitability_not_injected():
             issues.append(make_skill_evolve_issue(assessment, skill_md_path))
 
     assert len(issues) == 0
+
+
+# --- assess_single_skill ---
+
+
+def test_assess_single_skill_already_evolved(tmp_path):
+    """既に自己進化済みのスキルは suitability='already_evolved' を返す。"""
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "pitfalls.md").write_text("# Pitfalls\n")
+    (skill_dir / "SKILL.md").write_text(
+        "# My Skill\n\n## Failure-triggered Learning\n\nsome content\n"
+    )
+    result = assess_single_skill("my-skill", skill_dir)
+    assert result["suitability"] == "already_evolved"
+    assert result["already_evolved"] is True
+
+
+@mock.patch("skill_evolve.compute_llm_scores")
+@mock.patch("skill_evolve.compute_telemetry_scores")
+def test_assess_single_skill_high(mock_telemetry, mock_llm, tmp_path):
+    """高適性スキルの判定。"""
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("# My Skill\n")
+
+    mock_telemetry.return_value = {
+        "frequency": 3, "diversity": 3, "evaluability": 3,
+        "usage_count": 20, "error_count": 8,
+        "error_categories": ["a", "b", "c", "d"],
+    }
+    mock_llm.return_value = {
+        "external_dependency": 2, "judgment_complexity": 3, "cached": True,
+    }
+    result = assess_single_skill("my-skill", skill_dir)
+    assert result["suitability"] == "high"
+    assert result["total_score"] >= HIGH_SUITABILITY_THRESHOLD
+
+
+@mock.patch("skill_evolve.compute_llm_scores")
+@mock.patch("skill_evolve.compute_telemetry_scores")
+def test_assess_single_skill_medium(mock_telemetry, mock_llm, tmp_path):
+    """中適性スキルの判定。"""
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("# My Skill\n")
+
+    mock_telemetry.return_value = {
+        "frequency": 2, "diversity": 2, "evaluability": 1,
+        "usage_count": 10, "error_count": 0,
+        "error_categories": ["a", "b"],
+    }
+    mock_llm.return_value = {
+        "external_dependency": 1, "judgment_complexity": 2, "cached": True,
+    }
+    result = assess_single_skill("my-skill", skill_dir)
+    # total = 2+2+1+1+2+0 = 8 → medium (>= 8, < 12)
+    assert result["suitability"] == "medium"
+
+
+@mock.patch("skill_evolve.compute_llm_scores")
+@mock.patch("skill_evolve.compute_telemetry_scores")
+def test_assess_single_skill_low(mock_telemetry, mock_llm, tmp_path):
+    """低適性スキルの判定。"""
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("# My Skill\n")
+
+    mock_telemetry.return_value = {
+        "frequency": 1, "diversity": 1, "evaluability": 1,
+        "usage_count": 2, "error_count": 0,
+        "error_categories": [],
+    }
+    mock_llm.return_value = {
+        "external_dependency": 1, "judgment_complexity": 1, "cached": True,
+    }
+    result = assess_single_skill("my-skill", skill_dir)
+    assert result["suitability"] == "low"
+
+
+@mock.patch("skill_evolve.compute_llm_scores")
+@mock.patch("skill_evolve.compute_telemetry_scores")
+def test_assess_single_skill_rejected(mock_telemetry, mock_llm, tmp_path):
+    """アンチパターン2件以上で rejected。"""
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("# My Skill\n")
+    # Band-Aid 用の references/ を作成
+    refs = skill_dir / "references"
+    refs.mkdir()
+    items = "\n".join(f"- item {i}" for i in range(BAND_AID_THRESHOLD + 1))
+    (refs / "troubleshoot.md").write_text(f"# Troubleshoot\n\n{items}\n")
+
+    # Noise Collector (diversity=1, error_count>0) + Band-Aid
+    mock_telemetry.return_value = {
+        "frequency": 3, "diversity": 1, "evaluability": 3,
+        "usage_count": 20, "error_count": 5,
+        "error_categories": ["a"],
+    }
+    mock_llm.return_value = {
+        "external_dependency": 1, "judgment_complexity": 1, "cached": True,
+    }
+    result = assess_single_skill("my-skill", skill_dir)
+    assert result["suitability"] == "rejected"
+
+
+# --- apply_evolve_proposal ---
+
+
+def test_apply_evolve_proposal_success(tmp_path, monkeypatch):
+    """正常適用: SKILL.md にセクション追記、references/pitfalls.md 作成、バックアップ作成。"""
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    original_content = "# My Skill\n\nOriginal content.\n"
+    (skill_dir / "SKILL.md").write_text(original_content)
+
+    proposal = {
+        "skill_name": "my-skill",
+        "sections_to_add": "## Pre-flight Check\n\n## Failure-triggered Learning\n",
+        "pitfalls_template": "## Active Pitfalls\n\n## Graduated Pitfalls\n",
+        "skill_md_path": str(skill_dir / "SKILL.md"),
+        "pitfalls_path": str(skill_dir / "references" / "pitfalls.md"),
+        "error": None,
+    }
+
+    result = apply_evolve_proposal(proposal)
+    assert result["applied"] is True
+    assert result["error"] is None
+
+    # SKILL.md にセクション追記されている
+    updated = (skill_dir / "SKILL.md").read_text()
+    assert "Pre-flight Check" in updated
+    assert "Original content" in updated
+
+    # references/pitfalls.md が作成されている
+    pitfalls = skill_dir / "references" / "pitfalls.md"
+    assert pitfalls.exists()
+    assert "Active Pitfalls" in pitfalls.read_text()
+
+    # バックアップが作成されている
+    backup = skill_dir / "SKILL.md.pre-evolve-backup"
+    assert backup.exists()
+    assert backup.read_text() == original_content
+
+
+def test_apply_evolve_proposal_creates_references_dir(tmp_path):
+    """references/ ディレクトリがなくても自動作成される。"""
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("# My Skill\n")
+
+    proposal = {
+        "skill_name": "my-skill",
+        "sections_to_add": "## Failure-triggered Learning\n",
+        "pitfalls_template": "## Active Pitfalls\n",
+        "skill_md_path": str(skill_dir / "SKILL.md"),
+        "pitfalls_path": str(skill_dir / "references" / "pitfalls.md"),
+        "error": None,
+    }
+
+    result = apply_evolve_proposal(proposal)
+    assert result["applied"] is True
+    assert (skill_dir / "references").is_dir()
+    assert (skill_dir / "references" / "pitfalls.md").exists()
+
+
+def test_apply_evolve_proposal_with_error():
+    """proposal にエラーがある場合は適用しない。"""
+    proposal = {
+        "skill_name": "my-skill",
+        "error": "テンプレートが見つかりません",
+    }
+
+    result = apply_evolve_proposal(proposal)
+    assert result["applied"] is False
+    assert result["error"] == "テンプレートが見つかりません"
+
+
+def test_apply_evolve_proposal_backup_path_in_result(tmp_path):
+    """結果に backup_path が含まれる。"""
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("# My Skill\n")
+
+    proposal = {
+        "skill_name": "my-skill",
+        "sections_to_add": "## Failure-triggered Learning\n",
+        "pitfalls_template": "## Active Pitfalls\n",
+        "skill_md_path": str(skill_dir / "SKILL.md"),
+        "pitfalls_path": str(skill_dir / "references" / "pitfalls.md"),
+        "error": None,
+    }
+
+    result = apply_evolve_proposal(proposal)
+    assert "backup_path" in result
+    assert result["backup_path"].endswith(".pre-evolve-backup")

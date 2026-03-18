@@ -22,6 +22,7 @@
 | `rl-scorer` エージェント | オーケストレーター(haiku) + 3サブエージェント並列(tech/struct=haiku, domain=sonnet)で3軸採点 |
 | `skill-triage` | テレメトリ+trigger evalで CREATE/UPDATE/SPLIT/MERGE/OK の5択判定（`scripts/lib/skill_triage.py`） |
 | `trigger-eval-generator` | sessions.jsonl+usage.jsonl → skill-creator互換 evals.json 自動生成（`scripts/lib/trigger_eval_generator.py`） |
+| `evolve-skill` | 特定スキルに自己進化パターン（Pre-flight / pitfalls.md）をピンポイント組み込み（`assess_single_skill` + `apply_evolve_proposal`） |
 
 ## クイックスタート
 

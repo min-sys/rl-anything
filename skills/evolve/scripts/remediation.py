@@ -1041,7 +1041,7 @@ def fix_skill_evolve(
     import sys
     _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
     sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
-    from skill_evolve import evolve_skill_proposal
+    from skill_evolve import evolve_skill_proposal, apply_evolve_proposal
 
     results = []
     for issue in issues:
@@ -1066,31 +1066,18 @@ def fix_skill_evolve(
             })
             continue
 
-        # SKILL.md にセクション追記
+        # 変更前の内容を記録（remediation の original_content 互換）
         skill_md = Path(proposal["skill_md_path"])
         try:
             original_content = skill_md.read_text(encoding="utf-8") if skill_md.exists() else ""
         except OSError:
             original_content = ""
 
-        try:
-            new_content = original_content.rstrip() + "\n\n" + proposal["sections_to_add"] + "\n"
-            skill_md.write_text(new_content, encoding="utf-8")
-
-            # references/pitfalls.md 作成
-            pitfalls_path = Path(proposal["pitfalls_path"])
-            pitfalls_path.parent.mkdir(parents=True, exist_ok=True)
-            pitfalls_path.write_text(proposal["pitfalls_template"], encoding="utf-8")
-
-            results.append({
-                "issue": issue, "original_content": original_content,
-                "fixed": True, "error": None,
-            })
-        except OSError as e:
-            results.append({
-                "issue": issue, "original_content": original_content,
-                "fixed": False, "error": str(e),
-            })
+        apply_result = apply_evolve_proposal(proposal)
+        results.append({
+            "issue": issue, "original_content": original_content,
+            "fixed": apply_result["applied"], "error": apply_result["error"],
+        })
 
     return results
 

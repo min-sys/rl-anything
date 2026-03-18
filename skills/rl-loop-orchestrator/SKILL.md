@@ -26,6 +26,7 @@ allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion, Agent
 | `--auto` | 人間確認ステップをスキップ | false |
 | `--dry-run` | 構造テスト（実際の変更は行わない） | false |
 | `--output-dir DIR` | 出力ディレクトリ | `.rl-loop/` |
+| `--evolve` | 自己進化パターン組み込みを有効化（Step 5.5） | false |
 
 TARGET がスキル名（例: `my-skill`）の場合、`.claude/skills/{name}/SKILL.md` に解決する。
 ファイルパスが直接指定された場合はそのまま使用する。
@@ -51,6 +52,8 @@ python3 <PLUGIN_DIR>/skills/rl-loop-orchestrator/scripts/run-loop.py \
 /rl-loop my-skill --dry-run          # 構造テスト
 /rl-loop my-skill --loops 3          # 3ループ実行
 /rl-loop my-skill --auto             # 人間確認スキップ
+/rl-loop my-skill --evolve           # 最適化 + 自己進化パターン組み込み
+/rl-loop my-skill --evolve --dry-run # 判定結果のみ表示
 ```
 
 ## ループの流れ
@@ -65,6 +68,8 @@ python3 <PLUGIN_DIR>/skills/rl-loop-orchestrator/scripts/run-loop.py \
 [Step 4] 選択と人間確認: 最高スコアのバリエーションを提示 → 承認/却下
     ↓
 [Step 5] 記録: 結果を出力ディレクトリに保存
+    ↓
+[Step 5.5] 自己進化（--evolve 時のみ）: 未対応スキルに自己進化パターン組み込みを提案
     ↓
 (次ループへ)
 ```
