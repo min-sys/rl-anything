@@ -594,3 +594,77 @@ class TestLastSkillRouting:
     def test_last_skill_confidence_constant(self):
         """LAST_SKILL_CONFIDENCE 定数の値。"""
         assert LAST_SKILL_CONFIDENCE == 0.88
+
+
+# ══════════════════════════════════════════════════════
+# suggest_paths_frontmatter
+# ══════════════════════════════════════════════════════
+
+
+from reflect_utils import PathsSuggestion, suggest_paths_frontmatter
+
+
+class TestSuggestPathsFrontmatter:
+    """suggest_paths_frontmatter の8パターンテスト。"""
+
+    def test_common_dir_and_ext(self, tmp_path):
+        """同一ディレクトリ+同一拡張子 → グロブパターン生成。"""
+        msg = "hooks/common.py と hooks/save_state.py を修正する"
+        result = suggest_paths_frontmatter(msg, tmp_path)
+        assert result is not None
+        assert isinstance(result, PathsSuggestion)
+        assert any("hooks/" in p and "*.py" in p for p in result.patterns)
+        assert 0.0 <= result.confidence <= 1.0
+
+    def test_no_paths(self, tmp_path):
+        """パス参照なし → None。"""
+        msg = "テストを追加してください"
+        result = suggest_paths_frontmatter(msg, tmp_path)
+        assert result is None
+
+    def test_single_file(self, tmp_path):
+        """単一ファイル参照 → グロブパターン生成。"""
+        msg = "scripts/lib/frontmatter.py を修正する"
+        result = suggest_paths_frontmatter(msg, tmp_path)
+        assert result is not None
+        assert len(result.patterns) >= 1
+
+    def test_common_extension(self, tmp_path):
+        """共通拡張子のファイル参照。"""
+        msg = ".github/workflows/ci.yml と .github/workflows/deploy.yml を確認"
+        result = suggest_paths_frontmatter(msg, tmp_path)
+        assert result is not None
+        assert any("*.yml" in p for p in result.patterns)
+
+    def test_mixed_directories(self, tmp_path):
+        """異なるディレクトリのファイル参照。"""
+        msg = "src/api/handler.py と tests/test_handler.py を修正"
+        result = suggest_paths_frontmatter(msg, tmp_path)
+        assert result is not None
+        # 拡張子で共通パターンにフォールバックするか、複数パターン
+        assert len(result.patterns) >= 1
+
+    def test_mixed_extensions(self, tmp_path):
+        """異なる拡張子 → None またはディレクトリベース。"""
+        msg = "config.yml と deploy.sh を確認"
+        result = suggest_paths_frontmatter(msg, tmp_path)
+        # 共通パターンが見出せない場合は None
+        # ディレクトリが同一でない+拡張子も異なる場合
+        if result is not None:
+            assert len(result.patterns) >= 1
+
+    def test_deep_nested(self, tmp_path):
+        """深いネストのパス → 具体的な共通プレフィックス。"""
+        msg = "src/modules/auth/middleware/jwt.ts と src/modules/auth/middleware/session.ts を修正"
+        result = suggest_paths_frontmatter(msg, tmp_path)
+        assert result is not None
+        assert any("src/modules/auth/middleware/" in p for p in result.patterns)
+
+    def test_no_extension_files(self, tmp_path):
+        """拡張子なしファイル → ファイル名直接 or None。"""
+        msg = "Makefile を修正する"
+        result = suggest_paths_frontmatter(msg, tmp_path)
+        # 単一の拡張子なしファイルはパターン化困難
+        # None または直接パターン
+        if result is not None:
+            assert len(result.patterns) >= 1

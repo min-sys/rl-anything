@@ -23,6 +23,7 @@ from reflect_utils import (
     read_auto_memory,
     suggest_auto_memory_topic,
     suggest_claude_file,
+    suggest_paths_frontmatter,
 )
 from line_limit import check_line_limit, suggest_separation
 from semantic_detector import detect_contradictions, validate_corrections
@@ -207,6 +208,19 @@ def route_corrections(
                         f"反映先 {sf} は既に行数制限を超過しています。"
                         f"詳細を {proposal.reference_path} に分離することを検討してください。"
                     )
+
+        # paths frontmatter 提案
+        sf = updated.get("suggested_file")
+        if sf and ".claude/rules/" in sf:
+            paths_suggestion = suggest_paths_frontmatter(
+                c.get("message", ""), project_root or Path.cwd()
+            )
+            if paths_suggestion is not None:
+                updated["paths_suggestion"] = {
+                    "patterns": paths_suggestion.patterns,
+                    "confidence": paths_suggestion.confidence,
+                    "note": "CC バージョンによっては globs: の方が信頼性が高い場合があります",
+                }
 
         result.append(updated)
     return result

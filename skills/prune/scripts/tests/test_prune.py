@@ -1089,3 +1089,63 @@ class TestPrunePluginExclusion:
         result = prune.run_prune(str(project_dir))
         assert "plugin_unused" in result
         assert isinstance(result["plugin_unused"], list)
+
+
+class TestDetectDeadGlobs:
+    """detect_dead_globs の paths/globs 両キー対応テスト。"""
+
+    def test_paths_key_dead(self, tmp_path):
+        """paths キーのみでマッチなし → dead_glob。"""
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        (rules_dir / "test.md").write_text(
+            '---\npaths:\n  - "nonexistent/**/*.py"\n---\n# Rule'
+        )
+        dead = prune.detect_dead_globs(tmp_path)
+        assert len(dead) == 1
+        assert dead[0]["reason"] == "dead_glob"
+
+    def test_globs_key_dead(self, tmp_path):
+        """globs キーのみでマッチなし → dead_glob。"""
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        (rules_dir / "test.md").write_text(
+            '---\nglobs:\n  - "nonexistent/**/*.ts"\n---\n# Rule'
+        )
+        dead = prune.detect_dead_globs(tmp_path)
+        assert len(dead) == 1
+        assert dead[0]["reason"] == "dead_glob"
+
+    def test_both_keys_one_dead(self, tmp_path):
+        """paths と globs 両方あり、一方のみ dead。"""
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        # scripts/ ディレクトリを作成して一方はマッチさせる
+        (tmp_path / "scripts").mkdir()
+        (tmp_path / "scripts" / "test.py").write_text("# test")
+        (rules_dir / "test.md").write_text(
+            '---\npaths:\n  - "scripts/**/*.py"\nglobs:\n  - "nonexistent/**/*.ts"\n---\n# Rule'
+        )
+        dead = prune.detect_dead_globs(tmp_path)
+        assert len(dead) == 1
+        assert "nonexistent" in dead[0]["pattern"]
+
+    def test_paths_key_alive(self, tmp_path):
+        """paths キーでマッチあり → dead なし。"""
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "main.py").write_text("# main")
+        (rules_dir / "test.md").write_text(
+            '---\npaths:\n  - "src/**/*.py"\n---\n# Rule'
+        )
+        dead = prune.detect_dead_globs(tmp_path)
+        assert len(dead) == 0
+
+    def test_no_frontmatter(self, tmp_path):
+        """frontmatter なしのルール → dead なし。"""
+        rules_dir = tmp_path / ".claude" / "rules"
+        rules_dir.mkdir(parents=True)
+        (rules_dir / "test.md").write_text("# Just a rule\nContent")
+        dead = prune.detect_dead_globs(tmp_path)
+        assert len(dead) == 0

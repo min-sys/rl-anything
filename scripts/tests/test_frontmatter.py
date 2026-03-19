@@ -6,7 +6,7 @@ from pathlib import Path
 _root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_root))
 
-from lib.frontmatter import extract_description, parse_frontmatter
+from lib.frontmatter import count_content_lines, extract_description, parse_frontmatter
 
 
 # --- parse_frontmatter ---
@@ -88,3 +88,36 @@ def test_extract_description_no_frontmatter(tmp_path):
     f = tmp_path / "SKILL.md"
     f.write_text("# No frontmatter here")
     assert extract_description(f) == ""
+
+
+# --- count_content_lines ---
+
+
+def test_count_content_lines_with_frontmatter():
+    """frontmatter ありのコンテンツ行数。"""
+    content = '---\npaths:\n  - "**/*.py"\n---\n# Rule Title\nLine 1\nLine 2'
+    assert count_content_lines(content) == 3
+
+
+def test_count_content_lines_no_frontmatter():
+    """frontmatter なしのコンテンツは全体行数。"""
+    content = "# Rule Title\nLine 1\nLine 2"
+    assert count_content_lines(content) == 3
+
+
+def test_count_content_lines_frontmatter_only():
+    """frontmatter のみ（コンテンツなし）は 0。"""
+    content = '---\npaths:\n  - "**/*.py"\n---'
+    assert count_content_lines(content) == 0
+
+
+def test_count_content_lines_unclosed_frontmatter():
+    """閉じられていない frontmatter は全体行数。"""
+    content = "---\npaths:"
+    assert count_content_lines(content) == 2
+
+
+def test_count_content_lines_blank_after_frontmatter():
+    """閉じ --- 後の空行を含めてカウント。"""
+    content = '---\npaths:\n  - "**/*.py"\n---\n\n# Rule Title\nLine 1'
+    assert count_content_lines(content) == 3

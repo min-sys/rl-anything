@@ -9,6 +9,43 @@ from typing import Any, Dict, Tuple
 import yaml
 
 
+def count_content_lines(content: str) -> int:
+    """frontmatter を除外したコンテンツ部分の行数を返す。
+
+    YAML frontmatter（`---` で始まり `---` で閉じるブロック）がある場合、
+    閉じ `---` 以降の行数を返す。frontmatter がなければ全体行数を返す。
+
+    Args:
+        content: ファイル内容の文字列
+
+    Returns:
+        コンテンツ部分の行数
+    """
+    if not content or not content.strip():
+        return 0
+
+    if not content.startswith("---"):
+        return content.count("\n") + 1
+
+    # 閉じ --- を探す（3文字目以降）
+    end = content.find("\n---", 3)
+    if end == -1:
+        # 閉じられていない → 全体行数
+        return content.count("\n") + 1
+
+    # 閉じ --- の行末の次の文字位置
+    after_close = end + 4  # len("\n---")
+    # 閉じ --- の後に改行がある場合はスキップ
+    if after_close < len(content) and content[after_close] == "\n":
+        after_close += 1
+
+    body = content[after_close:]
+    if not body or not body.strip():
+        return 0
+
+    return body.count("\n") + 1
+
+
 def parse_frontmatter(filepath: Path) -> Dict[str, Any]:
     """YAML frontmatter（--- 区切り）を辞書として返す。
 

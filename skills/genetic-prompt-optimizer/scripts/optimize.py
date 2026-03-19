@@ -33,6 +33,8 @@ _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 from line_limit import MAX_RULE_LINES, MAX_SKILL_LINES, check_line_limit, suggest_separation
 from regression_gate import GateResult, check_gates
+sys.path.insert(0, str(_plugin_root / "scripts"))
+from reflect_utils import suggest_paths_frontmatter
 
 # corrections パス
 _CORRECTIONS_PATH = Path.home() / ".claude" / "rl-anything" / "corrections.jsonl"
@@ -792,6 +794,17 @@ def main():
         best = result["best_individual"]
         if best.get("fitness") is not None:
             print(f"参考スコア: {best['fitness']}")
+
+    # paths frontmatter 提案（ルールファイルの場合のみ）
+    target = result.get("target_path", "")
+    if ".claude/rules/" in target and result.get("corrections_used", 0) > 0:
+        messages = " ".join(
+            c.get("message", "") for c in optimizer._collect_corrections()
+        )
+        ps = suggest_paths_frontmatter(messages, Path.cwd())
+        if ps is not None:
+            print(f"\n💡 paths frontmatter 提案: paths: {ps.patterns}")
+            print(f"   (CC バージョンによっては globs: の方が信頼性が高い場合があります)")
 
     print(f"\n結果保存先: {optimizer.run_dir}")
 

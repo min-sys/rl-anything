@@ -442,30 +442,42 @@ def _expand_glob_pattern(pattern: str) -> List[str]:
 
 
 def detect_dead_globs(project_dir: Path) -> List[Dict[str, Any]]:
-    """rules の paths 対象がマッチするファイルが存在しないものを検出。"""
+    """rules の paths/globs 対象がマッチするファイルが存在しないものを検出。
+
+    parse_frontmatter() を使い、paths キーと globs キーの両方を処理する。
+    """
     dead = []
     rules_dir = project_dir / ".claude" / "rules"
     if not rules_dir.exists():
         return dead
 
     for rule_file in rules_dir.glob("*.md"):
-        content = rule_file.read_text(encoding="utf-8")
-        for line in content.splitlines():
-            if line.strip().startswith("paths:"):
-                raw_pattern = line.split("paths:", 1)[1].strip()
-                if not raw_pattern:
-                    continue
-                patterns = _expand_glob_pattern(raw_pattern)
-                # いずれかのパターンがマッチすればOK
-                any_match = any(
-                    list(project_dir.glob(p))[:1] for p in patterns
-                )
-                if not any_match:
-                    dead.append({
-                        "file": str(rule_file),
-                        "pattern": raw_pattern,
-                        "reason": "dead_glob",
-                    })
+        fm = parse_frontmatter(rule_file)
+
+        # paths と globs の両キーを統合
+        all_patterns_raw: List[str] = []
+        for key in ("paths", "globs"):
+            val = fm.get(key)
+            if isinstance(val, str):
+                all_patterns_raw.append(val)
+            elif isinstance(val, list):
+                all_patterns_raw.extend(str(v) for v in val if v)
+
+        if not all_patterns_raw:
+            continue
+
+        for raw_pattern in all_patterns_raw:
+            patterns = _expand_glob_pattern(raw_pattern)
+            # いずれかのパターンがマッチすればOK
+            any_match = any(
+                list(project_dir.glob(p))[:1] for p in patterns
+            )
+            if not any_match:
+                dead.append({
+                    "file": str(rule_file),
+                    "pattern": raw_pattern,
+                    "reason": "dead_glob",
+                })
     return dead
 
 

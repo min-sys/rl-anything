@@ -125,6 +125,49 @@ def test_suggest_separation_skill_file():
     assert suggest_separation(target, content) is None
 
 
+def test_rule_with_frontmatter_within_limit():
+    """frontmatter 付きルールが frontmatter 除外でカウントされ制限内となる。"""
+    # 5行の frontmatter + 3行のコンテンツ = 全体8行だが、コンテンツは3行
+    content = '---\npaths:\n  - "**/*.py"\nname: test\n---\n# Rule\nLine 1\nLine 2'
+    home = str(Path.home())
+    assert check_line_limit(f"{home}/.claude/rules/my-rule.md", content) is True
+
+
+def test_rule_with_frontmatter_exceeds_limit(capsys):
+    """frontmatter 付きルールが frontmatter 除外でもコンテンツ超過なら False。"""
+    # 5行の frontmatter + 4行のコンテンツ = 全体9行、コンテンツ4行 > 3
+    content = '---\npaths:\n  - "**/*.py"\nname: test\n---\n# Rule\nLine 1\nLine 2\nLine 3'
+    home = str(Path.home())
+    assert check_line_limit(f"{home}/.claude/rules/my-rule.md", content) is False
+    captured = capsys.readouterr()
+    assert "行数超過" in captured.err
+
+
+def test_project_rule_with_frontmatter_within_limit():
+    """プロジェクトルール + frontmatter で制限内。"""
+    # 4行 frontmatter + 5行コンテンツ = 全体9行、コンテンツ5行 <= 5
+    content = '---\npaths:\n  - "src/**"\n---\nLine 1\nLine 2\nLine 3\nLine 4\nLine 5'
+    assert check_line_limit("/project/.claude/rules/my-rule.md", content) is True
+
+
+def test_separation_with_frontmatter_within_limit():
+    """frontmatter のおかげでコンテンツが制限内なら None。"""
+    home = str(Path.home())
+    # 4行 frontmatter + 3行コンテンツ = 全体7行、コンテンツ3行 <= 3
+    content = '---\npaths:\n  - "**/*.py"\n---\n# Rule\nLine 1\nLine 2'
+    assert suggest_separation(f"{home}/.claude/rules/foo.md", content) is None
+
+
+def test_separation_with_frontmatter_exceeds():
+    """frontmatter 除外でもコンテンツ超過なら SeparationProposal を返す。"""
+    home = str(Path.home())
+    # 5行 frontmatter + 5行コンテンツ = 全体10行、コンテンツ5行、超過2行
+    content = '---\npaths:\n  - "**/*.py"\nname: test\n---\n# Rule\nLine 1\nLine 2\nLine 3\nLine 4'
+    result = suggest_separation(f"{home}/.claude/rules/foo.md", content)
+    assert result is not None
+    assert result.excess_lines == 2
+
+
 def test_suggest_separation_deduplication(tmp_path):
     """分離先パスが既存ファイルと衝突する場合サフィックスを付与する。"""
     rules_dir = tmp_path / ".claude" / "rules"

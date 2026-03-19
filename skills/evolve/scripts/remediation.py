@@ -1541,11 +1541,30 @@ def generate_proposals(
         else:
             proposal = f"{issue['type']} に対する修正案を検討してください。"
 
-        proposals.append({
+        entry = {
             "issue": issue,
             "proposal": proposal,
             "rationale": rationale,
-        })
+        }
+
+        # rule_candidate 系 issue に paths_suggestion を付加
+        if issue["type"] in (TOOL_USAGE_RULE_CANDIDATE, VERIFICATION_RULE_CANDIDATE):
+            detail = issue.get("detail", {})
+            # detail に evidence テキストがあればパスパターンを検出
+            evidence = detail.get(VRC_EVIDENCE, "") or detail.get("evidence", "")
+            if evidence:
+                try:
+                    from reflect_utils import suggest_paths_frontmatter
+                    ps = suggest_paths_frontmatter(evidence, Path.cwd())
+                    if ps is not None:
+                        entry["paths_suggestion"] = {
+                            "patterns": ps.patterns,
+                            "confidence": ps.confidence,
+                        }
+                except ImportError:
+                    pass
+
+        proposals.append(entry)
 
     return proposals
 

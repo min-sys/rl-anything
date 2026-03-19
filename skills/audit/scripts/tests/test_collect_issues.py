@@ -166,6 +166,43 @@ def test_claudemd_violation_excluded(project_dir):
     assert len(claudemd_violations) == 0
 
 
+def test_rule_with_frontmatter_no_violation(project_dir):
+    """frontmatter 付きルールは frontmatter 除外でカウントし、制限内なら violation にならない。"""
+    rules_dir = project_dir / ".claude" / "rules"
+    rule_file = rules_dir / "test-rule.md"
+    # 4行 frontmatter + 5行コンテンツ = 全体9行、コンテンツ5行 <= project_rules 5
+    rule_file.write_text('---\npaths:\n  - "**/*.py"\n---\nLine 1\nLine 2\nLine 3\nLine 4\nLine 5')
+
+    with patch("audit.read_auto_memory", return_value=[]), \
+         patch("audit.find_artifacts", side_effect=_find_artifacts_local_only):
+        issues = collect_issues(project_dir)
+
+    rule_violations = [
+        i for i in issues
+        if i["type"] == "line_limit_violation" and "test-rule.md" in i["file"]
+    ]
+    assert len(rule_violations) == 0
+
+
+def test_rule_with_frontmatter_violation(project_dir):
+    """frontmatter 除外でもコンテンツ超過のルールは violation になる。"""
+    rules_dir = project_dir / ".claude" / "rules"
+    rule_file = rules_dir / "over-rule.md"
+    # 4行 frontmatter + 6行コンテンツ = 全体10行、コンテンツ6行 > project_rules 5
+    rule_file.write_text('---\npaths:\n  - "**/*.py"\n---\nLine 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6')
+
+    with patch("audit.read_auto_memory", return_value=[]):
+        issues = collect_issues(project_dir)
+
+    rule_violations = [
+        i for i in issues
+        if i["type"] == "line_limit_violation" and "over-rule.md" in i["file"]
+    ]
+    assert len(rule_violations) >= 1
+    assert rule_violations[0]["detail"]["lines"] == 6
+    assert rule_violations[0]["detail"]["limit"] == 5
+
+
 def test_issue_format(project_dir):
     """各 issue が統一フォーマットを満たす。"""
     claude_md = project_dir / "CLAUDE.md"

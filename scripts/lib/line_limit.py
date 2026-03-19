@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from lib.frontmatter import count_content_lines
+
 MAX_SKILL_LINES = 500
 MAX_RULE_LINES = 3
 MAX_PROJECT_RULE_LINES = 5
@@ -47,7 +49,7 @@ def check_line_limit(target_path: str, content: str) -> bool:
             max_lines = MAX_PROJECT_RULE_LINES
     else:
         max_lines = MAX_SKILL_LINES
-    lines = content.count("\n") + 1
+    lines = count_content_lines(content) if is_rule else content.count("\n") + 1
     if lines > max_lines:
         file_type = "ルール" if is_rule else "スキル"
         print(
@@ -93,7 +95,7 @@ def suggest_separation(
 
     is_global = _is_global_rule(target_path)
     max_lines = MAX_RULE_LINES if is_global else MAX_PROJECT_RULE_LINES
-    lines = content.count("\n") + 1
+    lines = count_content_lines(content)
     excess = lines - max_lines
 
     if excess <= 0:
