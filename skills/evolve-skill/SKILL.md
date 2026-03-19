@@ -59,6 +59,17 @@ result = assess_single_skill(skill_name, skill_dir)
 
 アンチパターンがある場合はその詳細も表示する。
 
+`workflow_checkpoints` が存在する場合（ワークフロースキル判定 True）、チェックポイントギャップを表示する:
+
+```
+### Workflow Checkpoint Gaps
+| Category | Evidence | Confidence |
+|----------|----------|------------|
+| infra_deploy | 3 | 0.75 |
+```
+
+ギャップがない場合は「チェックポイントギャップなし」と表示する。
+
 ### 4. 適性に応じた処理
 
 - **already_evolved**: 「既に自己進化対応済みです」と表示して終了

@@ -874,6 +874,29 @@ def run_discover(
     except Exception as e:
         result["pitfall_candidates_error"] = str(e)
 
+    # ワークフローチェックポイントギャップ走査
+    try:
+        from workflow_checkpoint import is_workflow_skill, detect_checkpoint_gaps
+        proj = project_root or Path.cwd()
+        skills_dir = proj / ".claude" / "skills"
+        workflow_gaps = []
+        if skills_dir.is_dir():
+            for skill_dir in sorted(skills_dir.iterdir()):
+                if not skill_dir.is_dir():
+                    continue
+                if not is_workflow_skill(skill_dir):
+                    continue
+                gaps = detect_checkpoint_gaps(skill_dir.name, skill_dir, proj)
+                if gaps:
+                    workflow_gaps.append({
+                        "skill_name": skill_dir.name,
+                        "gaps": gaps,
+                    })
+        if workflow_gaps:
+            result["workflow_checkpoint_gaps"] = workflow_gaps
+    except Exception as e:
+        result["workflow_checkpoint_gaps_error"] = str(e)
+
     return result
 
 

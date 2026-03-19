@@ -45,6 +45,13 @@ from issue_schema import (  # noqa: E402
     VRC_DESCRIPTION,
     VRC_EVIDENCE,
     VRC_DETECTION_CONFIDENCE,
+    WORKFLOW_CHECKPOINT_CANDIDATE,
+    WCC_SKILL_NAME,
+    WCC_CATEGORY,
+    WCC_EVIDENCE_COUNT,
+    WCC_CONFIDENCE,
+    WCC_TEMPLATE,
+    WCC_DESCRIPTION,
 )
 
 # 分類閾値
@@ -210,6 +217,10 @@ def compute_confidence_score(issue: Dict[str, Any]) -> float:
     if issue_type == VERIFICATION_RULE_CANDIDATE:
         # 検出関数の confidence を使用（regex のみなので proposable 止まり）
         return min(0.85, detail.get(VRC_DETECTION_CONFIDENCE, 0.5))
+
+    if issue_type == WORKFLOW_CHECKPOINT_CANDIDATE:
+        # ギャップ検出の confidence をそのまま使用（上限 0.85 = proposable）
+        return min(0.85, detail.get(WCC_CONFIDENCE, 0.5))
 
     return 0.5
 
@@ -1442,6 +1453,36 @@ def fix_preflight_scriptification(
     return results
 
 
+def fix_workflow_checkpoint(
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """ワークフロースキルにチェックポイントステップを追記する proposable 提案。
+
+    実際の SKILL.md 編集は行わず、提案テキストを返す（人間承認必須）。
+    """
+    results = []
+    for issue in issues:
+        detail = issue.get("detail", {})
+        skill_name = detail.get(WCC_SKILL_NAME, "")
+        category = detail.get(WCC_CATEGORY, "")
+        template = detail.get(WCC_TEMPLATE, "")
+
+        proposal_text = (
+            f"スキル「{skill_name}」にチェックポイント「{category}」の追加を提案します。\n\n"
+            f"追加ステップ:\n{template}\n"
+        )
+
+        results.append({
+            "issue": issue,
+            "original_content": "",
+            "fixed": True,
+            "error": None,
+            "proposal_text": proposal_text,
+        })
+
+    return results
+
+
 FIX_DISPATCH: Dict[str, Any] = {
     "stale_ref": fix_stale_references,
     "stale_memory": fix_stale_memory,
@@ -1458,6 +1499,7 @@ FIX_DISPATCH: Dict[str, Any] = {
     TOOL_USAGE_HOOK_CANDIDATE: fix_hook_scaffold,
     SKILL_EVOLVE_CANDIDATE: fix_skill_evolve,
     VERIFICATION_RULE_CANDIDATE: fix_verification_rule,
+    WORKFLOW_CHECKPOINT_CANDIDATE: fix_workflow_checkpoint,
 }
 
 
@@ -1767,6 +1809,11 @@ def _verify_preflight_scriptification(fixed_file: str, detail: Dict[str, Any]) -
     return {"resolved": True, "remaining": None}
 
 
+def _verify_workflow_checkpoint(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, Any]:
+    """workflow_checkpoint の検証: proposable 提案が生成されたことを確認（常にresolved=true）。"""
+    return {"resolved": True, "remaining": None}
+
+
 VERIFY_DISPATCH: Dict[str, Any] = {
     "stale_ref": _verify_stale_ref,
     "line_limit_violation": _verify_line_limit_violation,
@@ -1783,6 +1830,7 @@ VERIFY_DISPATCH: Dict[str, Any] = {
     TOOL_USAGE_HOOK_CANDIDATE: _verify_hook_scaffold,
     SKILL_EVOLVE_CANDIDATE: _verify_skill_evolve,
     VERIFICATION_RULE_CANDIDATE: _verify_verification_rule,
+    WORKFLOW_CHECKPOINT_CANDIDATE: _verify_workflow_checkpoint,
 }
 
 

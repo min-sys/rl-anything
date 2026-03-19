@@ -10,6 +10,8 @@ skill_evolve_assessment() は usage.jsonl と errors.jsonl からスキルの自
 4. **判断複雑さ**: LLM によるスキル構造評価。1=決定論的 / 2=数箇所の分岐 / 3=判断・ヒューリスティクス多数
 5. **出力評価可能性**: テレメトリの成功/失敗パターンから推定（`query_usage()` の件数 - `query_errors()` の件数で成功率を算出）。1=評価困難 / 2=部分的に評価可能 / 3=明確な品質基準あり
 
+**追加**: ワークフロースキルと判定された場合、`assess_single_skill()` の返却値に `workflow_checkpoints` フィールドを追加する（SHALL）。このフィールドには `detect_checkpoint_gaps()` の結果（チェックポイントギャップのリスト）が含まれる。非ワークフロースキルの場合は `workflow_checkpoints: None` を返す。
+
 #### Scenario: High suitability skill
 - **WHEN** aws-deploy 相当のスキル（頻度3, 多様性3, 外部3, 判断2, 評価2 = 13点）を分析する
 - **THEN** 「適性: 高（13/15）」と判定し、変換を推奨する
@@ -21,6 +23,15 @@ skill_evolve_assessment() は usage.jsonl と errors.jsonl からスキルの自
 #### Scenario: Medium suitability with user decision
 - **WHEN** スコアが9点のスキルを分析する
 - **THEN** 「適性: 中（9/15）」と判定し、成長が期待できるポイントと懸念点を提示してユーザーに判断を委ねる
+
+#### Scenario: Workflow skill with checkpoint gaps
+- **WHEN** openspec-verify 相当のワークフロースキル（Step構造あり）を分析する
+- **AND** テレメトリに infra_deploy 関連の修正が3件ある
+- **THEN** 返却値に `workflow_checkpoints: [{"category": "infra_deploy", "confidence": 0.75, ...}]` が含まれる
+
+#### Scenario: Non-workflow skill
+- **WHEN** 単純なユーティリティスキル（Step構造なし）を分析する
+- **THEN** 返却値に `workflow_checkpoints: None` が含まれる
 
 ### Requirement: Threshold classification
 skill_evolve_assessment() はスコアに基づき3段階で分類する（SHALL）:

@@ -20,6 +20,9 @@ SKILL_TRIAGE_UPDATE = "skill_triage_update"
 SKILL_TRIAGE_SPLIT = "skill_triage_split"
 SKILL_TRIAGE_MERGE = "skill_triage_merge"
 
+# ── workflow_checkpoint_candidate 定数 ────────────────
+WORKFLOW_CHECKPOINT_CANDIDATE = "workflow_checkpoint_candidate"
+
 # ── split_candidate 定数 ────────────────────────────
 
 SPLIT_CANDIDATE_CONFIDENCE = 0.70
@@ -58,6 +61,16 @@ SE_TOTAL_SCORE = "total_score"
 SE_SCORES = "scores"
 SE_ANTI_PATTERNS = "anti_patterns"
 SE_RECOMMENDATION = "recommendation"
+
+# ── workflow_checkpoint_candidate detail フィールド ──
+
+WCC_SKILL_NAME = "skill_name"
+WCC_SKILL_DIR = "skill_dir"
+WCC_CATEGORY = "category"
+WCC_EVIDENCE_COUNT = "evidence_count"
+WCC_CONFIDENCE = "confidence"
+WCC_TEMPLATE = "template"
+WCC_DESCRIPTION = "description"
 
 
 # ── Factory 関数 ────────────────────────────────────
@@ -212,4 +225,27 @@ def make_skill_evolve_issue(
             SE_RECOMMENDATION: assessment.get(SE_RECOMMENDATION, ""),
         },
         "source": "skill_evolve_assessment",
+    }
+
+
+def make_workflow_checkpoint_issue(
+    gap: Dict[str, Any],
+    *,
+    skill_name: str = "",
+    skill_dir: str = "",
+) -> Dict[str, Any]:
+    """workflow_checkpoint のギャップ検出結果 → issue dict 変換。"""
+    return {
+        "type": WORKFLOW_CHECKPOINT_CANDIDATE,
+        "file": f".claude/skills/{skill_name}/SKILL.md" if skill_name else "",
+        "detail": {
+            WCC_SKILL_NAME: skill_name,
+            WCC_SKILL_DIR: skill_dir,
+            WCC_CATEGORY: gap.get("category", ""),
+            WCC_EVIDENCE_COUNT: gap.get("evidence_count", 0),
+            WCC_CONFIDENCE: gap.get("confidence", 0.0),
+            WCC_TEMPLATE: gap.get("template", ""),
+            WCC_DESCRIPTION: gap.get("description", ""),
+        },
+        "source": "workflow_checkpoint",
     }

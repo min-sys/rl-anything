@@ -357,6 +357,7 @@ def run_evolve(
             make_skill_triage_issue,
             VERIFICATION_RULE_CANDIDATE,
             make_verification_rule_issue,
+            make_workflow_checkpoint_issue,
         )
         discover_data = result["phases"].get("discover", {})
         tool_usage = discover_data.get("tool_usage_patterns", {})
@@ -404,6 +405,17 @@ def run_evolve(
                 vn, detection_result,
                 project_dir_str=str(proj),
             ))
+
+        # --- workflow_checkpoint_gaps を issue に変換 ---
+        workflow_gaps = discover_data.get("workflow_checkpoint_gaps", [])
+        for wg in workflow_gaps:
+            skill_name = wg.get("skill_name", "")
+            for gap in wg.get("gaps", []):
+                issues.append(make_workflow_checkpoint_issue(
+                    gap,
+                    skill_name=skill_name,
+                    skill_dir=str(proj / ".claude" / "skills" / skill_name),
+                ))
 
         classified = classify_remediation_issues(issues)
         remediation_data = {

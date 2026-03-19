@@ -552,6 +552,22 @@ def _customize_template(
 # --- 単一スキル向け共通関数 (D3) ---
 
 
+def _find_project_dir(skill_dir: Path) -> Optional[Path]:
+    """skill_dir からプロジェクトルートを推定する。
+
+    .claude/skills/<name>/ の2階層上をプロジェクトルートとみなす。
+    見つからない場合は None。
+    """
+    # .claude/skills/<skill_name>/SKILL.md → .claude → project_root
+    candidate = skill_dir.resolve()
+    for _ in range(5):
+        parent = candidate.parent
+        if parent.name == "skills" and parent.parent.name == ".claude":
+            return parent.parent.parent
+        candidate = parent
+    return None
+
+
 def assess_single_skill(
     skill_name: str,
     skill_dir: Path,
@@ -574,6 +590,7 @@ def assess_single_skill(
             "skill_dir": str(skill_dir),
             "already_evolved": True,
             "suitability": "already_evolved",
+            "workflow_checkpoints": None,
         }
 
     # テレメトリ3軸
@@ -611,6 +628,26 @@ def assess_single_skill(
     else:
         recommendation = "変換非推奨"
 
+    # ワークフローチェックポイント検出
+    workflow_checkpoints = None
+    try:
+        from workflow_checkpoint import is_workflow_skill, detect_checkpoint_gaps
+    except ImportError:
+        try:
+            from lib.workflow_checkpoint import is_workflow_skill, detect_checkpoint_gaps
+        except ImportError:
+            is_workflow_skill = None
+
+    if is_workflow_skill is not None and is_workflow_skill(skill_dir):
+        try:
+            project_dir = _find_project_dir(skill_dir)
+            if project_dir:
+                workflow_checkpoints = detect_checkpoint_gaps(
+                    skill_name, skill_dir, project_dir,
+                )
+        except Exception:
+            workflow_checkpoints = []
+
     return {
         "skill_name": skill_name,
         "skill_dir": str(skill_dir),
@@ -626,6 +663,7 @@ def assess_single_skill(
             "error_categories": telemetry["error_categories"],
         },
         "llm_cached": llm["cached"],
+        "workflow_checkpoints": workflow_checkpoints,
     }
 
 

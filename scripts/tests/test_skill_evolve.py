@@ -593,3 +593,66 @@ def test_apply_evolve_proposal_backup_path_in_result(tmp_path):
     result = apply_evolve_proposal(proposal)
     assert "backup_path" in result
     assert result["backup_path"].endswith(".pre-evolve-backup")
+
+
+# --- workflow_checkpoints in assess_single_skill ---
+
+
+@mock.patch("skill_evolve.compute_llm_scores")
+@mock.patch("skill_evolve.compute_telemetry_scores")
+def test_assess_workflow_skill_has_checkpoints(mock_telemetry, mock_llm, tmp_path):
+    """ワークフロースキルの assessment に workflow_checkpoints が含まれる。"""
+    # .claude/skills/my-skill/ 構造を作成
+    project_dir = tmp_path / "project"
+    claude_dir = project_dir / ".claude" / "skills" / "my-skill"
+    claude_dir.mkdir(parents=True)
+    (claude_dir / "SKILL.md").write_text(
+        "---\ntype: workflow\n---\n\n# My Skill\n\n1. Step 1: Check\n2. Step 2: Do\n3. Step 3: Report\n"
+    )
+
+    mock_telemetry.return_value = {
+        "frequency": 2, "diversity": 2, "evaluability": 2,
+        "usage_count": 10, "error_count": 3,
+        "error_categories": ["a", "b"],
+    }
+    mock_llm.return_value = {
+        "external_dependency": 1, "judgment_complexity": 1, "cached": True,
+    }
+    result = assess_single_skill("my-skill", claude_dir)
+    assert "workflow_checkpoints" in result
+    # workflow_checkpoints はリスト（空でも可）
+    assert isinstance(result["workflow_checkpoints"], list)
+
+
+@mock.patch("skill_evolve.compute_llm_scores")
+@mock.patch("skill_evolve.compute_telemetry_scores")
+def test_assess_non_workflow_skill_has_none_checkpoints(mock_telemetry, mock_llm, tmp_path):
+    """非ワークフロースキルでは workflow_checkpoints が None。"""
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("# Simple Utility\n\nDoes one thing.\n")
+
+    mock_telemetry.return_value = {
+        "frequency": 2, "diversity": 2, "evaluability": 2,
+        "usage_count": 10, "error_count": 3,
+        "error_categories": ["a", "b"],
+    }
+    mock_llm.return_value = {
+        "external_dependency": 1, "judgment_complexity": 1, "cached": True,
+    }
+    result = assess_single_skill("my-skill", skill_dir)
+    assert result["workflow_checkpoints"] is None
+
+
+def test_assess_already_evolved_has_none_checkpoints(tmp_path):
+    """already_evolved のスキルでは workflow_checkpoints が None。"""
+    skill_dir = tmp_path / "my-skill"
+    skill_dir.mkdir()
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "pitfalls.md").write_text("# Pitfalls\n")
+    (skill_dir / "SKILL.md").write_text(
+        "# My Skill\n\n## Failure-triggered Learning\n\nsome content\n"
+    )
+    result = assess_single_skill("my-skill", skill_dir)
+    assert result["workflow_checkpoints"] is None
