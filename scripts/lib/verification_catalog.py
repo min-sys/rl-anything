@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 DATA_CONTRACT_MIN_PATTERNS = 3
 SIDE_EFFECT_MIN_PATTERNS = 3
 EVIDENCE_MIN_PATTERNS = 3
+MIN_CROSS_LAYER_PATTERNS = 3
 DETECTION_TIMEOUT_SECONDS = 5
 MAX_CATALOG_ENTRIES = 10
 LARGE_REPO_FILE_THRESHOLD = 1000
@@ -39,6 +40,10 @@ _SIDE_EFFECT_RULE_TEMPLATE = """# 副作用チェック
 
 _EVIDENCE_RULE_TEMPLATE = """# 証拠提示義務
 完了主張の前に検証コマンド（テスト実行・動作確認・ビルド成功）の実行結果を提示する。「できました」の前に証拠を示す。
+"""
+
+_CROSS_LAYER_RULE_TEMPLATE = """# クロスレイヤー整合性確認
+コード変更時に IaC 定義（環境変数設定・IAM 権限）との整合性を確認する。新しい環境変数参照や AWS サービス利用を追加したら、対応する IaC 定義も更新する。
 """
 
 # ── 副作用検出パターン（3カテゴリ）────────────────────
@@ -101,6 +106,18 @@ VERIFICATION_CATALOG: List[Dict[str, Any]] = [
         "content_patterns": [
             "証拠", "evidence", "verify", "確認して", "テスト実行",
             "動作確認", "before claim", "証拠提示",
+        ],
+    },
+    {
+        "id": "cross-layer-consistency",
+        "type": "rule",
+        "description": "コード↔IaC 間の整合性（環境変数・IAM 権限）を確認するルール",
+        "rule_template": _CROSS_LAYER_RULE_TEMPLATE.strip(),
+        "rule_filename": "verify-cross-layer.md",
+        "detection_fn": "detect_cross_layer_consistency",
+        "applicability": "conditional",
+        "content_patterns": [
+            "cross-layer", "IaC", "環境変数", "IAM", "cdk", "aws",
         ],
     },
 ]
@@ -364,12 +381,157 @@ def detect_evidence_verification(project_dir: Path) -> Dict[str, Any]:
     }
 
 
+# ── クロスレイヤー検出パターン ────────────────────────
+
+# 環境変数参照: Python (os.environ.get/os.environ[]/os.getenv) / TS (process.env.)
+_ENV_VAR_PY_RE = re.compile(
+    r"(?:os\.environ\.get\(|os\.environ\[|os\.getenv\()",
+)
+_ENV_VAR_TS_RE = re.compile(r"process\.env\.\w+")
+
+# AWS SDK: Python (boto3.client/resource) / TS (new *Client())
+_AWS_SDK_PY_RE = re.compile(r"boto3\.(?:client|resource)\(")
+_AWS_SDK_TS_RE = re.compile(r"new\s+\w+Client\(")
+
+# IaC マーカー判定テーブル
+_IAC_MARKERS = [
+    # (check_fn, iac_type, marker_description)
+    # check_fn: Path -> Optional[str] (marker_path or None)
+]
+
+
+def detect_iac_project(project_dir: Path) -> Dict[str, Any]:
+    """IaC プロジェクト判定。マーカーファイル/ディレクトリの存在チェックで判定する。"""
+    no_iac = {"is_iac": False, "iac_type": None, "marker_path": None}
+    if not project_dir.is_dir():
+        return no_iac
+
+    # CDK
+    cdk_json = project_dir / "cdk.json"
+    if cdk_json.exists():
+        return {"is_iac": True, "iac_type": "cdk", "marker_path": "cdk.json"}
+
+    # SAM (template.yaml + AWSTemplateFormatVersion) — CDK の次に優先
+    template_yaml = project_dir / "template.yaml"
+    if template_yaml.exists():
+        try:
+            content = template_yaml.read_text(encoding="utf-8", errors="ignore")
+            if "AWSTemplateFormatVersion" in content:
+                return {"is_iac": True, "iac_type": "sam", "marker_path": "template.yaml"}
+        except (PermissionError, OSError):
+            pass
+
+    # Serverless Framework
+    for name in ("serverless.yml", "serverless.yaml"):
+        if (project_dir / name).exists():
+            return {"is_iac": True, "iac_type": "serverless", "marker_path": name}
+
+    # CloudFormation 直書き (*.template.json / *.template.yaml)
+    for pattern in ("*.template.json", "*.template.yaml"):
+        for cf_file in project_dir.glob(pattern):
+            try:
+                content = cf_file.read_text(encoding="utf-8", errors="ignore")
+                if "AWSTemplateFormatVersion" in content:
+                    return {"is_iac": True, "iac_type": "cloudformation", "marker_path": cf_file.name}
+            except (PermissionError, OSError):
+                continue
+
+    return no_iac
+
+
+def detect_cross_layer_consistency(project_dir: Path) -> Dict[str, Any]:
+    """クロスレイヤー整合性の検出関数。
+
+    IaC プロジェクトでのみ環境変数参照・AWS SDK 使用をスキャンし、
+    IaC 定義との突合を提案する。
+    """
+    if not project_dir.is_dir():
+        return _safe_result("project_dir does not exist")
+
+    # IaC ゲート
+    iac_result = detect_iac_project(project_dir)
+    if not iac_result["is_iac"]:
+        return {"applicable": False, "evidence": [], "confidence": 0.0}
+
+    evidence: List[str] = []
+    detected_categories: set = set()
+
+    try:
+        for filepath in _iter_source_files(project_dir):
+            if _is_test_file(filepath):
+                continue
+            try:
+                content = filepath.read_text(encoding="utf-8", errors="ignore")
+            except (PermissionError, OSError):
+                continue
+
+            try:
+                rel = str(filepath.relative_to(project_dir))
+            except ValueError:
+                rel = str(filepath)
+
+            # 環境変数参照チェック
+            if filepath.suffix == ".py":
+                if _ENV_VAR_PY_RE.search(content):
+                    if rel not in evidence:
+                        evidence.append(rel)
+                    detected_categories.add("env_var")
+            elif filepath.suffix in (".ts", ".tsx"):
+                if _ENV_VAR_TS_RE.search(content):
+                    if rel not in evidence:
+                        evidence.append(rel)
+                    detected_categories.add("env_var")
+
+            # AWS SDK チェック
+            if filepath.suffix == ".py":
+                if _AWS_SDK_PY_RE.search(content):
+                    if rel not in evidence:
+                        evidence.append(rel)
+                    detected_categories.add("aws_service")
+            elif filepath.suffix in (".ts", ".tsx"):
+                if _AWS_SDK_TS_RE.search(content):
+                    if rel not in evidence:
+                        evidence.append(rel)
+                    detected_categories.add("aws_service")
+
+            if len(evidence) >= 10:
+                break
+    except Exception as e:
+        return _safe_result(str(e))
+
+    count = len(evidence)
+    categories = sorted(detected_categories)
+
+    if count >= MIN_CROSS_LAYER_PATTERNS:
+        confidence = min(0.7, 0.5 + count * 0.04)
+        cat_labels = {"env_var": "環境変数参照", "aws_service": "AWS SDK使用"}
+        cat_str = "・".join(cat_labels.get(c, c) for c in categories)
+        return {
+            "applicable": True,
+            "evidence": evidence,
+            "detected_categories": categories,
+            "confidence": confidence,
+            "llm_escalation_prompt": (
+                f"以下のプロジェクトで {count} 箇所のクロスレイヤーパターン（{cat_str}）が検出されました。"
+                f"IaC 定義ファイルとの整合性を確認してください。\n\n"
+                f"検出ファイル:\n" + "\n".join(evidence[:5])
+            ),
+        }
+    return {
+        "applicable": False,
+        "evidence": evidence,
+        "detected_categories": categories,
+        "confidence": 0.0,
+    }
+
+
 # ── 検出関数ディスパッチ ─────────────────────────────
 
 _DETECTION_FN_DISPATCH: Dict[str, Any] = {
     "detect_data_contract_verification": detect_data_contract_verification,
     "detect_side_effect_verification": detect_side_effect_verification,
     "detect_evidence_verification": detect_evidence_verification,
+    "detect_cross_layer_consistency": detect_cross_layer_consistency,
 }
 
 
@@ -402,11 +564,13 @@ def _run_detection_fn(fn_name: str, project_dir: Path) -> Dict[str, Any]:
 
 _SIDE_EFFECT_CONTENT_KEYWORDS = ["副作用", "side effect"]
 _EVIDENCE_CONTENT_KEYWORDS = ["証拠", "evidence", "verify-before", "証拠提示", "before claim"]
+_CROSS_LAYER_CONTENT_KEYWORDS = ["cross-layer", "IaC", "クロスレイヤー", "環境変数", "IAM"]
 
 # エントリ ID → content-aware キーワードのマッピング
 _CONTENT_KEYWORDS_MAP: Dict[str, List[str]] = {
     "side-effect-verification": _SIDE_EFFECT_CONTENT_KEYWORDS,
     "evidence-before-claims": _EVIDENCE_CONTENT_KEYWORDS,
+    "cross-layer-consistency": _CROSS_LAYER_CONTENT_KEYWORDS,
 }
 
 
