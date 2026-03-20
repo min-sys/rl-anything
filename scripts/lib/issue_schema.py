@@ -26,6 +26,9 @@ WORKFLOW_CHECKPOINT_CANDIDATE = "workflow_checkpoint_candidate"
 # ── stall_recovery_candidate 定数 ─────────────────────
 STALL_RECOVERY_CANDIDATE = "stall_recovery_candidate"
 
+# ── missing_effort_candidate 定数 ─────────────────────
+MISSING_EFFORT_CANDIDATE = "missing_effort_candidate"
+
 # ── split_candidate 定数 ────────────────────────────
 
 SPLIT_CANDIDATE_CONFIDENCE = 0.70
@@ -81,6 +84,14 @@ WCC_EVIDENCE_COUNT = "evidence_count"
 WCC_CONFIDENCE = "confidence"
 WCC_TEMPLATE = "template"
 WCC_DESCRIPTION = "description"
+
+# ── missing_effort_candidate detail フィールド ────────
+
+MEC_SKILL_NAME = "skill_name"
+MEC_SKILL_PATH = "skill_path"
+MEC_PROPOSED_EFFORT = "proposed_effort"
+MEC_CONFIDENCE = "confidence"
+MEC_REASON = "reason"
 
 
 # ── Factory 関数 ────────────────────────────────────
@@ -277,4 +288,26 @@ def make_workflow_checkpoint_issue(
             WCC_DESCRIPTION: gap.get("description", ""),
         },
         "source": "workflow_checkpoint",
+    }
+
+
+def make_missing_effort_issue(
+    skill_name: str,
+    skill_path: str,
+    proposed_effort: str,
+    confidence: float,
+    reason: str = "",
+) -> Dict[str, Any]:
+    """effort 未設定スキルの検出結果 → issue dict 変換。"""
+    return {
+        "type": MISSING_EFFORT_CANDIDATE,
+        "file": skill_path,
+        "detail": {
+            MEC_SKILL_NAME: skill_name,
+            MEC_SKILL_PATH: skill_path,
+            MEC_PROPOSED_EFFORT: proposed_effort,
+            MEC_CONFIDENCE: confidence,
+            MEC_REASON: reason,
+        },
+        "source": "effort_detector",
     }

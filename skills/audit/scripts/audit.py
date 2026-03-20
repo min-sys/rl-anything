@@ -1046,6 +1046,26 @@ def collect_issues(project_dir: Path) -> List[Dict[str, Any]]:
     except Exception:
         pass  # レイヤー診断のエラーは既存機能に影響しない
 
+    # missing_effort（effort frontmatter 未設定スキル）
+    try:
+        from effort_detector import detect_missing_effort_frontmatter
+        effort_result = detect_missing_effort_frontmatter(project_dir)
+        if effort_result["applicable"]:
+            for ev in effort_result["evidence"]:
+                issues.append({
+                    "type": "missing_effort",
+                    "file": ev["skill_path"],
+                    "detail": {
+                        "skill_name": ev["skill_name"],
+                        "proposed_effort": ev["proposed_effort"],
+                        "confidence": ev["confidence"],
+                        "reason": ev.get("reason", ""),
+                    },
+                    "source": "detect_missing_effort_frontmatter",
+                })
+    except Exception:
+        pass  # effort 検出のエラーは既存機能に影響しない
+
     # untagged_reference_candidates（reference type 未設定スキル）
     try:
         usage_records = load_usage_data(project_root=project_dir)

@@ -52,6 +52,12 @@ from issue_schema import (  # noqa: E402
     WCC_CONFIDENCE,
     WCC_TEMPLATE,
     WCC_DESCRIPTION,
+    MISSING_EFFORT_CANDIDATE,
+    MEC_SKILL_NAME,
+    MEC_SKILL_PATH,
+    MEC_PROPOSED_EFFORT,
+    MEC_CONFIDENCE,
+    MEC_REASON,
 )
 
 # 分類閾値
@@ -1483,6 +1489,63 @@ def fix_workflow_checkpoint(
     return results
 
 
+def fix_missing_effort(
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """effort frontmatter が未設定のスキルに追加提案を行う。
+
+    update_frontmatter() で effort フィールドを書き込む。
+    """
+    from frontmatter import update_frontmatter
+
+    results = []
+    for issue in issues:
+        if issue["type"] != MISSING_EFFORT_CANDIDATE:
+            continue
+        detail = issue.get("detail", {})
+        skill_path = Path(detail.get(MEC_SKILL_PATH, ""))
+        proposed = detail.get(MEC_PROPOSED_EFFORT, "medium")
+        reason = detail.get(MEC_REASON, "")
+
+        if not skill_path.is_file():
+            results.append({
+                "issue": issue,
+                "fixed": False,
+                "error": f"file not found: {skill_path}",
+            })
+            continue
+
+        success, err = update_frontmatter(skill_path, {"effort": proposed})
+        results.append({
+            "issue": issue,
+            "fixed": success,
+            "error": err if not success else None,
+            "changed_files": [str(skill_path)] if success else [],
+            "proposal_text": (
+                f"effort: {proposed} を {detail.get(MEC_SKILL_NAME, '')} に追加"
+                f" (reason: {reason})"
+            ),
+        })
+
+    return results
+
+
+def _verify_missing_effort(result: Dict[str, Any]) -> Tuple[bool, str]:
+    """effort frontmatter が正しく追加されたか検証する。"""
+    from frontmatter import parse_frontmatter
+
+    changed = result.get("changed_files", [])
+    if not changed:
+        return False, "no changed files"
+    path = Path(changed[0])
+    if not path.is_file():
+        return False, f"file not found: {path}"
+    fm = parse_frontmatter(path)
+    if fm.get("effort"):
+        return True, ""
+    return False, "effort not found in frontmatter after fix"
+
+
 FIX_DISPATCH: Dict[str, Any] = {
     "stale_ref": fix_stale_references,
     "stale_memory": fix_stale_memory,
@@ -1500,6 +1563,7 @@ FIX_DISPATCH: Dict[str, Any] = {
     SKILL_EVOLVE_CANDIDATE: fix_skill_evolve,
     VERIFICATION_RULE_CANDIDATE: fix_verification_rule,
     WORKFLOW_CHECKPOINT_CANDIDATE: fix_workflow_checkpoint,
+    MISSING_EFFORT_CANDIDATE: fix_missing_effort,
 }
 
 
@@ -1831,6 +1895,7 @@ VERIFY_DISPATCH: Dict[str, Any] = {
     SKILL_EVOLVE_CANDIDATE: _verify_skill_evolve,
     VERIFICATION_RULE_CANDIDATE: _verify_verification_rule,
     WORKFLOW_CHECKPOINT_CANDIDATE: _verify_workflow_checkpoint,
+    MISSING_EFFORT_CANDIDATE: _verify_missing_effort,
 }
 
 
