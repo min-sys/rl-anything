@@ -1,5 +1,6 @@
 ---
 name: prune
+effort: medium
 description: |
   Detect unused artifacts (dead globs, zero invocations, duplicates) and propose archiving.
   Never deletes directly — all archiving requires human approval.

@@ -1,7 +1,5 @@
 {
-  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "rl-anything",
-  "description": "Direct-patch skill and rule optimization plugin for Claude Code",
   "owner": {
     "name": "min-sys"
   },

@@ -1,5 +1,6 @@
 ---
 name: optimize
+effort: high
 description: スキル/ルールの直接パッチ最適化。/optimize で呼び出し。corrections/context ベースで LLM 1パス改善を行う。
 allowed-tools: Read, Write, Edit, Bash, Glob, Grep, AskUserQuestion
 ---

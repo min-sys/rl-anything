@@ -1,5 +1,6 @@
 ---
 name: backfill
+effort: low
 description: |
   Setup command: Backfill session transcripts to extract Skill/Agent tool calls and workflow structures.
   Run once during initial setup or after significant session accumulation. Not part of the daily evolve pipeline.

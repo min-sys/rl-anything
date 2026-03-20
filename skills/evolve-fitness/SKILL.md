@@ -1,5 +1,6 @@
 ---
 name: evolve-fitness
+effort: medium
 description: |
   Analyze accept/reject data to find score-acceptance correlation issues and propose
   fitness function improvements. All changes require human approval.

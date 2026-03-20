@@ -1,5 +1,6 @@
 ---
 name: evolve-skill
+effort: medium
 description: |
   特定スキルに自己進化パターン（Pre-flight / Failure-triggered Learning / pitfalls.md）を
   組み込む独立コマンド。適性判定→テンプレート組み込み→人間確認を1コマンドで実行。

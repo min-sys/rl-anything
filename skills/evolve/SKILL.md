@@ -1,5 +1,6 @@
 ---
 name: evolve
+effort: high
 description: |
   Run the full autonomous evolution pipeline: Observe → Diagnose → Compile → Housekeeping → Report.
   Designed for daily execution to continuously improve skills and rules.

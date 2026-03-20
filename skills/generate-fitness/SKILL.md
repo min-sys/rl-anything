@@ -1,5 +1,6 @@
 ---
 name: generate-fitness
+effort: medium
 description: |
   プロジェクト固有の fitness 関数を自動生成。CLAUDE.md・rules・skills を分析し、
   ドメイン特性に基づいた評価関数を scripts/rl/fitness/ に出力する。

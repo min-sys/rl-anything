@@ -1,5 +1,6 @@
 ---
 name: reflect
+effort: medium
 description: |
   corrections を対話的にレビューし CLAUDE.md/rules/auto-memory に反映する。
   ユーザー修正の蓄積を構造化し、適切なメモリ層にルーティングする。

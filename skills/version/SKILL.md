@@ -1,5 +1,6 @@
 ---
 name: version
+effort: low
 description: |
   Display the installed rl-anything version, commit hash, scope, and update timestamp.
   Trigger: version, バージョン, info, 情報, status, ステータス

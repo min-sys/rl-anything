@@ -1,5 +1,6 @@
 ---
 name: feedback
+effort: low
 description: |
   Collect feedback about the rl-anything plugin and submit as a GitHub Issue.
   Supports bug reports, feature requests, and improvement suggestions.

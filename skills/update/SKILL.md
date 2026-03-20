@@ -1,5 +1,6 @@
 ---
 name: update
+effort: low
 description: |
   Update the rl-anything plugin to the latest version. Runs install.sh and prompts
   for Claude Code restart.
