@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.12.0] — 2026-03-22
 
 ### SPEC.md から移動（Recent Changes ローテーション）
 - 2026-03-18: rl-loop --evolve フラグ + evolve-skill 独立コマンド
