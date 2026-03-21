@@ -5,10 +5,15 @@
 stdout に JSON で出力する。
 """
 import json
+import os
 import sys
+import time
 from pathlib import Path
 
 import common
+
+HANDOVER_STALE_HOURS = 48.0
+_HANDOVER_PREVIEW_LINES = 15
 
 # trigger_engine import (optional)
 _trigger_engine = None
@@ -57,10 +62,39 @@ def _deliver_pending_trigger() -> None:
         print(f"[rl-anything:restore_state] trigger delivery error: {e}", file=sys.stderr)
 
 
+def _detect_handover() -> None:
+    """最新の handover ノートを検出しプレビュー表示する。"""
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if not project_dir:
+        return
+    handover_dir = Path(project_dir) / ".claude" / "handovers"
+    if not handover_dir.exists():
+        return
+    files = sorted(handover_dir.glob("*.md"), reverse=True)
+    if not files:
+        return
+    latest = files[0]
+    try:
+        age_hours = (time.time() - latest.stat().st_mtime) / 3600
+    except OSError:
+        return
+    if age_hours > HANDOVER_STALE_HOURS:
+        return
+    try:
+        lines = latest.read_text(encoding="utf-8").splitlines()[:_HANDOVER_PREVIEW_LINES]
+        preview = "\n".join(lines)
+        print(f"[rl-anything:handover] 引き継ぎノートあり ({latest.name}):\n{preview}\n...")
+    except OSError:
+        pass
+
+
 def handle_session_start(event: dict) -> None:
     """SessionStart イベントを処理する。"""
     # Deliver pending trigger messages first
     _deliver_pending_trigger()
+
+    # Handover ノート検出
+    _detect_handover()
 
     checkpoint_file = common.DATA_DIR / "checkpoint.json"
 

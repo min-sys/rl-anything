@@ -5,6 +5,7 @@
 JSON シリアライズのみ（10-100ms 程度）。LLM 呼び出しなし。
 """
 import json
+import os
 import subprocess
 import sys
 import time
@@ -13,6 +14,7 @@ from pathlib import Path
 
 import common
 
+HANDOVER_COOLDOWN_SECONDS = 3600  # 1 時間
 _MAX_UNCOMMITTED_FILES = 30
 _MAX_RECENT_COMMITS = 5
 _GIT_TIMEOUT_SECONDS = 2
@@ -89,6 +91,26 @@ def _load_corrections_snapshot() -> list:
     return records
 
 
+def _suggest_handover() -> None:
+    """PreCompact 時に handover を提案する。"""
+    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
+    if not project_dir:
+        return
+    handover_dir = Path(project_dir) / ".claude" / "handovers"
+    if handover_dir.exists():
+        for f in sorted(handover_dir.glob("*.md"), reverse=True):
+            try:
+                if time.time() - f.stat().st_mtime < HANDOVER_COOLDOWN_SECONDS:
+                    return  # クールダウン中
+            except OSError:
+                pass
+            break
+    print(
+        "[rl-anything] コンテキスト圧縮されます。"
+        "作業を引き継ぎノートに残しませんか？ → /rl-anything:handover"
+    )
+
+
 def handle_pre_compact(event: dict) -> None:
     """PreCompact イベントを処理し、進化状態を保存する。"""
     common.ensure_data_dir()
@@ -109,6 +131,9 @@ def handle_pre_compact(event: dict) -> None:
         )
     except OSError as e:
         print(f"[rl-anything:save_state] write failed: {e}", file=sys.stderr)
+
+    # Handover 提案
+    _suggest_handover()
 
 
 def main() -> None:
