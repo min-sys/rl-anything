@@ -95,7 +95,7 @@ def _load_classify_usage_skill():
     """audit.py の _is_plugin_skill と classify_usage_skill を遅延インポートで取得する。
 
     Returns:
-        _is_plugin_skill 関数（classify_usage_skill + _is_openspec_skill の併用）
+        _is_plugin_skill 関数（classify_usage_skill + _is_gstack_skill + _is_openspec_skill の併用）
     """
     import sys as _sys
     _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
@@ -143,7 +143,7 @@ def detect_behavior_patterns(
 
         # (1) プラグインスキルは別集計
         if _is_plugin(skill):
-            plugin_name = _classify(skill) or "openspec(legacy)"
+            plugin_name = _classify(skill) or "gstack"
             plugin_counter[plugin_name] += 1
             continue
 
@@ -658,6 +658,42 @@ RECOMMENDED_ARTIFACTS = [
         "hook_path": None,
         "recommendation_id": "evidence_before_claims",
         "content_patterns": ["verify-before-claim", "evidence", "証拠", r"完了.*確認"],
+    },
+    # --- gstack ワークフローツール ---
+    {
+        "id": "gstack-flow-chain",
+        "type": "rule",
+        "path": Path.home() / ".claude" / "rules" / "gstack-flow-chain.md",
+        "description": "gstack フローチェーン — /ship→/document-release→/spec-keeper update→/retro の実装後ワークフロー",
+        "hook_path": None,
+    },
+    {
+        "id": "living-spec-awareness",
+        "type": "rule",
+        "path": Path.home() / ".claude" / "rules" / "living-spec-awareness.md",
+        "description": "Living Spec 意識 — SPEC.md 未存在 PJ で /spec-keeper init を提案、存在 PJ では最初に読む",
+        "hook_path": None,
+    },
+    {
+        "id": "spec-keeper",
+        "type": "skill",
+        "path": Path.home() / ".claude" / "skills" / "spec-keeper" / "SKILL.md",
+        "description": "spec-keeper — SPEC.md + ADR 管理スキル（init/update/adr/status）",
+        "hook_path": None,
+    },
+    {
+        "id": "ship",
+        "type": "skill",
+        "path": Path.home() / ".claude" / "skills" / "ship" / "SKILL.md",
+        "description": "ship — 実装→テスト→bump→CHANGELOG→PR の出荷ワークフロー",
+        "hook_path": None,
+    },
+    {
+        "id": "gstack-refine",
+        "type": "skill",
+        "path": Path.home() / ".claude" / "skills" / "gstack-refine" / "SKILL.md",
+        "description": "gstack-refine — build 前のプラン品質レビュー（設計+テスト計画の検証）",
+        "hook_path": None,
     },
 ]
 

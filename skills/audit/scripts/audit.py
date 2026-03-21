@@ -529,12 +529,22 @@ from agent_classifier import BUILTIN_AGENT_NAMES
 _BUILTIN_TOOLS = {f"Agent:{n}" for n in BUILTIN_AGENT_NAMES} | {"commit"}
 
 
+def _is_openspec_skill(skill_name: str) -> bool:
+    """スキル名が OpenSpec 関連（レガシー）かどうかを判定する。"""
+    name_lower = skill_name.lower()
+    base = name_lower[6:] if name_lower.startswith("agent:") else name_lower
+    return "openspec" in base or base.startswith("opsx:")
+
+
 def _is_plugin_skill(skill_name: str) -> bool:
     """スキル名がプラグイン由来かどうかを判定する。
 
-    classify_usage_skill（完全一致 + prefix マッチ）と _is_openspec_skill（キーワード）を併用。
+    classify_usage_skill（完全一致 + prefix マッチ）、_is_gstack_skill、
+    _is_openspec_skill（レガシー）を併用。
     """
     if classify_usage_skill(skill_name) is not None:
+        return True
+    if _is_gstack_skill(skill_name):
         return True
     if _is_openspec_skill(skill_name):
         return True
@@ -566,7 +576,7 @@ def aggregate_plugin_usage(records: List[Dict[str, Any]]) -> Dict[str, int]:
     """プラグイン別の使用回数を集計する。
 
     classify_usage_skill でプラグイン名が判定できるものはプラグイン名で集計。
-    _is_openspec_skill でのみマッチするものは "openspec(legacy)" として集計。
+    gstack スキルは "gstack" として、OpenSpec レガシーは "openspec(legacy)" として集計。
 
     Returns:
         {plugin_name: total_count} の辞書（降順ソート）
@@ -579,8 +589,10 @@ def aggregate_plugin_usage(records: List[Dict[str, Any]]) -> Dict[str, int]:
         plugin_name = classify_usage_skill(skill)
         if plugin_name:
             plugin_counts[plugin_name] = plugin_counts.get(plugin_name, 0) + 1
+        elif _is_gstack_skill(skill):
+            key = "gstack"
+            plugin_counts[key] = plugin_counts.get(key, 0) + 1
         elif _is_openspec_skill(skill):
-            # opsx:* 等の旧スキル名 → openspec として集計
             key = "openspec(legacy)"
             plugin_counts[key] = plugin_counts.get(key, 0) + 1
     return dict(sorted(plugin_counts.items(), key=lambda x: x[1], reverse=True))
@@ -776,55 +788,62 @@ def build_quality_trends_section(
     return lines
 
 
-# ---------- OpenSpec ワークフロー分析 ----------
+# ---------- gstack ワークフロー分析 ----------
 
-# OpenSpec ライフサイクルフェーズの順序
-_OPENSPEC_LIFECYCLE = ["propose", "refine", "apply", "verify", "archive"]
+# gstack ライフサイクルフェーズの順序
+_GSTACK_LIFECYCLE = ["plan", "refine", "ship", "document", "spec", "retro"]
+
+# gstack スキル名 → フェーズのマッピング
+_GSTACK_SKILL_PHASE_MAP: Dict[str, str] = {
+    "office-hours": "plan",
+    "plan-eng-review": "plan",
+    "plan-ceo-review": "plan",
+    "plan-design-review": "plan",
+    "gstack-refine": "refine",
+    "ship": "ship",
+    "document-release": "document",
+    "spec-keeper": "spec",
+    "retro": "retro",
+}
+
+# gstack スキル名の集合（高速判定用）
+_GSTACK_SKILL_NAMES = frozenset(_GSTACK_SKILL_PHASE_MAP.keys())
 
 
-def _match_openspec_phase(skill_name: str) -> Optional[str]:
-    """スキル名から OpenSpec ライフサイクルフェーズを推定する。
-
-    スキル名に openspec/opsx を含み、かつフェーズ名を含むものを判定。
-    """
-    name_lower = skill_name.lower()
-    for phase in _OPENSPEC_LIFECYCLE:
-        if phase in name_lower:
-            return phase
-    return None
-
-
-def _is_openspec_skill(skill_name: str) -> bool:
-    """スキル名が OpenSpec 関連かどうかを判定する。
-
-    openspec / opsx をキーワードとして判定。
-    """
+def _match_gstack_phase(skill_name: str) -> Optional[str]:
+    """スキル名から gstack ライフサイクルフェーズを推定する。"""
     name_lower = skill_name.lower()
     base = name_lower[6:] if name_lower.startswith("agent:") else name_lower
-    return "openspec" in base or base.startswith("opsx:")
+    return _GSTACK_SKILL_PHASE_MAP.get(base)
 
 
-def build_openspec_analytics_section(
+def _is_gstack_skill(skill_name: str) -> bool:
+    """スキル名が gstack 関連かどうかを判定する。"""
+    if not skill_name:
+        return False
+    name_lower = skill_name.lower()
+    base = name_lower[6:] if name_lower.startswith("agent:") else name_lower
+    return base in _GSTACK_SKILL_NAMES
+
+
+def build_gstack_analytics_section(
     records: List[Dict[str, Any]],
 ) -> List[str]:
-    """OpenSpec ワークフロー分析セクションを構築する。
+    """gstack ワークフロー分析セクションを構築する。
 
-    ファネル（セッション内ライフサイクル完走率）、フェーズ別効率、
-    品質トレンド、最適化候補を表示。
+    ファネル（plan→refine→ship→document→spec→retro の完走率）、
+    フェーズ別効率、品質トレンド、最適化候補を表示。
     """
-    # _load_plugin_skill_map を呼んで prefix キャッシュを初期化
-    _load_plugin_skill_map()
-
-    # OpenSpec レコードのみ抽出
-    openspec_records = [r for r in records if _is_openspec_skill(r.get("skill_name", ""))]
-    if not openspec_records:
+    # gstack レコードのみ抽出
+    gstack_records = [r for r in records if _is_gstack_skill(r.get("skill_name", ""))]
+    if not gstack_records:
         return []
 
     # フェーズ別集計
     phase_counts: Dict[str, int] = {}
     phase_records: Dict[str, List[Dict[str, Any]]] = {}
-    for rec in openspec_records:
-        phase = _match_openspec_phase(rec.get("skill_name", ""))
+    for rec in gstack_records:
+        phase = _match_gstack_phase(rec.get("skill_name", ""))
         if phase:
             phase_counts[phase] = phase_counts.get(phase, 0) + 1
             if phase not in phase_records:
@@ -834,31 +853,31 @@ def build_openspec_analytics_section(
     if not phase_counts:
         return []
 
-    lines = ["## OpenSpec Workflow Analytics", ""]
+    lines = ["## gstack Workflow Analytics", ""]
 
     # ファネル表示
     funnel_parts = []
-    for phase in _OPENSPEC_LIFECYCLE:
+    for phase in _GSTACK_LIFECYCLE:
         count = phase_counts.get(phase, 0)
         if count > 0:
             funnel_parts.append(f"{phase}({count})")
     if funnel_parts:
         lines.append(f"Funnel: {' → '.join(funnel_parts)}")
 
-    # propose → archive 比率
-    propose_count = phase_counts.get("propose", 0)
-    archive_count = phase_counts.get("archive", 0)
-    if propose_count > 0:
-        ratio = archive_count / propose_count
+    # plan → retro 比率
+    plan_count = phase_counts.get("plan", 0)
+    retro_count = phase_counts.get("retro", 0)
+    if plan_count > 0:
+        ratio = retro_count / plan_count
         if ratio <= 1.0:
-            lines.append(f"Completion rate: {int(ratio * 100)}% ({archive_count}/{propose_count})")
+            lines.append(f"Completion rate: {int(ratio * 100)}% ({retro_count}/{plan_count})")
         else:
-            lines.append(f"Propose→Archive ratio: {ratio:.1f}x ({archive_count}/{propose_count})")
+            lines.append(f"Plan→Retro ratio: {ratio:.1f}x ({retro_count}/{plan_count})")
     lines.append("")
 
     # フェーズ別効率テーブル
     lines.append("Phase efficiency:")
-    for phase in _OPENSPEC_LIFECYCLE:
+    for phase in _GSTACK_LIFECYCLE:
         recs = phase_records.get(phase, [])
         if not recs:
             continue
@@ -878,14 +897,14 @@ def build_openspec_analytics_section(
 
     lines.append("")
 
-    # 品質トレンド（quality-baselines.jsonl から openspec スキルのみ）
+    # 品質トレンド（quality-baselines.jsonl から gstack スキルのみ）
     baselines = load_quality_baselines()
     if baselines:
-        openspec_baselines = [b for b in baselines if _is_openspec_skill(b.get("skill_name", ""))]
-        if openspec_baselines:
+        gstack_baselines = [b for b in baselines if _is_gstack_skill(b.get("skill_name", ""))]
+        if gstack_baselines:
             lines.append("Quality trends:")
             skill_scores: Dict[str, float] = {}
-            for b in openspec_baselines:
+            for b in gstack_baselines:
                 skill_scores[b["skill_name"]] = b.get("score", 0.0)
             for name, score in sorted(skill_scores.items(), key=lambda x: x[1], reverse=True):
                 lines.append(f"- {name}: {score:.2f}")
@@ -894,7 +913,7 @@ def build_openspec_analytics_section(
     # 最適化候補（一貫性が最も低いフェーズ）
     worst_phase = None
     worst_consistency = 1.0
-    for phase in _OPENSPEC_LIFECYCLE:
+    for phase in _GSTACK_LIFECYCLE:
         recs = phase_records.get(phase, [])
         if len(recs) < 5:
             continue
@@ -1131,7 +1150,7 @@ def generate_report(
     quality_baselines: Optional[List[Dict[str, Any]]] = None,
     project_dir: Optional[Path] = None,
     plugin_usage: Optional[Dict[str, int]] = None,
-    openspec_analytics: Optional[List[str]] = None,
+    gstack_analytics: Optional[List[str]] = None,
     untagged_reference_candidates: Optional[List[Dict[str, Any]]] = None,
     hardcoded_values: Optional[List[Dict[str, Any]]] = None,
     coherence_report: Optional[List[str]] = None,
@@ -1199,9 +1218,9 @@ def generate_report(
         if trends:
             lines.extend(trends)
 
-    # OpenSpec ワークフロー分析
-    if openspec_analytics:
-        lines.extend(openspec_analytics)
+    # gstack ワークフロー分析
+    if gstack_analytics:
+        lines.extend(gstack_analytics)
 
     # 重複候補
     if duplicates:
@@ -1373,8 +1392,8 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coh
     if baselines:
         quality_baselines = baselines
 
-    # OpenSpec ワークフロー分析
-    openspec_analytics = build_openspec_analytics_section(usage_records)
+    # gstack ワークフロー分析
+    gstack_analytics = build_gstack_analytics_section(usage_records)
 
     # Reference type 未設定警告
     untagged = detect_untagged_reference_candidates(artifacts, usage)
@@ -1473,7 +1492,7 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coh
         artifacts, violations, usage, duplicates, advisories,
         quality_baselines, project_dir=proj,
         plugin_usage=plugin_usage if plugin_usage else None,
-        openspec_analytics=openspec_analytics if openspec_analytics else None,
+        gstack_analytics=gstack_analytics if gstack_analytics else None,
         untagged_reference_candidates=untagged if untagged else None,
         hardcoded_values=hardcoded_values if hardcoded_values else None,
         coherence_report=coherence_report_lines,

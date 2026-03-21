@@ -2,7 +2,7 @@
 """usage-scope-classification のテスト。
 
 _load_plugin_skill_map, aggregate_usage, aggregate_plugin_usage,
-build_openspec_analytics_section, detect_behavior_patterns のプラグインフィルタをテストする。
+build_gstack_analytics_section, detect_behavior_patterns のプラグインフィルタをテストする。
 """
 import json
 import sys
@@ -164,50 +164,50 @@ class TestAggregateUsage:
         assert "rl-anything" not in result
 
 
-# ---------- build_openspec_analytics_section tests ----------
+# ---------- build_gstack_analytics_section tests ----------
 
-class TestBuildOpenspecAnalytics:
-    def _make_openspec_records(self):
+class TestBuildGstackAnalytics:
+    def _make_gstack_records(self):
         records = []
         for i in range(3):
             records.append({
-                "skill_name": "openspec-propose",
+                "skill_name": "office-hours",
                 "session_id": f"session-{i}",
             })
         for i in range(10):
             records.append({
-                "skill_name": "openspec-refine",
+                "skill_name": "ship",
                 "session_id": f"session-{i % 3}",
             })
         records.append({
-            "skill_name": "openspec-archive",
+            "skill_name": "retro",
             "session_id": "session-0",
         })
         return records
 
     def test_returns_lines_with_funnel(self, tmp_path):
         with _setup_fake_plugins(tmp_path):
-            result = audit.build_openspec_analytics_section(self._make_openspec_records())
-        assert any("OpenSpec Workflow Analytics" in line for line in result)
+            result = audit.build_gstack_analytics_section(self._make_gstack_records())
+        assert any("gstack Workflow Analytics" in line for line in result)
         assert any("Funnel:" in line for line in result)
-        assert any("propose(3)" in line for line in result)
+        assert any("plan(3)" in line for line in result)
 
     def test_completion_rate(self, tmp_path):
         with _setup_fake_plugins(tmp_path):
-            result = audit.build_openspec_analytics_section(self._make_openspec_records())
+            result = audit.build_gstack_analytics_section(self._make_gstack_records())
         assert any("33%" in line for line in result)
 
-    def test_empty_when_no_openspec(self, tmp_path):
+    def test_empty_when_no_gstack(self, tmp_path):
         home_dir = tmp_path / "empty_home"
         home_dir.mkdir()
         with patch("pathlib.Path.home", return_value=home_dir):
-            result = audit.build_openspec_analytics_section([])
+            result = audit.build_gstack_analytics_section([])
         assert result == []
 
     def test_phase_efficiency(self, tmp_path):
         with _setup_fake_plugins(tmp_path):
-            result = audit.build_openspec_analytics_section(self._make_openspec_records())
-        assert any("refine:" in line for line in result)
+            result = audit.build_gstack_analytics_section(self._make_gstack_records())
+        assert any("ship:" in line for line in result)
 
 
 # ---------- discover plugin filtering tests ----------
