@@ -15,6 +15,7 @@ from skill_evolve import (
     BAND_AID_THRESHOLD,
     HIGH_SUITABILITY_THRESHOLD,
     MEDIUM_SUITABILITY_THRESHOLD,
+    VERIFICATION_SKILL_KEYWORDS,
     _count_external_keywords,
     _score_execution_frequency,
     _score_external_dependency,
@@ -26,6 +27,7 @@ from skill_evolve import (
     detect_anti_patterns,
     evolve_skill_proposal,
     is_self_evolved_skill,
+    is_verification_skill,
 )
 from issue_schema import (
     TOOL_USAGE_RULE_CANDIDATE,
@@ -501,6 +503,84 @@ def test_assess_single_skill_rejected(mock_telemetry, mock_llm, tmp_path):
     }
     result = assess_single_skill("my-skill", skill_dir)
     assert result["suitability"] == "rejected"
+
+
+# --- is_verification_skill ---
+
+
+def test_is_verification_skill_by_name():
+    """スキル名にverify/check/validate/lint/test/qa等が含まれる場合にTrueを返す。"""
+    for name in ["godot-verify", "pre-check", "validate-schema", "lint-code", "qa", "qa-only"]:
+        assert is_verification_skill(name, Path("/dummy")) is True, f"{name} should be verification"
+
+
+def test_is_verification_skill_not_matched():
+    """verify系キーワードを含まないスキル名はFalseを返す。"""
+    for name in ["deploy", "commit", "design-review", "office-hours"]:
+        assert is_verification_skill(name, Path("/dummy")) is False, f"{name} should NOT be verification"
+
+
+def test_is_verification_skill_by_content(tmp_path):
+    """スキル名はマッチしないが、SKILL.md内容にverify系キーワードがある場合にTrueを返す。"""
+    skill_dir = tmp_path / "my-tool"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "# My Tool\n\nThis skill validates and verifies deployment results.\n"
+    )
+    assert is_verification_skill("my-tool", skill_dir) is True
+
+
+def test_is_verification_skill_content_no_match(tmp_path):
+    """スキル名もSKILL.md内容もマッチしない場合はFalseを返す。"""
+    skill_dir = tmp_path / "my-tool"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("# My Tool\n\nThis skill creates documents.\n")
+    assert is_verification_skill("my-tool", skill_dir) is False
+
+
+@mock.patch("skill_evolve.compute_llm_scores")
+@mock.patch("skill_evolve.compute_telemetry_scores")
+def test_assess_single_skill_verification_bypass(mock_telemetry, mock_llm, tmp_path):
+    """verify系スキルはテレメトリが低くてもmediumに昇格する。"""
+    skill_dir = tmp_path / "godot-verify"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("# Godot Verify\n")
+
+    mock_telemetry.return_value = {
+        "frequency": 1, "diversity": 1, "evaluability": 1,
+        "usage_count": 0, "error_count": 0,
+        "error_categories": [],
+    }
+    mock_llm.return_value = {
+        "external_dependency": 1, "judgment_complexity": 1, "cached": True,
+    }
+    result = assess_single_skill("godot-verify", skill_dir)
+    assert result["suitability"] == "medium"
+    assert "verification_bypass" in result
+    assert result["verification_bypass"] is True
+    assert "検証系" in result["recommendation"]
+
+
+@mock.patch("skill_evolve.compute_llm_scores")
+@mock.patch("skill_evolve.compute_telemetry_scores")
+def test_assess_single_skill_verification_high_unchanged(mock_telemetry, mock_llm, tmp_path):
+    """verify系スキルでもhigh以上なら昇格不要でそのまま。"""
+    skill_dir = tmp_path / "godot-verify"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("# Godot Verify\n")
+
+    mock_telemetry.return_value = {
+        "frequency": 3, "diversity": 3, "evaluability": 3,
+        "usage_count": 20, "error_count": 8,
+        "error_categories": ["a", "b", "c", "d"],
+    }
+    mock_llm.return_value = {
+        "external_dependency": 2, "judgment_complexity": 3, "cached": True,
+    }
+    result = assess_single_skill("godot-verify", skill_dir)
+    assert result["suitability"] == "high"
+    # high のまま — verification_bypass は付かない or False
+    assert not result.get("verification_bypass", False)
 
 
 # --- apply_evolve_proposal ---

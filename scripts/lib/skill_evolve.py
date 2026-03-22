@@ -42,6 +42,12 @@ ERROR_FREQUENCY_THRESHOLD = 3
 # テレメトリの集計期間（日）
 TELEMETRY_LOOKBACK_DAYS = 30
 
+# 検証系スキル自動昇格キーワード
+VERIFICATION_SKILL_KEYWORDS = [
+    "verify", "validate", "check", "lint", "test", "qa", "audit",
+    "assert", "inspect", "scan",
+]
+
 # 合理化防止テーブル定数 (superpowers-knowledge-integration)
 RATIONALIZATION_MIN_CORRECTIONS = 3
 RATIONALIZATION_SKIP_KEYWORDS = [
@@ -114,6 +120,31 @@ def is_self_evolved_skill(skill_dir: Path) -> bool:
 
     content = skill_md.read_text(encoding="utf-8")
     return bool(re.search(r"(?i)failure[- ]triggered\s+learning", content))
+
+
+def is_verification_skill(skill_name: str, skill_dir: Path) -> bool:
+    """検証系スキルかどうかを判定する。
+
+    スキル名またはSKILL.md内容にVERIFICATION_SKILL_KEYWORDSが含まれればTrue。
+    検証系スキルは失敗時のインパクトが大きいため、テレメトリに関係なく
+    自己進化パターンの組み込みを推奨する。
+    """
+    name_lower = skill_name.lower()
+    for kw in VERIFICATION_SKILL_KEYWORDS:
+        if kw in name_lower:
+            return True
+
+    skill_md = skill_dir / "SKILL.md"
+    if skill_md.exists():
+        try:
+            content = skill_md.read_text(encoding="utf-8").lower()
+            for kw in VERIFICATION_SKILL_KEYWORDS:
+                if kw in content:
+                    return True
+        except OSError:
+            pass
+
+    return False
 
 
 # --- テレメトリ3軸 ---
@@ -427,6 +458,7 @@ def skill_evolve_assessment(
             if ap["pattern"] in ("Noise Collector", "Context Bloat", "Band-Aid")
         )
 
+        verification_bypass = False
         if rejection_count >= ANTI_PATTERN_REJECTION_COUNT:
             recommendation = "変換非推奨: 評価時アンチパターン{}件該当".format(rejection_count)
             suitability = "rejected"
@@ -434,10 +466,14 @@ def skill_evolve_assessment(
             recommendation = "変換を推奨"
         elif suitability == "medium":
             recommendation = "変換可能 — ユーザー判断に委ねます"
+        elif is_verification_skill(skill_name, skill_dir):
+            suitability = "medium"
+            verification_bypass = True
+            recommendation = "変換可能 — 検証系スキルのため自己進化を推奨"
         else:
             recommendation = "変換非推奨"
 
-        results.append({
+        entry = {
             "skill_name": skill_name,
             "skill_dir": str(skill_dir),
             "already_evolved": False,
@@ -452,7 +488,10 @@ def skill_evolve_assessment(
                 "error_categories": telemetry["error_categories"],
             },
             "llm_cached": llm["cached"],
-        })
+        }
+        if verification_bypass:
+            entry["verification_bypass"] = True
+        results.append(entry)
 
     return results
 
@@ -618,6 +657,8 @@ def assess_single_skill(
         if ap["pattern"] in ("Noise Collector", "Context Bloat", "Band-Aid")
     )
 
+    # 検証系スキルのバイパス判定
+    verification_bypass = False
     if rejection_count >= ANTI_PATTERN_REJECTION_COUNT:
         recommendation = "変換非推奨: 評価時アンチパターン{}件該当".format(rejection_count)
         suitability = "rejected"
@@ -625,6 +666,11 @@ def assess_single_skill(
         recommendation = "変換を推奨"
     elif suitability == "medium":
         recommendation = "変換可能 — ユーザー判断に委ねます"
+    elif is_verification_skill(skill_name, skill_dir):
+        # 検証系スキルは low でも medium に昇格
+        suitability = "medium"
+        verification_bypass = True
+        recommendation = "変換可能 — 検証系スキルのため自己進化を推奨"
     else:
         recommendation = "変換非推奨"
 
@@ -648,7 +694,7 @@ def assess_single_skill(
         except Exception:
             workflow_checkpoints = []
 
-    return {
+    result = {
         "skill_name": skill_name,
         "skill_dir": str(skill_dir),
         "already_evolved": False,
@@ -665,6 +711,9 @@ def assess_single_skill(
         "llm_cached": llm["cached"],
         "workflow_checkpoints": workflow_checkpoints,
     }
+    if verification_bypass:
+        result["verification_bypass"] = True
+    return result
 
 
 def apply_evolve_proposal(proposal: Dict[str, Any]) -> Dict[str, Any]:
