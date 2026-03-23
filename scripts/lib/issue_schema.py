@@ -29,6 +29,9 @@ STALL_RECOVERY_CANDIDATE = "stall_recovery_candidate"
 # ── missing_effort_candidate 定数 ─────────────────────
 MISSING_EFFORT_CANDIDATE = "missing_effort_candidate"
 
+# ── skill_quality_pattern_gap 定数 ──────────────────────
+SKILL_QUALITY_PATTERN_GAP = "skill_quality_pattern_gap"
+
 # ── split_candidate 定数 ────────────────────────────
 
 SPLIT_CANDIDATE_CONFIDENCE = 0.70
@@ -84,6 +87,17 @@ WCC_EVIDENCE_COUNT = "evidence_count"
 WCC_CONFIDENCE = "confidence"
 WCC_TEMPLATE = "template"
 WCC_DESCRIPTION = "description"
+
+# ── skill_quality_pattern_gap detail フィールド ──────
+
+SQP_SKILL_NAME = "skill_name"
+SQP_SKILL_PATH = "skill_path"
+SQP_DOMAIN = "domain"
+SQP_MISSING_REQUIRED = "missing_required"
+SQP_MISSING_RECOMMENDED = "missing_recommended"
+SQP_PATTERN_SCORE = "pattern_score"
+SQP_OVERALL_SCORE = "overall_score"
+SQP_CONFIDENCE = "confidence"
 
 # ── missing_effort_candidate detail フィールド ────────
 
@@ -288,6 +302,30 @@ def make_workflow_checkpoint_issue(
             WCC_DESCRIPTION: gap.get("description", ""),
         },
         "source": "workflow_checkpoint",
+    }
+
+
+def make_skill_quality_issue(
+    quality_result: Dict[str, Any],
+    *,
+    skill_path: str = "",
+) -> Dict[str, Any]:
+    """quality_engine のパターンギャップ検出結果 → issue dict 変換。"""
+    skill_name = quality_result.get(SQP_SKILL_NAME, "")
+    return {
+        "type": SKILL_QUALITY_PATTERN_GAP,
+        "file": skill_path or f".claude/skills/{skill_name}/SKILL.md",
+        "detail": {
+            SQP_SKILL_NAME: skill_name,
+            SQP_SKILL_PATH: skill_path,
+            SQP_DOMAIN: quality_result.get(SQP_DOMAIN, "default"),
+            SQP_MISSING_REQUIRED: quality_result.get(SQP_MISSING_REQUIRED, []),
+            SQP_MISSING_RECOMMENDED: quality_result.get(SQP_MISSING_RECOMMENDED, []),
+            SQP_PATTERN_SCORE: quality_result.get(SQP_PATTERN_SCORE, 0.0),
+            SQP_OVERALL_SCORE: quality_result.get(SQP_OVERALL_SCORE, 0.0),
+            SQP_CONFIDENCE: quality_result.get(SQP_CONFIDENCE, 0.0),
+        },
+        "source": "quality_engine",
     }
 
 

@@ -5,6 +5,7 @@ Observe データ確認 → Discover → Enrich → Optimize → Reorganize → 
 Fitness Evolution → Report の全フェーズを1つのコマンドで実行する。
 """
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,56 @@ sys.path.insert(0, str(_plugin_root / "skills" / "evolve" / "scripts"))
 
 DATA_DIR = Path.home() / ".claude" / "rl-anything"
 EVOLVE_STATE_FILE = DATA_DIR / "evolve-state.json"
+
+ENV_TIER_THRESHOLDS = {"medium": 20, "large": 50}
+
+
+def _compute_env_tier(project_root: Path) -> str:
+    """環境のスキル数+ルール数からtierを判定。
+
+    スキル数: .claude/skills/ 配下のディレクトリ数 + CLAUDE.md の Skills セクション記載数
+    ルール数: .claude/rules/ 配下のファイル数
+
+    Returns: "small" | "medium" | "large"
+    """
+    count = 0
+
+    # .claude/skills/ 配下のディレクトリ数
+    skills_dir = project_root / ".claude" / "skills"
+    if skills_dir.is_dir():
+        count += sum(1 for d in skills_dir.iterdir() if d.is_dir())
+
+    # CLAUDE.md の Skills セクション記載数
+    claude_md = project_root / "CLAUDE.md"
+    if claude_md.is_file():
+        try:
+            content = claude_md.read_text(encoding="utf-8")
+            in_skills = False
+            for line in content.splitlines():
+                # Skills セクション開始
+                if re.match(r"^#{1,3}\s+.*[Ss]kills?\b|^#{1,3}\s+.*スキル", line):
+                    in_skills = True
+                    continue
+                # 別のセクション開始で終了
+                if in_skills and re.match(r"^#{1,3}\s+", line):
+                    in_skills = False
+                    continue
+                # リスト項目をカウント
+                if in_skills and re.match(r"^\s*[-*]\s+", line):
+                    count += 1
+        except (OSError, UnicodeDecodeError):
+            pass
+
+    # .claude/rules/ 配下のファイル数
+    rules_dir = project_root / ".claude" / "rules"
+    if rules_dir.is_dir():
+        count += sum(1 for f in rules_dir.iterdir() if f.is_file())
+
+    if count >= ENV_TIER_THRESHOLDS["large"]:
+        return "large"
+    if count >= ENV_TIER_THRESHOLDS["medium"]:
+        return "medium"
+    return "small"
 
 
 def load_evolve_state() -> Dict[str, Any]:
@@ -255,6 +306,11 @@ def run_evolve(
         "phases": {},
     }
 
+    # Tier 計算（各 Phase の深度制御に使用）
+    proj_root = Path(project_dir) if project_dir else Path.cwd()
+    tier = _compute_env_tier(proj_root)
+    result["env_tier"] = tier
+
     # Phase 1: Observe データ確認
     sufficiency = check_data_sufficiency()
     result["phases"]["observe"] = sufficiency
@@ -307,6 +363,40 @@ def run_evolve(
     except Exception as e:
         result["phases"]["skill_triage"] = {"error": str(e), "skipped": True}
 
+    # Phase 2.65: Skill Quality Pattern Detection（テレメトリ不要）
+    try:
+        sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+        from instruction_patterns import detect_patterns, check_defaults_first, analyze_context_efficiency
+        from quality_engine import recommend_patterns
+
+        proj = Path(project_dir) if project_dir else Path.cwd()
+        claude_md_path = proj / "CLAUDE.md"
+        claude_md_content = claude_md_path.read_text(encoding="utf-8") if claude_md_path.is_file() else None
+
+        quality_results = {}
+        skills_dir = proj / ".claude" / "skills"
+        if skills_dir.is_dir():
+            for skill_dir in skills_dir.iterdir():
+                if not skill_dir.is_dir():
+                    continue
+                skill_md = skill_dir / "SKILL.md"
+                if not skill_md.is_file():
+                    continue
+                content = skill_md.read_text(encoding="utf-8")
+                patterns = detect_patterns(content)
+                defaults = check_defaults_first(content)
+                ctx_eff = analyze_context_efficiency(content, claude_md_content)
+                recommendation = recommend_patterns(patterns, content)
+                quality_results[skill_dir.name] = {
+                    "patterns": patterns,
+                    "defaults_first_score": defaults,
+                    "context_efficiency": ctx_eff,
+                    "recommendation": recommendation,
+                }
+        result["phases"]["quality_patterns"] = quality_results
+    except Exception as e:
+        result["phases"]["quality_patterns"] = {"error": str(e)}
+
     # Phase 2.7: Layer Diagnose（全レイヤー診断）
     try:
         sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
@@ -324,6 +414,38 @@ def run_evolve(
         result["phases"]["audit"] = {"report": audit_report}
     except Exception as e:
         result["phases"]["audit"] = {"error": str(e)}
+
+    # Phase 3.3: Skill Quality Trace Analysis（テレメトリ依存 — data_sufficiency 後）
+    try:
+        sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+        from quality_engine import analyze_traces, compute_overall_score, record_quality_score
+
+        proj = Path(project_dir) if project_dir else Path.cwd()
+        quality_patterns = result["phases"].get("quality_patterns", {})
+        trace_results = {}
+        for skill_name, qr in quality_patterns.items():
+            if isinstance(qr, dict) and "patterns" in qr:
+                trace = analyze_traces(skill_name, project=proj.name)
+                pattern_score = qr["patterns"].get("score", 0.0)
+                confusion = trace.get("confusion_score") if trace else None
+                ctx_eff = qr.get("context_efficiency", {}).get("efficiency_score", 0.5)
+                defaults = qr.get("defaults_first_score", 1.0)
+                overall = compute_overall_score(pattern_score, confusion, ctx_eff, defaults)
+                trace_results[skill_name] = {
+                    "confusion_score": confusion,
+                    "overall_score": overall,
+                }
+                if not dry_run:
+                    record_quality_score(skill_name, {
+                        "pattern_score": pattern_score,
+                        "confusion_score": confusion,
+                        "context_efficiency": ctx_eff,
+                        "defaults_first_score": defaults,
+                        "overall": overall,
+                    })
+        result["phases"]["quality_traces"] = trace_results
+    except Exception as e:
+        result["phases"]["quality_traces"] = {"error": str(e)}
 
     # Phase 3.4: Skill Self-Evolution Assessment（適性判定 — remediation の前に実行）
     try:
@@ -359,6 +481,7 @@ def run_evolve(
             make_verification_rule_issue,
             make_workflow_checkpoint_issue,
             make_stall_recovery_issue,
+            make_skill_quality_issue,
         )
         discover_data = result["phases"].get("discover", {})
         tool_usage = discover_data.get("tool_usage_patterns", {})
@@ -397,6 +520,26 @@ def run_evolve(
                     issue = make_skill_triage_issue(triage)
                     if issue:
                         issues.append(issue)
+
+        # --- skill_quality_pattern_gap を issue に変換 ---
+        quality_patterns = result["phases"].get("quality_patterns", {})
+        quality_traces = result["phases"].get("quality_traces", {})
+        for skill_name, qr in quality_patterns.items():
+            if isinstance(qr, dict) and "recommendation" in qr:
+                rec = qr["recommendation"]
+                missing_req = rec.get("required_missing", [])
+                missing_rec = rec.get("recommended_missing", [])
+                if missing_req:  # required が欠けている場合のみ issue 化
+                    trace_info = quality_traces.get(skill_name, {})
+                    issues.append(make_skill_quality_issue({
+                        "skill_name": skill_name,
+                        "domain": rec.get("domain", "default"),
+                        "missing_required": missing_req,
+                        "missing_recommended": missing_rec,
+                        "pattern_score": qr["patterns"].get("score", 0.0),
+                        "overall_score": trace_info.get("overall_score", 0.0),
+                        "confidence": 0.7 if missing_req else 0.4,
+                    }))
 
         # --- verification_needs を issue に変換 ---
         verification_needs = discover_data.get("verification_needs", [])

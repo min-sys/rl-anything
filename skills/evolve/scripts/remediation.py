@@ -58,6 +58,14 @@ from issue_schema import (  # noqa: E402
     MEC_PROPOSED_EFFORT,
     MEC_CONFIDENCE,
     MEC_REASON,
+    SKILL_QUALITY_PATTERN_GAP,
+    SQP_SKILL_NAME,
+    SQP_SKILL_PATH,
+    SQP_DOMAIN,
+    SQP_MISSING_REQUIRED,
+    SQP_MISSING_RECOMMENDED,
+    SQP_PATTERN_SCORE,
+    SQP_OVERALL_SCORE,
 )
 
 # 分類閾値
@@ -72,6 +80,139 @@ _GLOBAL_SCOPE_PATTERNS = {"CLAUDE.md"}
 _PROJECT_SCOPE_PATTERNS = {".claude/"}
 
 DATA_DIR = Path.home() / ".claude" / "rl-anything"
+
+# FP 除外パターン（ゼロノイズ FP 排除）
+FP_EXCLUSIONS: List[str] = [
+    "test_file",           # テストファイル内の参照は stale 判定しない
+    "archive_path",        # openspec/archive/ 配下の参照
+    "external_url",        # http(s):// で始まる外部参照
+    "numeric_only",        # 429/500 等の数値のみパターン
+    "code_block_ref",      # コードブロック内の参照
+    "frontmatter_path",    # frontmatter の paths/globs キー内の参照
+    "example_snippet",     # 例示コード内の参照
+    "commented_out",       # HTML/Markdown コメント内
+    "changelog_entry",     # CHANGELOG.md 内の過去参照
+    "memory_index_only",   # MEMORY.md のインデックス行
+    "plugin_managed",      # plugin origin のスキル参照
+    "short_field_name",    # 8文字未満のフィールド名
+]
+
+
+# ---------- FP 除外判定 ----------
+
+def _should_exclude_fp(issue: Dict[str, Any]) -> Optional[str]:
+    """issue が FP_EXCLUSIONS に該当する場合はその理由を返す。該当しなければ None。"""
+    file_path = issue.get("file", "")
+    detail = issue.get("detail", {})
+    ref_path = detail.get("path", "")
+
+    # test_file: テストファイル内の参照
+    basename = Path(file_path).name if file_path else ""
+    if basename.startswith("test_") or "/tests/" in file_path or "/test/" in file_path:
+        return "test_file"
+
+    # changelog_entry: CHANGELOG.md 内の参照
+    if basename == "CHANGELOG.md":
+        return "changelog_entry"
+
+    # external_url: http(s):// で始まる参照
+    if ref_path.startswith("http://") or ref_path.startswith("https://"):
+        return "external_url"
+
+    # archive_path: archive/ 配下の参照
+    if "/archive/" in ref_path or ref_path.startswith("archive/"):
+        return "archive_path"
+
+    # numeric_only: 数値のみパターン（429, 500 等）
+    matched = detail.get("matched", "")
+    if matched and re.fullmatch(r"\d+", str(matched)):
+        return "numeric_only"
+
+    # plugin_managed: plugin origin のスキル参照
+    if detail.get("plugin_managed"):
+        return "plugin_managed"
+
+    # code_block_ref: コードブロック内の参照
+    if detail.get("in_code_block"):
+        return "code_block_ref"
+
+    # frontmatter_path: frontmatter 内の参照
+    if detail.get("in_frontmatter"):
+        return "frontmatter_path"
+
+    # example_snippet: 例示コード内の参照
+    if detail.get("in_example"):
+        return "example_snippet"
+
+    # commented_out: コメント内の参照
+    if detail.get("commented_out"):
+        return "commented_out"
+
+    # memory_index_only: MEMORY.md のインデックス行
+    if detail.get("memory_index_only"):
+        return "memory_index_only"
+
+    # short_field_name: 8文字未満のフィールド名（パス区切り除く最短セグメント）
+    if ref_path and "/" in ref_path:
+        segments = [s for s in ref_path.split("/") if s]
+        if all(len(s) < 8 for s in segments):
+            return "short_field_name"
+
+    return None
+
+
+# ---------- 独立検証 ----------
+
+def _independent_verify(issue: Dict[str, Any], before_content: str, after_content: str) -> Dict[str, Any]:
+    """修正前後のコンテンツを独立したヒューリスティクスで検証。
+
+    LLM 不使用。ヒューリスティクスベース。
+
+    Returns:
+        {"passed": bool, "reason": str, "confidence": float}
+    """
+    reasons: List[str] = []
+
+    # 空ファイルチェック
+    if not after_content.strip():
+        return {"passed": False, "reason": "修正後のファイルが空です", "confidence": 1.0}
+
+    # 見出し数が減少していないかチェック
+    before_headings = re.findall(r"^#{1,6}\s+", before_content, re.MULTILINE)
+    after_headings = re.findall(r"^#{1,6}\s+", after_content, re.MULTILINE)
+    if len(after_headings) < len(before_headings):
+        lost = len(before_headings) - len(after_headings)
+        reasons.append(f"見出しが {lost} 個減少しています")
+
+    # コードブロックの対応チェック
+    after_fences = after_content.count("```")
+    if after_fences % 2 != 0:
+        reasons.append("コードブロック(```)の開始/終了が不対応です")
+
+    # Rules ファイルの行数制限チェック
+    file_path = issue.get("file", "")
+    if ".claude/rules/" in file_path:
+        try:
+            from line_limit import MAX_RULE_LINES
+            line_count = after_content.count("\n") + (1 if after_content and not after_content.endswith("\n") else 0)
+            if line_count > MAX_RULE_LINES:
+                reasons.append(f"行数が MAX_RULE_LINES ({MAX_RULE_LINES}) を超過しています ({line_count} 行)")
+        except ImportError:
+            pass
+
+    # before→after で削除された参照パスの妥当性チェック
+    before_paths = set(re.findall(r"(?:^|\s)([a-zA-Z_.][a-zA-Z0-9_./\-]+\.(?:py|md|json|jsonl|yaml|yml|sh))", before_content))
+    after_paths = set(re.findall(r"(?:^|\s)([a-zA-Z_.][a-zA-Z0-9_./\-]+\.(?:py|md|json|jsonl|yaml|yml|sh))", after_content))
+    removed_paths = before_paths - after_paths
+    if removed_paths:
+        # 削除されたパスが全体の半数以上だと警告
+        if len(removed_paths) > len(before_paths) / 2 and len(before_paths) > 2:
+            reasons.append(f"参照パスの過半数 ({len(removed_paths)}/{len(before_paths)}) が削除されました")
+
+    if reasons:
+        return {"passed": False, "reason": "; ".join(reasons), "confidence": 0.9}
+
+    return {"passed": True, "reason": "", "confidence": 0.95}
 
 
 # ---------- confidence_score / impact_scope 算出 ----------
@@ -239,6 +380,17 @@ def classify_issue(issue: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         元の issue に confidence_score, impact_scope, category を追加した dict
     """
+    # FP 除外チェック（auto_fixable 判定前）
+    fp_reason = _should_exclude_fp(issue)
+    if fp_reason is not None:
+        return {
+            **issue,
+            "confidence_score": 0.0,
+            "impact_scope": compute_impact_scope(issue["file"]),
+            "category": "fp_excluded",
+            "fp_exclusion_reason": fp_reason,
+        }
+
     confidence = compute_confidence_score(issue)
     scope = compute_impact_scope(issue["file"])
 
@@ -285,20 +437,26 @@ def classify_issue(issue: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def classify_issues(issues: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
-    """issue リストを3カテゴリに分類する。
+    """issue リストを3カテゴリ + fp_excluded に分類する。
 
     Returns:
-        {"auto_fixable": [...], "proposable": [...], "manual_required": [...]}
+        {"auto_fixable": [...], "proposable": [...], "manual_required": [...], "fp_excluded": [...]}
     """
     result: Dict[str, List[Dict[str, Any]]] = {
         "auto_fixable": [],
         "proposable": [],
         "manual_required": [],
+        "fp_excluded": [],
     }
 
     for issue in issues:
         classified = classify_issue(issue)
-        result[classified["category"]].append(classified)
+        category = classified["category"]
+        if category in result:
+            result[category].append(classified)
+        else:
+            # 未知のカテゴリは manual_required にフォールバック
+            result["manual_required"].append(classified)
 
     return result
 
@@ -1489,6 +1647,53 @@ def fix_workflow_checkpoint(
     return results
 
 
+def fix_skill_quality_pattern_gap(
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """スキル品質パターンギャップの修正提案を行う。
+
+    不足している required/recommended パターンについて、
+    スキルに追加すべきセクションの提案をテキストで返す。
+    """
+    results = []
+    for issue in issues:
+        if issue["type"] != SKILL_QUALITY_PATTERN_GAP:
+            continue
+        detail = issue.get("detail", {})
+        skill_name = detail.get(SQP_SKILL_NAME, "unknown")
+        domain = detail.get(SQP_DOMAIN, "default")
+        missing_required = detail.get(SQP_MISSING_REQUIRED, [])
+        missing_recommended = detail.get(SQP_MISSING_RECOMMENDED, [])
+
+        suggestions = []
+        pattern_templates = {
+            "gotchas": "## Gotchas\n\n- [ ] (環境固有の注意点を記載)",
+            "output_template": "## Output Format\n\n```\n(期待する出力形式を記載)\n```",
+            "checklist": "## Steps\n\n1. (手順1)\n2. (手順2)\n3. (手順3)",
+            "validation_loop": "## Validation\n\n1. 実行\n2. 結果を検証\n3. 問題があれば修正して再実行",
+            "plan_validate_execute": "## Safety\n\n1. Plan: 変更内容を確認\n2. Validate: dry-run で検証\n3. Execute: 問題なければ実行",
+            "progressive_disclosure": "## References\n\n詳細は `references/` を参照。",
+            "defaults_first": "(選択肢を提示する際は推奨を明記: 「推奨: X」)",
+        }
+
+        for pattern in missing_required:
+            template = pattern_templates.get(pattern, f"## {pattern}\n\n(内容を記載)")
+            suggestions.append(f"[REQUIRED] {pattern}: {template}")
+        for pattern in missing_recommended:
+            template = pattern_templates.get(pattern, f"## {pattern}\n\n(内容を記載)")
+            suggestions.append(f"[RECOMMENDED] {pattern}: {template}")
+
+        results.append({
+            "issue": issue,
+            "fixed": False,
+            "proposal": f"Skill '{skill_name}' (domain: {domain}) に以下のパターン追加を推奨:\n"
+                        + "\n".join(suggestions),
+            "changed_files": [],
+        })
+
+    return results
+
+
 def fix_missing_effort(
     issues: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
@@ -1564,6 +1769,7 @@ FIX_DISPATCH: Dict[str, Any] = {
     VERIFICATION_RULE_CANDIDATE: fix_verification_rule,
     WORKFLOW_CHECKPOINT_CANDIDATE: fix_workflow_checkpoint,
     MISSING_EFFORT_CANDIDATE: fix_missing_effort,
+    SKILL_QUALITY_PATTERN_GAP: fix_skill_quality_pattern_gap,
 }
 
 
@@ -1878,6 +2084,11 @@ def _verify_workflow_checkpoint(fixed_file: str, detail: Dict[str, Any]) -> Dict
     return {"resolved": True, "remaining": None}
 
 
+def _verify_skill_quality_pattern_gap(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, Any]:
+    """skill_quality_pattern_gap の検証: proposable 提案が生成されたことを確認（常にresolved=true）。"""
+    return {"resolved": True, "remaining": None}
+
+
 VERIFY_DISPATCH: Dict[str, Any] = {
     "stale_ref": _verify_stale_ref,
     "line_limit_violation": _verify_line_limit_violation,
@@ -1896,6 +2107,7 @@ VERIFY_DISPATCH: Dict[str, Any] = {
     VERIFICATION_RULE_CANDIDATE: _verify_verification_rule,
     WORKFLOW_CHECKPOINT_CANDIDATE: _verify_workflow_checkpoint,
     MISSING_EFFORT_CANDIDATE: _verify_missing_effort,
+    SKILL_QUALITY_PATTERN_GAP: _verify_skill_quality_pattern_gap,
 }
 
 
