@@ -1,6 +1,6 @@
 # SPEC.md — rl-anything
 
-Last updated: 2026-03-22 by /spec-keeper update
+Last updated: 2026-03-24 by /spec-keeper update (feat/gstack-pattern-adoption)
 
 ## Overview
 
@@ -26,6 +26,8 @@ Claude Code Plugin。スキル/ルールの **自律進化パイプライン**�
 | 自律進化 | evolve, discover, reorganize, prune, audit | Observe → Diagnose → Compile → Housekeeping → Report の3ステージパイプライン ([ADR-009](docs/decisions/009-simplify-pipeline-3-stage.md)) |
 | フィードバック | reflect | 修正パターン検出 → corrections.jsonl → CLAUDE.md/rules に反映 |
 | 直接パッチ最適化 | optimize, rl-loop, generate-fitness, evolve-fitness | GA廃止、LLM 1パス直接パッチ ([ADR-003](docs/decisions/003-direct-patch-over-genetic-algorithm.md)) → regression gate |
+| エージェント管理 | agent-brushup | エージェント定義の品質診断・改善提案・upstream 監視 |
+| セッション管理 | handover | 作業状態を構造化ノートに書き出し、SPEC.md 同期、別セッションへ引き継ぎ |
 
 ### コンポーネント構成
 
@@ -36,19 +38,22 @@ hooks/                  ← Observe 層（7個、LLMコストゼロ）[ADR-002]
   subagent_observe.py   ← subagents.jsonl 記録
   instructions_loaded.py← sessions.jsonl [ADR-015]
   stop_failure.py       ← API エラー記録
+  save_state.py         ← Compaction 前の作業コンテキスト保存 [ADR-013]
+  restore_state.py      ← セッション開始時の状態復元
 
-skills/                 ← スキル定義（15個）
+skills/                 ← スキル定義（19個）
   evolve/               ← 3ステージ自律進化パイプライン
   discover/             ← パターン検出 + スキル候補生成
   reflect/              ← 修正フィードバック反映
   audit/                ← 環境健康診断
   optimize/             ← 直接パッチ最適化
   agent-brushup/        ← エージェント品質診断
+  handover/             ← セッション引き継ぎ + SPEC.md 同期 + PreCompact 自動提案
 
 scripts/lib/            ← 共通ロジック（25+ モジュール）
   telemetry_query.py    ← DuckDB 共通クエリ層
   layer_diagnose.py     ← 4レイヤー診断
-  remediation.py        ← confidence-based 問題分類 + 修正
+  remediation.py        ← confidence-based 問題分類 + 修正 + FP排除 + 原則ベース昇格
   regression_gate.py    ← 共通 regression gate
   skill_triage.py       ← スキルライフサイクル 5択判定
   pitfall_manager.py    ← pitfall 品質ゲート + ライフサイクル
@@ -57,12 +62,13 @@ scripts/lib/            ← 共通ロジック（25+ モジュール）
   trigger_engine.py     ← Auto-evolve trigger engine
   agent_quality.py      ← エージェント品質診断
 
-scripts/rl/fitness/     ← 適応度関数（7個組み込み）
+scripts/rl/fitness/     ← 適応度関数（7個組み込み + config.py で閾値集約）
+  config.py             ← 全モジュール共有閾値 + BASE_WEIGHTS
   coherence.py          ← 環境 Coherence Score（4軸）
   telemetry.py          ← テレメトリ駆動 Score（3軸）
-  constitutional.py     ← 原則ベース LLM Judge
+  constitutional.py     ← 原則ベース LLM Judge + /cso security 軸
   chaos.py              ← 仮想除去ロバストネス
-  environment.py        ← 3層ブレンド統合
+  environment.py        ← 動的重み統合（_normalize_weights + skill_quality 4軸目）
 ```
 
 ### データフロー
@@ -95,12 +101,13 @@ scripts/rl/fitness/     ← 適応度関数（7個組み込み）
 | `/rl-anything:evolve-skill <skill>` | 特定スキルに自己進化パターン組み込み | medium |
 | `/rl-anything:generate-fitness` | PJ固有 fitness 関数自動生成 | medium |
 | `/rl-anything:evolve-fitness` | 評価関数キャリブレーション | medium |
+| `/rl-anything:handover` | セッション作業状態の構造化ノート書き出し | low |
 | `/rl-anything:version` | バージョン・ステータス表示 | low |
 | `/rl-anything:feedback` | フィードバック送信 | low |
 
 ### 適応度関数
 
-組み込み7個: `default`, `skill_quality`, `coherence`, `telemetry`, `constitutional`, `chaos`, `environment`
+組み込み7個: `default`, `skill_quality`, `coherence`, `telemetry`, `constitutional`（+ /cso security軸）, `chaos`, `environment`（動的重み、`config.py` で閾値集約）
 PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 
 ## Key Design Decisions
@@ -116,11 +123,11 @@ PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 
 直近5件のみ。過去の変更は [CHANGELOG.md](CHANGELOG.md) を参照。
 
-- 2026-03-22: OpenSpec→gstack ワークフロー移行 Phase 1（audit/discover の gstack 対応、OpenSpec スキル削除）
+- 2026-03-24: gstack v0.10-v0.11 改善パターン6項目移植 — 独立検証、FP排除(12条件)、規模適応、fitness config.py集約、動的重み、/cso×fitness連携、/retro×audit cross-project、原則ベース昇格
+- 2026-03-23: handover に SPEC.md 同期ステップ追加（`/spec-keeper update` を自動実行）
+- 2026-03-22: v1.13.0 — 検証系スキルのテレメトリ非依存昇格
+- 2026-03-22: v1.12.0 — handover スキル追加 + OpenSpec→gstack 移行 Phase 1-2
 - 2026-03-20: agent-brushup スキル追加（品質診断 + upstream 監視）
-- 2026-03-20: effort frontmatter 全15スキルに追加
-- 2026-03-19: stall-recovery パターン検出、workflow checkpoint 注入
-- 2026-03-19: paths frontmatter 自動提案、行数カウント frontmatter 除外
 
 ## Current Limitations / Known Issues
 
@@ -131,6 +138,6 @@ PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 
 ## Next
 
-- gstack 移行 Phase 3: release-notes-review スキルの openspec 参照を gstack に更新（#37）
+- gstack 改善移植の残り: Agent 3 の cross-project audit を evolve パイプラインに統合（PR #38 で基盤完了、evolve 内での呼び出し統合は次 PR）
 - Subagents レイヤーの進化メカニズム（roadmap Phase 3）
 - 6レイヤー全体の自律進化ループ完成（roadmap To-be）
