@@ -81,6 +81,46 @@ _PROJECT_SCOPE_PATTERNS = {".claude/"}
 
 DATA_DIR = Path.home() / ".claude" / "rl-anything"
 
+# ---------- 原則ベース判断 (/autoplan 連携) ----------
+
+REMEDIATION_PRINCIPLES = {
+    "completeness": {
+        "description": "修正は完全であるべき — 部分的修正は新たな問題を生む",
+        "bonus": 0.08,
+        "applies_to": ["stale_ref", "claudemd_phantom_ref", "claudemd_missing_section"],
+    },
+    "pragmatic": {
+        "description": "実用的な修正を優先 — 理論的完璧さより実効性",
+        "bonus": 0.06,
+        "applies_to": ["line_limit_violation", "untagged_reference_candidates"],
+    },
+    "dry": {
+        "description": "重複を排除 — 同じ情報を2箇所に持たない",
+        "bonus": 0.07,
+        "applies_to": ["memory_duplicate", "stale_memory"],
+    },
+    "explicit_over_clever": {
+        "description": "明示的な修正を優先 — 暗黙の挙動に頼らない",
+        "bonus": 0.05,
+        "applies_to": ["stale_rule", "split_candidate"],
+    },
+}
+
+
+def _apply_principles(issue: Dict[str, Any]) -> float:
+    """issue type に該当する原則のボーナス合計を返す。
+
+    Returns:
+        0.0 ~ 0.15 のボーナス値
+    """
+    issue_type = issue.get("type", "")
+    total_bonus = 0.0
+    for _name, principle in REMEDIATION_PRINCIPLES.items():
+        if issue_type in principle["applies_to"]:
+            total_bonus += principle["bonus"]
+    return min(total_bonus, 0.15)
+
+
 # FP 除外パターン（ゼロノイズ FP 排除）
 FP_EXCLUSIONS: List[str] = [
     "test_file",           # テストファイル内の参照は stale 判定しない
@@ -425,6 +465,20 @@ def classify_issue(issue: Dict[str, Any]) -> Dict[str, Any]:
     else:
         category = "proposable"
 
+    principle_promoted = False
+    applied_principles: List[str] = []
+
+    # 原則ベース昇格: proposable 範囲 (0.5 <= confidence < 0.9) の issue に適用
+    if category == "proposable" and not protection_warning and scope in ("file", "project"):
+        bonus = _apply_principles(issue)
+        if bonus > 0 and confidence + bonus >= AUTO_FIX_CONFIDENCE:
+            category = "auto_fixable"
+            principle_promoted = True
+            applied_principles = [
+                name for name, p in REMEDIATION_PRINCIPLES.items()
+                if issue.get("type", "") in p["applies_to"]
+            ]
+
     result = {
         **issue,
         "confidence_score": confidence,
@@ -433,6 +487,9 @@ def classify_issue(issue: Dict[str, Any]) -> Dict[str, Any]:
     }
     if protection_warning:
         result["protection_warning"] = protection_warning
+    if principle_promoted:
+        result["principle_promoted"] = True
+        result["applied_principles"] = applied_principles
     return result
 
 

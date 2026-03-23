@@ -25,10 +25,13 @@ def _ensure_paths():
             sys.path.insert(0, p)
 
 
-THRESHOLDS = {
-    "min_coverage_for_eval": 0.5,
-    "min_principle_quality": 0.3,
-}
+try:
+    from .config import PRINCIPLES_THRESHOLDS as THRESHOLDS
+except ImportError:
+    THRESHOLDS = {
+        "min_coverage_for_eval": 0.5,
+        "min_principle_quality": 0.3,
+    }
 
 SEED_PRINCIPLES: List[Dict[str, Any]] = [
     {

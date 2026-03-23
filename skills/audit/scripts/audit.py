@@ -1158,6 +1158,7 @@ def generate_report(
     constitutional_report: Optional[List[str]] = None,
     environment_report: Optional[List[str]] = None,
     pipeline_health_report: Optional[List[str]] = None,
+    cross_project_report: Optional[List[str]] = None,
 ) -> str:
     """1画面レポートを生成する。"""
     lines = ["# Environment Audit Report", ""]
@@ -1178,6 +1179,10 @@ def generate_report(
     # Pipeline Health（既存スコアセクションの後に配置）
     if pipeline_health_report:
         lines.extend(pipeline_health_report)
+
+    # Cross-Project Summary
+    if cross_project_report:
+        lines.extend(cross_project_report)
 
     # サマリ
     total = sum(len(v) for v in artifacts.values())
@@ -1363,7 +1368,33 @@ def _check_degradation(current: Dict[str, Any]) -> None:
                 )
 
 
-def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coherence_score: bool = False, telemetry_score: bool = False, constitutional_score: bool = False, pipeline_health: bool = False) -> str:
+def _load_global_retro(gstack_dir: Path = None) -> Optional[Dict[str, Any]]:
+    """~/.gstack/retros/global-*.json から最新のグローバルretro結果を取得。
+
+    Args:
+        gstack_dir: gstack データディレクトリ（None の場合 ~/.gstack）
+
+    Returns:
+        parsed JSON dict or None
+        スキーマ: {type, date, window, projects[], totals{}}
+    """
+    if gstack_dir is None:
+        gstack_dir = Path.home() / ".gstack"
+    retros_dir = gstack_dir / "retros"
+    if not retros_dir.exists():
+        return None
+    try:
+        files = sorted(retros_dir.glob("global-*.json"))
+        if not files:
+            return None
+        # 最新ファイル（ソート順で最後）を読む
+        latest_file = files[-1]
+        return json.loads(latest_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+        return None
+
+
+def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coherence_score: bool = False, telemetry_score: bool = False, constitutional_score: bool = False, pipeline_health: bool = False, cross_project: bool = False) -> str:
     """Audit を実行してレポートを返す。"""
     proj = Path(project_dir) if project_dir else Path.cwd()
     artifacts = find_artifacts(proj)
@@ -1481,6 +1512,21 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coh
         except Exception as e:
             print(f"Pipeline Health スキップ: {e}", file=sys.stderr)
 
+    # Cross-project summary from gstack retro global
+    cross_project_report_lines = None
+    if cross_project:
+        retro = _load_global_retro()
+        if retro is not None:
+            cross_project_report_lines = ["## Cross-Project Summary (from /retro global)", ""]
+            projects = retro.get("projects", [])
+            totals = retro.get("totals", {})
+            cross_project_report_lines.append(f"- Projects: {len(projects)}")
+            if "sessions" in totals:
+                cross_project_report_lines.append(f"- Total sessions: {totals['sessions']}")
+            if "streak" in totals:
+                cross_project_report_lines.append(f"- Streak: {totals['streak']}")
+            cross_project_report_lines.append("")
+
     # Record audit completion: update last_audit_timestamp + audit-history.jsonl
     _record_audit_completion(
         coherence_report=coherence_report_lines,
@@ -1500,6 +1546,7 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coh
         constitutional_report=constitutional_report_lines,
         environment_report=environment_report_lines,
         pipeline_health_report=pipeline_health_report_lines,
+        cross_project_report=cross_project_report_lines,
     )
 
 

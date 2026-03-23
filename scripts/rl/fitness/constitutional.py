@@ -14,10 +14,15 @@ from typing import Any, Dict, List, Optional
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 _fitness_dir = Path(__file__).resolve().parent
 
-THRESHOLDS = {
-    "min_coverage_for_eval": 0.5,
-    "llm_timeout_sec": 60,
-}
+try:
+    from .config import CONSTITUTIONAL_THRESHOLDS as THRESHOLDS
+except ImportError:
+    THRESHOLDS = {
+        "min_coverage_for_eval": 0.5,
+        "llm_timeout_sec": 60,
+    }
+
+CSO_SIGNAL_WEIGHT = 0.1
 
 # Haiku pricing (per 1M tokens)
 _HAIKU_INPUT_COST_PER_M = 0.25
@@ -247,6 +252,39 @@ def _evaluate_layer(
 
 
 # ---------------------------------------------------------------------------
+# CSO signal integration
+# ---------------------------------------------------------------------------
+
+def _load_cso_signal(data_dir: Path) -> Optional[Dict[str, Any]]:
+    """~/.gstack/analytics/skill-usage.jsonl から最新の cso 実行結果を取得。
+
+    Args:
+        data_dir: gstack データディレクトリ（通常 ~/.gstack）
+
+    Returns:
+        {"outcome": str, "ts": str} or None (graceful degradation)
+    """
+    jsonl_path = data_dir / "analytics" / "skill-usage.jsonl"
+    if not jsonl_path.exists():
+        return None
+    try:
+        latest = None
+        for line in jsonl_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("skill") == "cso":
+                latest = {"outcome": entry.get("outcome", ""), "ts": entry.get("ts", "")}
+        return latest
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -404,6 +442,17 @@ def compute_constitutional_score(
         "llm_calls_count": llm_calls,
         "from_cache": from_cache_count > 0,
     }
+
+    # --- CSO signal integration ---
+    gstack_dir = Path.home() / ".gstack"
+    cso = _load_cso_signal(gstack_dir)
+    if cso is not None:
+        result["cso_signal"] = cso
+        # security 軸として overall にブレンド
+        cso_score = 1.0 if cso.get("outcome") == "pass" else 0.0
+        result["overall"] = round(
+            overall * (1 - CSO_SIGNAL_WEIGHT) + cso_score * CSO_SIGNAL_WEIGHT, 4
+        )
 
     # --- Save cache ---
     cache_data = {

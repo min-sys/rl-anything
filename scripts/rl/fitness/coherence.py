@@ -26,14 +26,17 @@ def _ensure_paths():
         if p not in sys.path:
             sys.path.insert(0, p)
 
-THRESHOLDS = {
-    "skill_min_lines": 50,
-    "rule_max_lines": 3,
-    "claude_md_max_lines": 200,
-    "near_limit_pct": 0.80,
-    "unused_skill_days": 30,
-    "advice_threshold": 0.7,
-}
+try:
+    from .config import COHERENCE_THRESHOLDS as THRESHOLDS
+except ImportError:
+    THRESHOLDS = {
+        "skill_min_lines": 50,
+        "rule_max_lines": 3,
+        "claude_md_max_lines": 200,
+        "near_limit_pct": 0.80,
+        "unused_skill_days": 30,
+        "advice_threshold": 0.7,
+    }
 
 WEIGHTS = {
     "coverage": 0.25,

@@ -17,6 +17,11 @@ _plugin_root = Path(__file__).resolve().parent.parent.parent
 # Jaccard 重複検出の閾値
 MEMORY_DUPLICATE_JACCARD_THRESHOLD = 0.5
 
+# セクション名の synonym マッチ（claudemd_missing_section の FP 防止）
+SECTION_SYNONYMS: Dict[str, List[str]] = {
+    "skills": ["skills", "key skills", "available skills", "skill list", "スキル"],
+}
+
 # Memory 内のモジュール名パターン（ファイルパスでない言及を検出）
 _MODULE_PATTERN = re.compile(
     r"(?:^|\s)([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)(?:\s|$|[,、。])"
@@ -262,6 +267,22 @@ def diagnose_hooks(project_dir: Path) -> List[Dict[str, Any]]:
 
 # ---------- CLAUDE.md 診断 ----------
 
+def _is_skills_section_heading(line: str) -> bool:
+    """見出し行が Skills セクション（synonym 含む）かどうか判定する。"""
+    m = re.match(r"^#{1,3}\s+(.+)", line.strip())
+    if not m:
+        return False
+    heading_text = m.group(1).strip().lower()
+    # 既存パターン: Skills/Skill/スキル を含む見出し
+    if re.search(r"[Ss]kills?\b", line) or "スキル" in line:
+        return True
+    # synonym マッチ
+    for synonym in SECTION_SYNONYMS.get("skills", []):
+        if heading_text == synonym or heading_text.endswith(synonym):
+            return True
+    return False
+
+
 def diagnose_claudemd(project_dir: Path) -> List[Dict[str, Any]]:
     """CLAUDE.md レイヤーの診断。
 
@@ -291,12 +312,10 @@ def diagnose_claudemd(project_dir: Path) -> List[Dict[str, Any]]:
     in_skills = False
     for line_num, line in enumerate(lines, 1):
         stripped = line.strip()
-        if re.match(r"^#{1,3}\s+.*[Ss]kills?\b", stripped) or re.match(r"^#{1,3}\s+.*スキル", stripped):
+        if _is_skills_section_heading(stripped):
             in_skills = True
             continue
-        if in_skills and re.match(r"^#{1,3}\s+", stripped) and not re.match(
-            r"^#{1,3}\s+.*[Ss]kills?\b", stripped
-        ) and not re.match(r"^#{1,3}\s+.*スキル", stripped):
+        if in_skills and re.match(r"^#{1,3}\s+", stripped) and not _is_skills_section_heading(stripped):
             break
         if not in_skills:
             continue
@@ -325,9 +344,7 @@ def diagnose_claudemd(project_dir: Path) -> List[Dict[str, Any]]:
                     ))
 
     # --- claudemd_missing_section ---
-    has_skills_section = bool(
-        re.search(r"^#{1,3}\s+.*[Ss]kills?\b|^#{1,3}\s+.*スキル", content, re.MULTILINE)
-    )
+    has_skills_section = any(_is_skills_section_heading(line) for line in lines)
     skill_count = 0
     if skills_dir.exists():
         skill_count = len(list(skills_dir.rglob("SKILL.md")))

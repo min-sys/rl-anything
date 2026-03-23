@@ -24,11 +24,14 @@ def _ensure_paths():
             sys.path.insert(0, p)
 
 
-THRESHOLDS = {
-    "min_sessions": 30,
-    "min_days": 7,
-    "implicit_reward_window_sec": 60,
-}
+try:
+    from .config import TELEMETRY_THRESHOLDS as THRESHOLDS
+except ImportError:
+    THRESHOLDS = {
+        "min_sessions": 30,
+        "min_days": 7,
+        "implicit_reward_window_sec": 60,
+    }
 
 WEIGHTS = {
     "utilization": 0.30,

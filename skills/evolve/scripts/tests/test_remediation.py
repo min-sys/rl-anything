@@ -186,6 +186,7 @@ class TestClassification:
             "auto_fixable": [],
             "proposable": [],
             "manual_required": [],
+            "fp_excluded": [],
         }
 
 

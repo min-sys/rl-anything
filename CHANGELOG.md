@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **remediation**: 独立検証 `_independent_verify()` — verify_fix() 後のヒューリスティクスベース追加チェック（見出し保持/コードブロック対応/空ファイル/行数制限/パス一括削除検出）
+- **remediation**: FP 排除 `FP_EXCLUSIONS` — 12 パターンの false positive 除外リスト + `_should_exclude_fp()` 関数。classify_issues() に `fp_excluded` カテゴリ追加
+- **remediation**: 原則ベース判断 `REMEDIATION_PRINCIPLES` — completeness/pragmatic/DRY/explicit_over_clever の 4 原則で proposable→auto_fixable 昇格を補強
+- **layer_diagnose**: `SECTION_SYNONYMS` — Skills セクションの synonym マッチ（"Key Skills", "Available Skills", "スキル" 等）
+- **evolve**: `_compute_env_tier()` — 環境規模（small/medium/large）を自動判定し、各 Phase の走査深度を調整
+- **fitness**: `scripts/rl/fitness/config.py` — 全 fitness モジュールの閾値を集約する共有設定ファイル
+- **environment**: `_normalize_weights()` — 利用可能な軸に応じて BASE_WEIGHTS を動的正規化（旧 WEIGHTS/WEIGHTS_3LAYER/WEIGHTS_COHERENCE_CONSTITUTIONAL を置換）
+- **environment**: skill_quality 軸を environment fitness に統合（weight 0.05）
+- **constitutional**: `_load_cso_signal()` — gstack /cso 実行結果を constitutional score に security 軸としてブレンド（weight 0.1、graceful degradation）
+- **audit**: `_load_global_retro()` + `cross_project` フラグ — gstack /retro global の結果を読み込み、クロスプロジェクト分析セクションを生成
+
 ## [1.13.0] — 2026-03-22
 
 ### Added
@@ -14,6 +28,7 @@
 ## [1.12.0] — 2026-03-22
 
 ### SPEC.md から移動（Recent Changes ローテーション）
+- 2026-03-20: effort frontmatter 全15スキルに追加
 - 2026-03-18: rl-loop --evolve フラグ + evolve-skill 独立コマンド
 - 2026-03-18: Superpowers 知見 cherry-pick（合理化防止テーブル + CSO）
 - 2026-03-15: pitfall ライフサイクル自動化 + プラグインスキル編集保護

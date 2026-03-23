@@ -88,15 +88,15 @@ class TestComputeEnvironmentFitness:
         assert "sources" in result
         assert "coherence" in result["sources"]
         assert "telemetry" in result["sources"]
-        # ブレンド計算: sources に応じた重み付け
+        # ブレンド計算: sources に応じた動的重み付け
         coh = result["coherence"]["overall"]
         tel = result["telemetry"]["overall"]
-        if "constitutional" in result["sources"]:
-            con = result["constitutional"]["overall"]
-            expected = round(coh * 0.25 + tel * 0.45 + con * 0.30, 4)
-        else:
-            expected = round(coh * 0.4 + tel * 0.6, 4)
-        assert abs(result["overall"] - expected) < 0.01
+        weights = environment._normalize_weights(result["sources"])
+        expected = sum(
+            result.get(axis, {}).get("overall", 0) * weights.get(axis, 0)
+            for axis in weights
+        )
+        assert abs(result["overall"] - round(expected, 4)) < 0.01
 
     def test_telemetry_insufficient(self, tmp_path):
         project = _make_project(tmp_path)
@@ -122,14 +122,13 @@ class TestComputeEnvironmentFitness:
         # telemetry が不十分なので sources に含まれない
         assert "telemetry" not in result["sources"]
         assert "coherence" in result["sources"]
-        # coherence のみ or coherence + constitutional
-        if "constitutional" in result["sources"]:
-            coh = result["coherence"]["overall"]
-            con = result["constitutional"]["overall"]
-            expected = round(coh * 0.45 + con * 0.55, 4)
-            assert abs(result["overall"] - expected) < 0.01
-        else:
-            assert result["overall"] == result["coherence"]["overall"]
+        # 動的重み計算で検証
+        weights = environment._normalize_weights(result["sources"])
+        expected = sum(
+            result.get(axis, {}).get("overall", 0) * weights.get(axis, 0)
+            for axis in weights
+        )
+        assert abs(result["overall"] - round(expected, 4)) < 0.01
 
     def test_empty_project(self, tmp_path):
         data_dir = tmp_path / "_data"
@@ -154,6 +153,8 @@ class TestThreeLayerBlend:
     def _mock_load_sibling(self, coherence_result, telemetry_result, constitutional_result):
         """_load_sibling のモックを返す。各モジュールは制御された値を返す。"""
         def loader(name):
+            if name == "skill_quality":
+                raise ImportError("not available in test")
             m = mock.MagicMock()
             if name == "coherence":
                 m.compute_coherence_score.return_value = coherence_result
@@ -176,9 +177,13 @@ class TestThreeLayerBlend:
             result = environment.compute_environment_fitness(project, days=30)
 
         assert set(result["sources"]) == {"coherence", "telemetry", "constitutional"}
-        expected = round(0.8 * 0.25 + 0.7 * 0.45 + 0.9 * 0.30, 4)
+        # 動的正規化: BASE_WEIGHTS の coherence/telemetry/constitutional を正規化
+        weights = environment._normalize_weights(["coherence", "telemetry", "constitutional"])
+        expected = round(
+            0.8 * weights["coherence"] + 0.7 * weights["telemetry"] + 0.9 * weights["constitutional"],
+            4,
+        )
         assert abs(result["overall"] - expected) < 0.01
-        assert result["weights"] == environment.WEIGHTS_3LAYER
 
     def test_telemetry_insufficient_constitutional_available(self, tmp_path):
         """telemetry 不足 + constitutional 可 → weights 0.45/0.55"""
@@ -194,9 +199,9 @@ class TestThreeLayerBlend:
         assert "coherence" in result["sources"]
         assert "constitutional" in result["sources"]
         assert "telemetry" not in result["sources"]
-        expected = round(0.8 * 0.45 + 0.9 * 0.55, 4)
+        weights = environment._normalize_weights(["coherence", "constitutional"])
+        expected = round(0.8 * weights["coherence"] + 0.9 * weights["constitutional"], 4)
         assert abs(result["overall"] - expected) < 0.01
-        assert result["weights"] == environment.WEIGHTS_COHERENCE_CONSTITUTIONAL
 
     def test_constitutional_unavailable_fallback_two_layer(self, tmp_path):
         """constitutional 不可 → 2層フォールバック (0.4/0.6)"""
@@ -213,9 +218,9 @@ class TestThreeLayerBlend:
         assert "coherence" in result["sources"]
         assert "telemetry" in result["sources"]
         assert "constitutional" not in result["sources"]
-        expected = round(0.8 * 0.4 + 0.7 * 0.6, 4)
+        weights = environment._normalize_weights(["coherence", "telemetry"])
+        expected = round(0.8 * weights["coherence"] + 0.7 * weights["telemetry"], 4)
         assert abs(result["overall"] - expected) < 0.01
-        assert result["weights"] == environment.WEIGHTS
 
     def test_only_coherence(self, tmp_path):
         """coherence のみ → weight 1.0"""
@@ -225,6 +230,8 @@ class TestThreeLayerBlend:
         con = None  # constitutional が完全失敗
 
         def loader(name):
+            if name == "skill_quality":
+                raise ImportError("not available in test")
             m = mock.MagicMock()
             if name == "coherence":
                 m.compute_coherence_score.return_value = coh

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """統合 Environment Fitness スコア。
 
-Coherence Score（構造品質）と Telemetry Score（行動実績）をブレンドする。
+Coherence Score（構造品質）、Telemetry Score（行動実績）、
+Constitutional Score（原則遵守）、Skill Quality Score をブレンドする。
+利用可能な軸に応じて BASE_WEIGHTS を動的正規化。
 """
 import importlib.util
 import json
@@ -11,6 +13,25 @@ from typing import Any, Dict, List
 
 _plugin_root = Path(__file__).resolve().parent.parent.parent.parent
 _fitness_dir = Path(__file__).resolve().parent
+
+try:
+    from .config import BASE_WEIGHTS
+except ImportError:
+    try:
+        # importlib 経由でロードされた場合のフォールバック
+        _cfg_path = _fitness_dir / "config.py"
+        _cfg_spec = importlib.util.spec_from_file_location("fitness_config", _cfg_path)
+        _cfg_mod = importlib.util.module_from_spec(_cfg_spec)
+        _cfg_spec.loader.exec_module(_cfg_mod)
+        BASE_WEIGHTS = _cfg_mod.BASE_WEIGHTS
+    except Exception:
+        # 完全フォールバック — config.py が壊れても動作
+        BASE_WEIGHTS = {
+            "coherence": 0.23,
+            "telemetry": 0.43,
+            "constitutional": 0.29,
+            "skill_quality": 0.05,
+        }
 
 
 def _ensure_paths():
@@ -34,97 +55,93 @@ def _load_sibling(name: str):
     return mod
 
 
-WEIGHTS = {
-    "coherence": 0.4,
-    "telemetry": 0.6,
-}
-
-# Constitutional 利用可能時の 3層ブレンド重み
-WEIGHTS_3LAYER = {
-    "coherence": 0.25,
-    "telemetry": 0.45,
-    "constitutional": 0.30,
-}
-
-# テレメトリ不足・Constitutional 可時の 2層重み
-WEIGHTS_COHERENCE_CONSTITUTIONAL = {
-    "coherence": 0.45,
-    "constitutional": 0.55,
-}
+def _normalize_weights(available_axes: list) -> Dict[str, float]:
+    """利用可能な軸のみで BASE_WEIGHTS を正規化（合計=1.0）。"""
+    raw = {k: v for k, v in BASE_WEIGHTS.items() if k in available_axes}
+    total = sum(raw.values())
+    if total == 0:
+        return {}
+    return {k: round(v / total, 6) for k, v in raw.items()}
 
 
 def compute_environment_fitness(project_dir: Path, days: int = 30) -> Dict[str, Any]:
-    """Coherence + Telemetry + Constitutional をブレンドした統合 Environment Fitness を算出する。"""
+    """利用可能な軸を動的に判定し、正規化重みでブレンドした統合 Environment Fitness を算出する。"""
     _ensure_paths()
     project_dir = Path(project_dir).resolve()
 
-    coherence_result = None
-    coherence_score = 0.0
-    coherence_ok = False
+    # --- 各軸の算出 ---
+    axis_scores: Dict[str, float] = {}
+    axis_results: Dict[str, Any] = {}
+
+    # Coherence
     try:
         coherence_mod = _load_sibling("coherence")
         coherence_result = coherence_mod.compute_coherence_score(project_dir)
-        coherence_score = coherence_result["overall"]
-        coherence_ok = True
+        axis_scores["coherence"] = coherence_result["overall"]
+        axis_results["coherence"] = coherence_result
     except Exception:
         pass
 
-    telemetry_result = None
-    telemetry_score = 0.0
-    telemetry_ok = False
+    # Telemetry
     try:
         telemetry_mod = _load_sibling("telemetry")
         telemetry_result = telemetry_mod.compute_telemetry_score(project_dir, days)
-        telemetry_score = telemetry_result["overall"]
-        telemetry_ok = telemetry_result["data_sufficiency"]
+        if telemetry_result.get("data_sufficiency"):
+            axis_scores["telemetry"] = telemetry_result["overall"]
+        axis_results["telemetry"] = telemetry_result
     except Exception:
         pass
 
-    constitutional_result = None
-    constitutional_score = 0.0
-    constitutional_ok = False
+    # Constitutional
     try:
         constitutional_mod = _load_sibling("constitutional")
         constitutional_result = constitutional_mod.compute_constitutional_score(project_dir)
         if constitutional_result and constitutional_result.get("overall") is not None:
-            constitutional_score = constitutional_result["overall"]
-            constitutional_ok = True
+            axis_scores["constitutional"] = constitutional_result["overall"]
+            axis_results["constitutional"] = constitutional_result
+        else:
+            axis_results["constitutional"] = constitutional_result
     except Exception:
         pass
 
-    sources: List[str] = []
-    if coherence_ok:
-        sources.append("coherence")
-    if telemetry_ok:
-        sources.append("telemetry")
-    if constitutional_ok:
-        sources.append("constitutional")
+    # Skill Quality
+    try:
+        sq_mod = _load_sibling("skill_quality")
+        # skill_quality は stdin/stdout スクリプト形式のため、
+        # ここでは project_dir 配下のスキルを直接走査して平均スコアを算出
+        skills_dir = project_dir / ".claude" / "skills"
+        if skills_dir.is_dir():
+            sq_scores = []
+            for skill_dir in skills_dir.iterdir():
+                skill_md = skill_dir / "SKILL.md"
+                if skill_md.is_file():
+                    try:
+                        content = skill_md.read_text(encoding="utf-8")
+                        score_result = sq_mod.evaluate_skill_quality(content, str(skill_dir))
+                        if score_result and "overall" in score_result:
+                            sq_scores.append(score_result["overall"])
+                    except Exception:
+                        continue
+            if sq_scores:
+                avg_sq = sum(sq_scores) / len(sq_scores)
+                axis_scores["skill_quality"] = avg_sq
+                axis_results["skill_quality"] = {
+                    "overall": avg_sq,
+                    "skills_evaluated": len(sq_scores),
+                }
+    except Exception:
+        pass
 
-    # ブレンド重み決定
-    if coherence_ok and telemetry_ok and constitutional_ok:
-        weights_used = WEIGHTS_3LAYER
-        overall = (
-            coherence_score * WEIGHTS_3LAYER["coherence"]
-            + telemetry_score * WEIGHTS_3LAYER["telemetry"]
-            + constitutional_score * WEIGHTS_3LAYER["constitutional"]
+    # --- 動的正規化 ---
+    sources = list(axis_scores.keys())
+    weights_used = _normalize_weights(sources)
+
+    if weights_used:
+        overall = sum(
+            axis_scores[axis] * weights_used[axis]
+            for axis in weights_used
         )
-    elif coherence_ok and telemetry_ok:
-        weights_used = WEIGHTS
-        overall = coherence_score * WEIGHTS["coherence"] + telemetry_score * WEIGHTS["telemetry"]
-    elif coherence_ok and constitutional_ok:
-        weights_used = WEIGHTS_COHERENCE_CONSTITUTIONAL
-        overall = (
-            coherence_score * WEIGHTS_COHERENCE_CONSTITUTIONAL["coherence"]
-            + constitutional_score * WEIGHTS_COHERENCE_CONSTITUTIONAL["constitutional"]
-        )
-    elif coherence_ok:
-        weights_used = {"coherence": 1.0}
-        overall = coherence_score
-    elif telemetry_ok:
-        weights_used = {"telemetry": 1.0}
-        overall = telemetry_score
     else:
-        weights_used = {}
         overall = 0.0
 
     result: Dict[str, Any] = {
@@ -132,12 +149,9 @@ def compute_environment_fitness(project_dir: Path, days: int = 30) -> Dict[str, 
         "sources": sources,
         "weights": weights_used,
     }
-    if coherence_result:
-        result["coherence"] = coherence_result
-    if telemetry_result:
-        result["telemetry"] = telemetry_result
-    if constitutional_result:
-        result["constitutional"] = constitutional_result
+    for axis_name, axis_result in axis_results.items():
+        if axis_result is not None:
+            result[axis_name] = axis_result
 
     return result
 
@@ -148,22 +162,26 @@ def format_environment_report(result: Dict[str, Any]) -> List[str]:
     lines.append(f"Sources: {', '.join(result['sources']) if result['sources'] else 'none'}")
 
     weights = result.get("weights", {})
-    if "coherence" in result:
+    if "coherence" in result and isinstance(result["coherence"], dict):
         w = weights.get("coherence", 0)
         lines.append(f"  Coherence:      {result['coherence']['overall']:.2f} (weight {w:.2f})")
-    if "telemetry" in result:
+    if "telemetry" in result and isinstance(result["telemetry"], dict):
         tel = result["telemetry"]
         w = weights.get("telemetry", 0)
         lines.append(f"  Telemetry:      {tel['overall']:.2f} (weight {w:.2f})")
         if not tel.get("data_sufficiency", True):
             lines.append("  (Telemetry data insufficient — using coherence only)")
-    if "constitutional" in result:
+    if "constitutional" in result and isinstance(result["constitutional"], dict):
         con = result["constitutional"]
         if con and con.get("overall") is not None:
             w = weights.get("constitutional", 0)
             lines.append(f"  Constitutional: {con['overall']:.2f} (weight {w:.2f})")
         elif con and con.get("skip_reason"):
             lines.append(f"  Constitutional: skipped ({con['skip_reason']})")
+    if "skill_quality" in result and isinstance(result["skill_quality"], dict):
+        sq = result["skill_quality"]
+        w = weights.get("skill_quality", 0)
+        lines.append(f"  Skill Quality:  {sq['overall']:.2f} (weight {w:.2f})")
 
     lines.append("")
     return lines

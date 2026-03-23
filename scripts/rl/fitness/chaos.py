@@ -39,11 +39,14 @@ def _load_sibling(name: str):
     return mod
 
 
-THRESHOLDS = {
-    "critical_delta": 0.10,
-    "spof_delta": 0.15,
-    "low_delta": 0.02,
-}
+try:
+    from .config import CHAOS_THRESHOLDS as THRESHOLDS
+except ImportError:
+    THRESHOLDS = {
+        "critical_delta": 0.10,
+        "spof_delta": 0.15,
+        "low_delta": 0.02,
+    }
 
 
 def _classify_criticality(delta_score: float) -> str:

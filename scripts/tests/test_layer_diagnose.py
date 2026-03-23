@@ -11,6 +11,7 @@ _lib_dir = Path(__file__).resolve().parent.parent / "lib"
 sys.path.insert(0, str(_lib_dir))
 
 from layer_diagnose import (
+    SECTION_SYNONYMS,
     adapt_coherence_issues,
     diagnose_all_layers,
     diagnose_claudemd,
@@ -431,3 +432,72 @@ def test_issue_format_consistency(tmp_path):
             assert "detail" in issue, f"Missing 'detail' in {layer_name} issue"
             assert "source" in issue, f"Missing 'source' in {layer_name} issue"
             assert isinstance(issue["detail"], dict), f"'detail' should be dict in {layer_name}"
+
+
+# ── SECTION_SYNONYMS / semantic section match ──────────────────────────────
+
+
+def test_semantic_section_match(tmp_path):
+    """'Key Skills' が Skills セクションとして認識され、missing_section が検出されない。"""
+    skills_dir = tmp_path / ".claude" / "skills" / "my-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text("# My Skill")
+
+    (tmp_path / "CLAUDE.md").write_text(
+        "# Project\n\n## Key Skills\n\n- my-skill: desc\n"
+    )
+    issues = diagnose_claudemd(tmp_path)
+    missing_issues = [i for i in issues if i["type"] == "claudemd_missing_section"]
+    assert len(missing_issues) == 0
+
+
+def test_semantic_section_match_skill_list(tmp_path):
+    """'Skill List' が Skills セクションとして認識される。"""
+    skills_dir = tmp_path / ".claude" / "skills" / "my-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text("# My Skill")
+
+    (tmp_path / "CLAUDE.md").write_text(
+        "# Project\n\n## Skill List\n\n- my-skill: desc\n"
+    )
+    issues = diagnose_claudemd(tmp_path)
+    missing_issues = [i for i in issues if i["type"] == "claudemd_missing_section"]
+    assert len(missing_issues) == 0
+
+
+def test_semantic_section_match_japanese(tmp_path):
+    """'スキル' が Skills セクションとして認識される。"""
+    skills_dir = tmp_path / ".claude" / "skills" / "my-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text("# My Skill")
+
+    (tmp_path / "CLAUDE.md").write_text(
+        "# Project\n\n## スキル\n\n- my-skill: desc\n"
+    )
+    issues = diagnose_claudemd(tmp_path)
+    missing_issues = [i for i in issues if i["type"] == "claudemd_missing_section"]
+    assert len(missing_issues) == 0
+
+
+def test_semantic_section_no_match(tmp_path):
+    """無関係なセクション名は Skills セクションとしてマッチしない。"""
+    skills_dir = tmp_path / ".claude" / "skills" / "my-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text("# My Skill")
+
+    (tmp_path / "CLAUDE.md").write_text(
+        "# Project\n\n## Configuration\n\n- my-skill: desc\n"
+    )
+    issues = diagnose_claudemd(tmp_path)
+    missing_issues = [i for i in issues if i["type"] == "claudemd_missing_section"]
+    assert len(missing_issues) == 1
+
+
+def test_section_synonyms_contains_expected_entries():
+    """SECTION_SYNONYMS に skills キーが存在し、synonym が含まれている。"""
+    assert "skills" in SECTION_SYNONYMS
+    synonyms = SECTION_SYNONYMS["skills"]
+    assert "key skills" in synonyms
+    assert "available skills" in synonyms
+    assert "skill list" in synonyms
+    assert "スキル" in synonyms
