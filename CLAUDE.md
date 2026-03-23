@@ -47,7 +47,7 @@
 
 ## 適応度関数
 
-組み込み: `default`（LLM汎用評価）、`skill_quality`（ルールベース構造品質）、`coherence`（構造的整合性4軸）、`telemetry`（テレメトリ3軸）、`constitutional`（原則ベースLLM Judge評価）、`chaos`（仮想除去ロバストネス）、`environment`（coherence+telemetry+constitutional統合）。
+組み込み: `default`（LLM汎用評価）、`skill_quality`（ルールベース構造品質）、`coherence`（構造的整合性4軸）、`telemetry`（テレメトリ3軸）、`constitutional`（原則ベースLLM Judge評価 + /cso security軸）、`chaos`（仮想除去ロバストネス）、`environment`（coherence+telemetry+constitutional+skill_quality 動的重み統合、`config.py` で閾値集約）。
 プロジェクト固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}` で使用。
 環境スコア: `audit --coherence-score --telemetry-score --constitutional-score` で構造品質+行動実績+原則遵守の統合スコアを表示。
 
@@ -80,3 +80,7 @@ python3 -m pytest hooks/ skills/ scripts/tests/ scripts/rl/tests/ -v
 # プラグイン定義の整合性チェック
 claude plugin validate
 ```
+
+## Specification
+- 現在の仕様全体像: [SPEC.md](SPEC.md)
+- 設計判断の記録: [docs/decisions/](docs/decisions/)

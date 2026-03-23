@@ -3,16 +3,15 @@
 ## [Unreleased]
 
 ### Added
-- **remediation**: 独立検証 `_independent_verify()` — verify_fix() 後のヒューリスティクスベース追加チェック（見出し保持/コードブロック対応/空ファイル/行数制限/パス一括削除検出）
-- **remediation**: FP 排除 `FP_EXCLUSIONS` — 12 パターンの false positive 除外リスト + `_should_exclude_fp()` 関数。classify_issues() に `fp_excluded` カテゴリ追加
-- **remediation**: 原則ベース判断 `REMEDIATION_PRINCIPLES` — completeness/pragmatic/DRY/explicit_over_clever の 4 原則で proposable→auto_fixable 昇格を補強
-- **layer_diagnose**: `SECTION_SYNONYMS` — Skills セクションの synonym マッチ（"Key Skills", "Available Skills", "スキル" 等）
-- **evolve**: `_compute_env_tier()` — 環境規模（small/medium/large）を自動判定し、各 Phase の走査深度を調整
-- **fitness**: `scripts/rl/fitness/config.py` — 全 fitness モジュールの閾値を集約する共有設定ファイル
-- **environment**: `_normalize_weights()` — 利用可能な軸に応じて BASE_WEIGHTS を動的正規化（旧 WEIGHTS/WEIGHTS_3LAYER/WEIGHTS_COHERENCE_CONSTITUTIONAL を置換）
-- **environment**: skill_quality 軸を environment fitness に統合（weight 0.05）
-- **constitutional**: `_load_cso_signal()` — gstack /cso 実行結果を constitutional score に security 軸としてブレンド（weight 0.1、graceful degradation）
-- **audit**: `_load_global_retro()` + `cross_project` フラグ — gstack /retro global の結果を読み込み、クロスプロジェクト分析セクションを生成
+- **remediation**: 修正の独立検証 — auto_fixable な修正に対してヒューリスティクスベースのダブルチェックを実施。見出し保持・コードブロック対応・空ファイル・行数制限を自動検証し、FP 率を低減
+- **remediation**: 12 パターンの FP 自動除外 — テストファイル・アーカイブパス・外部 URL・コードブロック内参照等を false positive として自動分類。`fp_excluded` カテゴリで明示的に追跡
+- **remediation**: 原則ベース自動昇格 — completeness/pragmatic/DRY/explicit_over_clever の 4 原則で、proposable な修正を auto_fixable に自動昇格。gstack /autoplan のパターンを移植
+- **layer_diagnose**: Skills セクションの synonym マッチ — "Key Skills", "Available Skills", "スキル" 等のバリエーションを自動認識。missing_section の false positive を削減
+- **evolve**: 環境規模の自動判定 — スキル/ルール数に応じて small/medium/large を判定し、evolve/audit の走査深度を自動調整。大規模環境でのパフォーマンス改善
+- **fitness**: 全 fitness モジュールの閾値を `config.py` に集約 — 1箇所で全閾値を管理可能に。各モジュールは config.py からの import + フォールバックで後方互換
+- **environment**: 動的重み計算 — 利用可能な軸に応じて重みを自動正規化。ハードコード 4 パターンを 1 つの `_normalize_weights()` に置換。skill_quality を 4 軸目として統合
+- **constitutional**: gstack /cso セキュリティ監査との連携 — /cso 実行結果があれば constitutional score に security 軸としてブレンド。結果がなければ graceful degradation
+- **audit**: gstack /retro global とのクロスプロジェクト連携 — `--cross-project` フラグで複数プロジェクトのテレメトリを集約表示。/retro global の結果を自動参照
 
 ## [1.13.0] — 2026-03-22
 
