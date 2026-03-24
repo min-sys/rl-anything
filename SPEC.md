@@ -61,6 +61,7 @@ scripts/lib/            ← 共通ロジック（25+ モジュール）
   pipeline_reflector.py ← Self-Evolution コアモジュール
   trigger_engine.py     ← Auto-evolve trigger engine
   agent_quality.py      ← エージェント品質診断
+  critical_instruction_extractor.py ← スキル指示の遵守保証（抽出+リフレーズ+違反検出）
 
 scripts/rl/fitness/     ← 適応度関数（7個組み込み + config.py で閾値集約）
   config.py             ← 全モジュール共有閾値 + BASE_WEIGHTS
