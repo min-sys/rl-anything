@@ -10,6 +10,7 @@
 | フィードバック | reflect | 修正パターン検出 → corrections.jsonl → CLAUDE.md/rules に反映 |
 | 直接パッチ最適化 | optimize, rl-loop, generate-fitness, evolve-fitness | corrections/context → LLM 1パスパッチ → regression gate（`scripts/lib/regression_gate.py` に共通化） |
 | エージェント管理 | agent-brushup | エージェント定義の品質診断・改善提案・新規作成・削除候補 |
+| セカンドオピニオン | second-opinion | Claude Agent による独立した cold-read セカンドオピニオン（codex 代替） |
 | ユーティリティ | feedback, update, version, backfill | フィードバック・更新・バージョン確認・初期セットアップ |
 
 ## コンポーネント
@@ -26,6 +27,7 @@
 | `evolve-skill` | 特定スキルに自己進化パターン（Pre-flight / pitfalls.md）をピンポイント組み込み（`assess_single_skill` + `apply_evolve_proposal`） |
 | `agent-brushup` | エージェント定義の品質診断・改善提案・upstream監視（`scripts/lib/agent_quality.py`） |
 | `critical-instruction-compliance` | スキル指示の遵守保証サイクル — critical行抽出+calm/directリフレーズ+違反検出+pitfall自動学習（`scripts/lib/critical_instruction_extractor.py`） |
+| `second-opinion` エージェント | cold-read セカンドオピニオン（startup/builder/general 3モード）。codex 不要で Agent ツールのみで動作 |
 
 ## クイックスタート
 
@@ -44,6 +46,9 @@
 
 # エージェント品質診断
 /rl-anything:agent-brushup
+
+# セカンドオピニオン（codex代替）
+/rl-anything:second-opinion
 ```
 
 ## 適応度関数
