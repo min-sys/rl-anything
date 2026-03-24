@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **critical-instruction-compliance**: スキル指示の遵守保証サイクル — MUST/禁止等のcritical行を自動抽出し、calm/direct形式にリフレーズ注入。corrections→指示突合で違反を自動検出、pitfallに登録して自動学習。2段階マッチング（対立動詞検出+LLM Judge）。closes #39
 - **remediation**: 修正の独立検証 — auto_fixable な修正に対してヒューリスティクスベースのダブルチェックを実施。見出し保持・コードブロック対応・空ファイル・行数制限を自動検証し、FP 率を低減
 - **remediation**: 12 パターンの FP 自動除外 — テストファイル・アーカイブパス・外部 URL・コードブロック内参照等を false positive として自動分類。`fp_excluded` カテゴリで明示的に追跡
 - **remediation**: 原則ベース自動昇格 — completeness/pragmatic/DRY/explicit_over_clever の 4 原則で、proposable な修正を auto_fixable に自動昇格。gstack /autoplan のパターンを移植

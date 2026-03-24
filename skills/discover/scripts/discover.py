@@ -695,6 +695,13 @@ RECOMMENDED_ARTIFACTS = [
         "description": "gstack-refine — build 前のプラン品質レビュー（設計+テスト計画の検証）",
         "hook_path": None,
     },
+    {
+        "id": "continuation-check",
+        "type": "rule",
+        "path": Path.home() / ".claude" / "rules" / "continuation-check.md",
+        "description": "前回の続き判定 — handover/ロードマップ言及時に引き継ぎファイルとSPEC.mdを自動確認",
+        "hook_path": None,
+    },
 ]
 
 
@@ -918,6 +925,58 @@ def run_discover(
             result["pitfall_candidates"] = pitfall_result["candidates"]
     except Exception as e:
         result["pitfall_candidates_error"] = str(e)
+
+    # instruction violation 検出 (issue #39)
+    try:
+        from critical_instruction_extractor import (
+            extract_critical_lines,
+            detect_instruction_violation,
+        )
+        from telemetry_query import query_corrections
+        from issue_schema import make_instruction_violation_issue
+
+        proj = project_root or Path.cwd()
+        proj_name = proj.name
+        corrections_data = query_corrections(project=proj_name)
+
+        # last_skill が設定されている corrections のみ対象
+        skill_corrections = [
+            c for c in corrections_data if c.get("last_skill")
+        ]
+
+        violations = []
+        for corr in skill_corrections:
+            skill_name = corr["last_skill"]
+            # スキルの SKILL.md を探す
+            skill_dirs = list(Path.home().glob(f".claude/skills/{skill_name}/SKILL.md"))
+            pj_skill_dirs = list((proj / ".claude" / "skills" / skill_name / "SKILL.md").parent.glob("SKILL.md")) if (proj / ".claude" / "skills" / skill_name).exists() else []
+            all_skill_mds = skill_dirs + [d for d in pj_skill_dirs if d not in skill_dirs]
+
+            for skill_md in all_skill_mds:
+                content = skill_md.read_text(encoding="utf-8")
+                instructions = extract_critical_lines(content)
+                if not instructions:
+                    continue
+                violation = detect_instruction_violation(corr, instructions)
+                if violation:
+                    violations.append(
+                        make_instruction_violation_issue(
+                            skill_name=skill_name,
+                            skill_path=str(skill_md),
+                            instruction_text=violation.instruction.original,
+                            correction_message=violation.correction_message,
+                            match_type=violation.match_type,
+                            confidence=violation.confidence,
+                            reason=violation.reason,
+                            needs_review=violation.needs_review,
+                        )
+                    )
+                break  # 最初にマッチしたスキルのみ
+
+        if violations:
+            result["instruction_violations"] = violations
+    except Exception as e:
+        result["instruction_violations_error"] = str(e)
 
     # 停滞→リカバリパターン検出
     try:

@@ -32,6 +32,9 @@ MISSING_EFFORT_CANDIDATE = "missing_effort_candidate"
 # ── skill_quality_pattern_gap 定数 ──────────────────────
 SKILL_QUALITY_PATTERN_GAP = "skill_quality_pattern_gap"
 
+# ── instruction_violation_candidate 定数 ──────────────
+INSTRUCTION_VIOLATION_CANDIDATE = "instruction_violation_candidate"
+
 # ── split_candidate 定数 ────────────────────────────
 
 SPLIT_CANDIDATE_CONFIDENCE = 0.70
@@ -106,6 +109,16 @@ MEC_SKILL_PATH = "skill_path"
 MEC_PROPOSED_EFFORT = "proposed_effort"
 MEC_CONFIDENCE = "confidence"
 MEC_REASON = "reason"
+
+# ── instruction_violation_candidate detail フィールド ──
+
+IVC_SKILL_NAME = "skill_name"
+IVC_INSTRUCTION_TEXT = "instruction_text"
+IVC_CORRECTION_MESSAGE = "correction_message"
+IVC_MATCH_TYPE = "match_type"
+IVC_CONFIDENCE = "confidence"
+IVC_REASON = "reason"
+IVC_NEEDS_REVIEW = "needs_review"
 
 
 # ── Factory 関数 ────────────────────────────────────
@@ -348,4 +361,31 @@ def make_missing_effort_issue(
             MEC_REASON: reason,
         },
         "source": "effort_detector",
+    }
+
+
+def make_instruction_violation_issue(
+    skill_name: str,
+    skill_path: str,
+    instruction_text: str,
+    correction_message: str,
+    match_type: str,
+    confidence: float,
+    reason: str = "",
+    needs_review: bool = False,
+) -> Dict[str, Any]:
+    """instruction violation 検出結果 → issue dict 変換。"""
+    return {
+        "type": INSTRUCTION_VIOLATION_CANDIDATE,
+        "file": skill_path,
+        "detail": {
+            IVC_SKILL_NAME: skill_name,
+            IVC_INSTRUCTION_TEXT: instruction_text,
+            IVC_CORRECTION_MESSAGE: correction_message,
+            IVC_MATCH_TYPE: match_type,
+            IVC_CONFIDENCE: confidence,
+            IVC_REASON: reason,
+            IVC_NEEDS_REVIEW: needs_review,
+        },
+        "source": "instruction_violation_detection",
     }

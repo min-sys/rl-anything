@@ -59,6 +59,14 @@ from issue_schema import (  # noqa: E402
     MEC_CONFIDENCE,
     MEC_REASON,
     SKILL_QUALITY_PATTERN_GAP,
+    INSTRUCTION_VIOLATION_CANDIDATE,
+    IVC_SKILL_NAME,
+    IVC_INSTRUCTION_TEXT,
+    IVC_CORRECTION_MESSAGE,
+    IVC_MATCH_TYPE,
+    IVC_CONFIDENCE,
+    IVC_REASON,
+    IVC_NEEDS_REVIEW,
     SQP_SKILL_NAME,
     SQP_SKILL_PATH,
     SQP_DOMAIN,
@@ -1808,6 +1816,33 @@ def _verify_missing_effort(result: Dict[str, Any]) -> Tuple[bool, str]:
     return False, "effort not found in frontmatter after fix"
 
 
+def fix_instruction_violation(
+    issues: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """instruction violation を pitfall として記録する proposable ハンドラ。"""
+    results = []
+    for issue in issues:
+        if issue["type"] != INSTRUCTION_VIOLATION_CANDIDATE:
+            continue
+        detail = issue.get("detail", {})
+        skill_name = detail.get(IVC_SKILL_NAME, "unknown")
+        instruction_text = detail.get(IVC_INSTRUCTION_TEXT, "")
+        match_type = detail.get(IVC_MATCH_TYPE, "")
+        reason = detail.get(IVC_REASON, "")
+        results.append({
+            "issue": issue,
+            "original_content": "",
+            "fixed": True,
+            "error": None,
+            "proposal": (
+                f"スキル「{skill_name}」の指示違反を pitfall に記録: "
+                f"{instruction_text[:60]}... ({match_type})"
+            ),
+            "pitfall_root_cause": f"instruction — {reason}",
+        })
+    return results
+
+
 FIX_DISPATCH: Dict[str, Any] = {
     "stale_ref": fix_stale_references,
     "stale_memory": fix_stale_memory,
@@ -1827,6 +1862,7 @@ FIX_DISPATCH: Dict[str, Any] = {
     WORKFLOW_CHECKPOINT_CANDIDATE: fix_workflow_checkpoint,
     MISSING_EFFORT_CANDIDATE: fix_missing_effort,
     SKILL_QUALITY_PATTERN_GAP: fix_skill_quality_pattern_gap,
+    INSTRUCTION_VIOLATION_CANDIDATE: fix_instruction_violation,
 }
 
 
@@ -2146,6 +2182,11 @@ def _verify_skill_quality_pattern_gap(fixed_file: str, detail: Dict[str, Any]) -
     return {"resolved": True, "remaining": None}
 
 
+def _verify_instruction_violation(fixed_file: str, detail: Dict[str, Any]) -> Dict[str, Any]:
+    """instruction violation の検証: proposable 提案が生成されたことを確認（常にresolved=true）。"""
+    return {"resolved": True, "remaining": None}
+
+
 VERIFY_DISPATCH: Dict[str, Any] = {
     "stale_ref": _verify_stale_ref,
     "line_limit_violation": _verify_line_limit_violation,
@@ -2165,6 +2206,7 @@ VERIFY_DISPATCH: Dict[str, Any] = {
     WORKFLOW_CHECKPOINT_CANDIDATE: _verify_workflow_checkpoint,
     MISSING_EFFORT_CANDIDATE: _verify_missing_effort,
     SKILL_QUALITY_PATTERN_GAP: _verify_skill_quality_pattern_gap,
+    INSTRUCTION_VIOLATION_CANDIDATE: _verify_instruction_violation,
 }
 
 

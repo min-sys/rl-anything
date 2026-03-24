@@ -576,6 +576,27 @@ def test_suggest_preflight_unknown_category(tmp_path):
     assert result["category"] == "generic"
 
 
+# --- instruction カテゴリ (issue #39) ---
+
+
+def test_record_instruction_violation(tmp_path):
+    """instruction Root-cause カテゴリの record/parse round-trip。"""
+    pitfalls_path = tmp_path / "pitfalls.md"
+    result = record_pitfall(
+        pitfalls_path,
+        "Instruction violation: CHANGELOG move",
+        "instruction — CHANGELOG移動指示への違反",
+    )
+    assert result["status"] == "Candidate"
+    content = pitfalls_path.read_text(encoding="utf-8")
+    assert "instruction" in content
+    assert "CHANGELOG" in content
+    # parse round-trip
+    sections = parse_pitfalls(content)
+    assert len(sections["candidate"]) == 1
+    assert "instruction" in sections["candidate"][0]["fields"]["Root-cause"]
+
+
 def test_suggest_preflight_not_preflight():
     pitfall = {
         "title": "No preflight",
