@@ -16,10 +16,20 @@ HANDOVER_STALE_HOURS = 48.0
 _HANDOVER_PREVIEW_LINES = 15
 _PRIORITY_SECTIONS = ("Deploy State", "Next Actions")
 
+# handover import (optional — for section extraction)
+_handover_extract_section = None
+try:
+    _plugin_root = Path(__file__).resolve().parent.parent
+    sys.path.insert(0, str(_plugin_root / "skills" / "handover" / "scripts"))
+    from handover import extract_section as _handover_extract_section
+except ImportError:
+    pass
+
 # trigger_engine import (optional)
 _trigger_engine = None
 try:
-    _plugin_root = Path(__file__).resolve().parent.parent
+    if _plugin_root is None:
+        _plugin_root = Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
     from trigger_engine import read_and_delete_pending_trigger
     _trigger_engine = True
@@ -64,7 +74,10 @@ def _deliver_pending_trigger() -> None:
 
 
 def _extract_section(content: str, section_name: str) -> str:
-    """Markdown の ## セクションを名前で抽出する。見つからなければ空文字列。"""
+    """Markdown の ## セクションを名前で抽出する。handover.py に委譲。"""
+    if _handover_extract_section is not None:
+        return _handover_extract_section(content, section_name)
+    # フォールバック: handover.py が import できない場合
     import re
     pattern = rf"^## {re.escape(section_name)}\s*\n"
     match = re.search(pattern, content, re.MULTILINE)
