@@ -1,6 +1,6 @@
 # SPEC.md — rl-anything
 
-Last updated: 2026-03-24 by /spec-keeper update (second-opinion)
+Last updated: 2026-03-25 by /spec-keeper update (handover-deploy-state)
 
 ## Overview
 
@@ -133,7 +133,6 @@ PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 - 2026-03-24: instruction compliance — スキル指示の遵守保証サイクル（Extract→Inject→Detect→Learn 4フェーズ、対立動詞+LLM Judge 2段階マッチング）。closes #39
 - 2026-03-24: gstack v0.10-v0.11 改善パターン6項目移植 — 独立検証、FP排除(12条件)、規模適応、fitness config.py集約、動的重み、/cso×fitness連携、/retro×audit cross-project、原則ベース昇格
 - 2026-03-23: handover に SPEC.md 同期ステップ追加（`/spec-keeper update` を自動実行）
-- 2026-03-22: v1.13.0 — 検証系スキルのテレメトリ非依存昇格
 
 ## Current Limitations / Known Issues
 

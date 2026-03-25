@@ -22,6 +22,7 @@
 ## [1.13.0] — 2026-03-22
 
 ### SPEC.md から移動（Recent Changes ローテーション）
+- 2026-03-22: v1.13.0 — 検証系スキルのテレメトリ非依存昇格
 - 2026-03-22: v1.12.0 — handover スキル追加 + OpenSpec→gstack 移行 Phase 1-2
 - 2026-03-20: agent-brushup スキル追加（品質診断 + upstream 監視）
 
