@@ -29,6 +29,7 @@ LIMITS = {
 BLOAT_THRESHOLDS = {
     "claude_md_lines": 150,
     "memory_md_lines": 150,
+    "memory_md_bytes": 20_000,  # 80% of 25KB CC truncation limit
     "rules_count": 100,
     "skills_count": 30,
 }
@@ -128,7 +129,8 @@ def bloat_check(project_dir: Optional[str] = None) -> Dict[str, Any]:
 
     # memory チェック
     for path in artifacts.get("memory", []):
-        lines = path.read_text(encoding="utf-8").count("\n") + 1
+        content = path.read_text(encoding="utf-8")
+        lines = content.count("\n") + 1
         limit = BLOAT_THRESHOLDS["memory_md_lines"]
         if lines > limit:
             warnings.append({
@@ -138,6 +140,18 @@ def bloat_check(project_dir: Optional[str] = None) -> Dict[str, Any]:
                 "threshold": limit,
                 "action": "トピック別ファイルへの分割を推奨",
             })
+        # MEMORY.md バイトサイズチェック（CC v2.1.83 で 25KB 切り詰め追加）
+        if path.name == "MEMORY.md":
+            byte_size = len(content.encode("utf-8"))
+            byte_threshold = BLOAT_THRESHOLDS["memory_md_bytes"]
+            if byte_size > byte_threshold:
+                warnings.append({
+                    "type": "memory_bytes",
+                    "file": str(path),
+                    "bytes": byte_size,
+                    "threshold": byte_threshold,
+                    "action": "MEMORY.md が 25KB 切り詰め上限に近接。トピック分割を推奨",
+                })
 
     return {
         "warnings": warnings,

@@ -173,6 +173,13 @@ def _evaluate_trigger() -> None:
     """trigger_engine を呼び出し、条件達成時に pending-trigger.json を書き出す。"""
     if _trigger_engine is None:
         return
+    # userConfig auto_trigger ゲート
+    try:
+        user_config = common.load_user_config()
+        if not user_config.get("auto_trigger", True):
+            return
+    except Exception:
+        pass  # load_user_config 失敗時はデフォルト（有効）で続行
     try:
         project_dir = os.environ.get("CLAUDE_PROJECT_DIR") or None
         result = evaluate_session_end(project_dir=project_dir)

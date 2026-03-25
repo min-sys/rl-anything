@@ -33,6 +33,23 @@ DEFAULT_TRIGGER_CONFIG: dict[str, Any] = {
 # First-run threshold (evolve-state.json missing)
 _FIRST_RUN_MIN_SESSIONS = 3
 
+# FileChanged hook cooldown (seconds) — CC v2.1.83
+FILE_CHANGED_COOLDOWN_SECONDS = 300  # 5 minutes
+
+
+def _load_user_config_with_explicit() -> tuple[dict, callable]:
+    """hooks/common.py から userConfig をロードし、(config, is_explicit) を返す。
+
+    hooks ディレクトリの sys.path 操作を一元化。
+    ImportError 時は空 config + 常に False を返す callable を返す。
+    """
+    import sys as _sys
+    _hooks_dir = str(Path(__file__).resolve().parent.parent.parent / "hooks")
+    if _hooks_dir not in _sys.path:
+        _sys.path.insert(0, _hooks_dir)
+    from common import load_user_config, is_user_config_explicit
+    return load_user_config(), is_user_config_explicit
+
 
 @dataclass
 class TriggerResult:
@@ -64,12 +81,39 @@ def _save_state(state: dict[str, Any]) -> None:
 
 
 def load_trigger_config(state: dict[str, Any] | None = None) -> dict[str, Any]:
-    """trigger_config を読み込み、デフォルト値とマージして返す。"""
+    """trigger_config を読み込み、デフォルト値とマージして返す。
+
+    マージ優先順位: DEFAULT < evolve-state.json < userConfig (env vars)
+    """
     if state is None:
         state = _load_state()
     user_config = state.get("trigger_config", {})
-    # Deep merge: default <- user
+    # Deep merge: default <- evolve-state
     config = _deep_merge(DEFAULT_TRIGGER_CONFIG, user_config)
+
+    # userConfig (CC v2.1.83 manifest.userConfig) からの上書き
+    # 明示的にセットされたキーのみ上書き（デフォルト値で evolve-state を潰さない）
+    try:
+        uc, is_explicit = _load_user_config_with_explicit()
+    except Exception:
+        uc, is_explicit = {}, lambda _: False
+
+    # 注意: config のネスト dict は _deep_merge の shallow copy で共有参照。変異前に deep copy する
+    has_explicit = any(is_explicit(k) for k in ("auto_trigger", "cooldown_hours", "evolve_interval_days", "audit_interval_days", "min_sessions"))
+    if has_explicit:
+        import copy
+        config = copy.deepcopy(config)
+        if is_explicit("auto_trigger"):
+            config["enabled"] = uc["auto_trigger"]
+        if is_explicit("cooldown_hours"):
+            config["cooldown_hours"] = uc["cooldown_hours"]
+        if is_explicit("evolve_interval_days"):
+            config["triggers"]["session_end"]["max_days"] = uc["evolve_interval_days"]
+        if is_explicit("audit_interval_days"):
+            config["triggers"]["audit_overdue"]["interval_days"] = uc["audit_interval_days"]
+        if is_explicit("min_sessions"):
+            config["triggers"]["session_end"]["min_sessions"] = uc["min_sessions"]
+
     return config
 
 
@@ -167,6 +211,69 @@ def _evaluate_bloat(project_dir: str, config: dict[str, Any]) -> dict[str, Any] 
         return None
 
 
+# --- FileChanged evaluation (CC v2.1.83) ---
+
+
+def is_watched_file(file_path: str) -> str | None:
+    """ファイルパスを rl-anything 関連カテゴリに分類する。
+
+    Returns:
+        "claude_md" / "skills" / "rules" / None
+    """
+    if file_path.endswith("/CLAUDE.md") or file_path == "CLAUDE.md":
+        return "claude_md"
+    if "/SKILL.md" in file_path and ".claude/skills/" in file_path:
+        return "skills"
+    if ".claude/rules/" in file_path and file_path.endswith(".md"):
+        return "rules"
+    return None
+
+
+def evaluate_file_changed(
+    file_path: str,
+    *,
+    state: dict[str, Any] | None = None,
+    project_dir: str | None = None,
+) -> TriggerResult:
+    """FileChanged イベントを評価し、audit 提案を生成する。
+
+    クールダウンは FILE_CHANGED_COOLDOWN_SECONDS (5分) をカテゴリ別に適用。
+    userConfig の auto_trigger=false で無効化可能。
+    """
+    category = is_watched_file(file_path)
+    if category is None:
+        return TriggerResult(triggered=False)
+
+    # userConfig gate
+    try:
+        user_config, _ = _load_user_config_with_explicit()
+    except Exception:
+        user_config = {"auto_trigger": True}
+
+    if not user_config.get("auto_trigger", True):
+        return TriggerResult(triggered=False)
+
+    if state is None:
+        state = _load_state()
+
+    reason = f"file_changed:{category}"
+    cooldown_hours = FILE_CHANGED_COOLDOWN_SECONDS / 3600
+
+    if _is_in_cooldown(state, reason, cooldown_hours):
+        return TriggerResult(triggered=False)
+
+    result = TriggerResult(
+        triggered=True,
+        reason=reason,
+        action="/rl-anything:audit",
+        message=f"{category} ファイルが変更されました。推奨: /rl-anything:audit",
+        details={"file_path": file_path, "category": category},
+    )
+    state = _record_trigger(state, result)
+    _save_state(state)
+    return result
+
+
 def _build_bloat_message(bloat_result: dict[str, Any]) -> str:
     """bloat 警告から日本語メッセージを生成する。"""
     parts: list[str] = []
@@ -180,6 +287,8 @@ def _build_bloat_message(bloat_result: dict[str, Any]) -> str:
             parts.append(f"rules が {w['count']}/{w['threshold']} 件で超過")
         elif t == "skills_count":
             parts.append(f"skills が {w['count']}/{w['threshold']} 件で超過")
+        elif t == "memory_bytes":
+            parts.append(f"MEMORY.md が {w['bytes']}/{w['threshold']} bytes で 25KB 上限に近接")
     return "、".join(parts)
 
 

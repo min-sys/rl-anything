@@ -18,6 +18,51 @@ _WORKFLOW_CONTEXT_EXPIRE_SECONDS = 24 * 60 * 60  # 24時間
 INSTRUCTIONS_LOADED_FLAG_PREFIX = "instructions_loaded_"
 STALE_FLAG_TTL_HOURS = 24
 
+# --- userConfig (CC v2.1.83 manifest.userConfig) ---
+_USER_CONFIG_PREFIX = "CLAUDE_PLUGIN_OPTION_"
+
+USER_CONFIG_DEFAULTS: dict[str, object] = {
+    "auto_trigger": True,
+    "evolve_interval_days": 7,
+    "audit_interval_days": 30,
+    "min_sessions": 10,
+    "cooldown_hours": 24,
+    "language": "ja",
+}
+
+
+def _parse_bool(value: str) -> bool:
+    """文字列を bool にパースする。"""
+    return value.lower() in ("true", "1", "yes")
+
+
+def load_user_config() -> dict:
+    """CC v2.1.83 userConfig の環境変数をパースしデフォルトとマージして返す。
+
+    各キーは CLAUDE_PLUGIN_OPTION_<key> 環境変数で上書き可能。
+    不正値はサイレントにデフォルトにフォールバックする。
+    """
+    config = dict(USER_CONFIG_DEFAULTS)
+    for key, default in USER_CONFIG_DEFAULTS.items():
+        env_val = os.environ.get(f"{_USER_CONFIG_PREFIX}{key}", "")
+        if not env_val:
+            continue
+        if isinstance(default, bool):
+            config[key] = _parse_bool(env_val)
+        elif isinstance(default, int):
+            try:
+                config[key] = int(env_val)
+            except (ValueError, TypeError):
+                pass  # keep default
+        else:
+            config[key] = env_val
+    return config
+
+
+def is_user_config_explicit(key: str) -> bool:
+    """指定キーの userConfig 環境変数が明示的にセットされているか判定する。"""
+    return bool(os.environ.get(f"{_USER_CONFIG_PREFIX}{key}", ""))
+
 
 def ensure_data_dir() -> None:
     """ディレクトリが存在しない場合 MUST 自動作成する。パーミッション 700。"""

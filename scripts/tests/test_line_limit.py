@@ -12,8 +12,11 @@ from lib.line_limit import (
     MAX_PROJECT_RULE_LINES,
     MAX_RULE_LINES,
     MAX_SKILL_LINES,
+    MEMORY_MAX_BYTES,
+    MEMORY_NEAR_LIMIT_BYTES,
     SeparationProposal,
     check_line_limit,
+    check_memory_byte_limit,
     suggest_separation,
 )
 
@@ -182,3 +185,55 @@ def test_suggest_separation_deduplication(tmp_path):
     result = suggest_separation(target, content)
     assert result is not None
     assert result.reference_path.endswith("foo_2.md")
+
+
+# --- check_memory_byte_limit tests ---
+
+
+def test_check_memory_byte_limit_under():
+    """25KB 未満のコンテンツは (True, size) を返す。"""
+    content = "a" * 24_000  # 24KB
+    within, size = check_memory_byte_limit(content)
+    assert within is True
+    assert size == 24_000
+
+
+def test_check_memory_byte_limit_over():
+    """25KB 超のコンテンツは (False, size) を返す。"""
+    content = "a" * 26_000  # 26KB
+    within, size = check_memory_byte_limit(content)
+    assert within is False
+    assert size == 26_000
+
+
+def test_check_memory_byte_limit_exact():
+    """ちょうど 25KB は (True, 25000) を返す。"""
+    content = "a" * 25_000
+    within, size = check_memory_byte_limit(content)
+    assert within is True
+    assert size == 25_000
+
+
+def test_check_memory_byte_limit_multibyte():
+    """日本語テキスト（UTF-8 マルチバイト）で正しいバイト数を返す。"""
+    # 「あ」は UTF-8 で 3 bytes
+    content = "あ" * 8_334  # 8334 * 3 = 25002 bytes > 25000
+    within, size = check_memory_byte_limit(content)
+    assert within is False
+    assert size == 8_334 * 3
+
+
+def test_check_memory_byte_limit_near_limit():
+    """80% (20KB) 超は within=True だが near-limit 判定用に size を返す。"""
+    content = "a" * 21_000  # 21KB > 20KB near-limit
+    within, size = check_memory_byte_limit(content)
+    assert within is True  # まだ上限内
+    assert size == 21_000
+    # near-limit 判定は呼び出し側が MEMORY_NEAR_LIMIT_BYTES と比較
+    assert size > MEMORY_NEAR_LIMIT_BYTES
+
+
+def test_memory_byte_constants():
+    """バイト制限定数が正しいことを確認。"""
+    assert MEMORY_MAX_BYTES == 25_000
+    assert MEMORY_NEAR_LIMIT_BYTES == 20_000

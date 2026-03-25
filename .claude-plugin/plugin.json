@@ -1,6 +1,6 @@
 {
   "name": "rl-anything",
-  "version": "1.14.2",
+  "version": "1.15.0",
   "description": "スキル/ルールの直接パッチ最適化と自律進化ループ",
   "author": {
     "name": "min-sys"
@@ -8,5 +8,31 @@
   "repository": "https://github.com/min-sys/rl-anything",
   "homepage": "https://github.com/min-sys/rl-anything",
   "license": "MIT",
-  "keywords": ["optimization", "direct-patch", "skill-evolution", "rl-loop", "claude-code"]
+  "keywords": ["optimization", "direct-patch", "skill-evolution", "rl-loop", "claude-code"],
+  "userConfig": {
+    "auto_trigger": {
+      "description": "Enable auto-trigger for evolve/audit proposals (true/false)",
+      "sensitive": false
+    },
+    "evolve_interval_days": {
+      "description": "Days between evolve suggestions (default: 7)",
+      "sensitive": false
+    },
+    "audit_interval_days": {
+      "description": "Days between audit suggestions (default: 30)",
+      "sensitive": false
+    },
+    "min_sessions": {
+      "description": "Minimum sessions before suggesting evolve (default: 10)",
+      "sensitive": false
+    },
+    "cooldown_hours": {
+      "description": "Cooldown hours between trigger evaluations (default: 24)",
+      "sensitive": false
+    },
+    "language": {
+      "description": "Language for trigger messages: ja or en (default: ja)",
+      "sensitive": false
+    }
+  }
 }

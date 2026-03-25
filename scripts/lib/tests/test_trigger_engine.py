@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from trigger_engine import (
     DEFAULT_TRIGGER_CONFIG,
+    FILE_CHANGED_COOLDOWN_SECONDS,
     TriggerResult,
     _build_bloat_message,
     _count_sessions_since,
@@ -22,7 +23,9 @@ from trigger_engine import (
     _is_in_cooldown,
     _record_trigger,
     evaluate_corrections,
+    evaluate_file_changed,
     evaluate_session_end,
+    is_watched_file,
     load_trigger_config,
     read_and_delete_pending_trigger,
     write_pending_trigger,
@@ -745,3 +748,139 @@ class TestApprovalRateDeclineTrigger:
 
         result = _evaluate_approval_rate_decline()
         assert result.triggered is False
+
+
+# --- is_watched_file tests ---
+
+
+class TestIsWatchedFile:
+    """is_watched_file() のテスト。"""
+
+    def test_claude_md(self):
+        assert is_watched_file("/project/CLAUDE.md") == "claude_md"
+
+    def test_skill_md(self):
+        assert is_watched_file("/project/.claude/skills/my-skill/SKILL.md") == "skills"
+
+    def test_rules(self):
+        assert is_watched_file("/project/.claude/rules/tdd-first.md") == "rules"
+
+    def test_global_rules(self):
+        assert is_watched_file(f"{Path.home()}/.claude/rules/verify.md") == "rules"
+
+    def test_unrelated_file(self):
+        assert is_watched_file("/project/src/main.py") is None
+
+    def test_random_md(self):
+        assert is_watched_file("/project/README.md") is None
+
+
+# --- evaluate_file_changed tests ---
+
+
+class TestEvaluateFileChanged:
+    """evaluate_file_changed() のテスト。"""
+
+    def test_basic_trigger(self, data_dir):
+        """watched ファイルで初回トリガーが発火する。"""
+        _write_state(data_dir, {})
+        result = evaluate_file_changed("/project/CLAUDE.md")
+        assert result.triggered is True
+        assert result.action == "/rl-anything:audit"
+        assert "claude_md" in result.reason
+
+    def test_non_watched_file(self, data_dir):
+        """non-watched ファイルはトリガーしない。"""
+        _write_state(data_dir, {})
+        result = evaluate_file_changed("/project/src/main.py")
+        assert result.triggered is False
+
+    def test_cooldown(self, data_dir):
+        """クールダウン期間内は再トリガーしない。"""
+        now = datetime.now(timezone.utc)
+        state = {
+            "trigger_history": [
+                {
+                    "reason": "file_changed:claude_md",
+                    "action": "/rl-anything:audit",
+                    "timestamp": now.isoformat(),
+                }
+            ]
+        }
+        _write_state(data_dir, state)
+        result = evaluate_file_changed("/project/CLAUDE.md")
+        assert result.triggered is False
+
+    def test_auto_trigger_disabled(self, data_dir):
+        """auto_trigger=false でトリガーしない。"""
+        _write_state(data_dir, {})
+        with mock.patch.dict(
+            "os.environ", {"CLAUDE_PLUGIN_OPTION_auto_trigger": "false"}
+        ):
+            result = evaluate_file_changed("/project/CLAUDE.md")
+        assert result.triggered is False
+
+
+# --- userConfig merge in load_trigger_config ---
+
+
+class TestUserConfigMerge:
+    """load_trigger_config() の userConfig マージテスト。"""
+
+    def test_user_config_overrides_cooldown(self, data_dir):
+        """userConfig の cooldown_hours が trigger_config を上書き。"""
+        _write_state(data_dir, {})
+        with mock.patch.dict(
+            "os.environ", {"CLAUDE_PLUGIN_OPTION_cooldown_hours": "48"}
+        ):
+            config = load_trigger_config()
+        assert config["cooldown_hours"] == 48
+
+    def test_user_config_overrides_min_sessions(self, data_dir):
+        """userConfig の min_sessions が trigger_config を上書き。"""
+        _write_state(data_dir, {})
+        with mock.patch.dict(
+            "os.environ", {"CLAUDE_PLUGIN_OPTION_min_sessions": "5"}
+        ):
+            config = load_trigger_config()
+        assert config["triggers"]["session_end"]["min_sessions"] == 5
+
+    def test_user_config_overrides_evolve_interval(self, data_dir):
+        """userConfig の evolve_interval_days が max_days を上書き。"""
+        _write_state(data_dir, {})
+        with mock.patch.dict(
+            "os.environ", {"CLAUDE_PLUGIN_OPTION_evolve_interval_days": "14"}
+        ):
+            config = load_trigger_config()
+        assert config["triggers"]["session_end"]["max_days"] == 14
+
+    def test_user_config_overrides_audit_interval(self, data_dir):
+        """userConfig の audit_interval_days が audit_overdue を上書き。"""
+        _write_state(data_dir, {})
+        with mock.patch.dict(
+            "os.environ", {"CLAUDE_PLUGIN_OPTION_audit_interval_days": "60"}
+        ):
+            config = load_trigger_config()
+        assert config["triggers"]["audit_overdue"]["interval_days"] == 60
+
+    def test_user_config_disables_trigger(self, data_dir):
+        """userConfig の auto_trigger=false が config.enabled=False に。"""
+        _write_state(data_dir, {})
+        with mock.patch.dict(
+            "os.environ", {"CLAUDE_PLUGIN_OPTION_auto_trigger": "false"}
+        ):
+            config = load_trigger_config()
+        assert config["enabled"] is False
+
+    def test_no_user_config_preserves_defaults(self, data_dir):
+        """userConfig なしでデフォルト値を維持。"""
+        _write_state(data_dir, {})
+        # 前のテストの env var リーク防止のため明示的にクリア
+        clean_env = {
+            k: v for k, v in __import__("os").environ.items()
+            if not k.startswith("CLAUDE_PLUGIN_OPTION_")
+        }
+        with mock.patch.dict("os.environ", clean_env, clear=True):
+            config = load_trigger_config()
+        assert config["cooldown_hours"] == 24
+        assert config["triggers"]["session_end"]["min_sessions"] == 10

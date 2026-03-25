@@ -229,10 +229,20 @@ def check_line_limits(artifacts: Dict[str, List[Path]]) -> List[Dict[str, Any]]:
             violations.append({"file": str(path), "lines": lines, "limit": LIMITS["SKILL.md"]})
 
     for path in artifacts.get("memory", []):
-        lines = path.read_text(encoding="utf-8").count("\n") + 1
+        content = path.read_text(encoding="utf-8")
+        lines = content.count("\n") + 1
         limit = LIMITS["MEMORY.md"] if path.name == "MEMORY.md" else LIMITS["memory"]
         if lines > limit:
             violations.append({"file": str(path), "lines": lines, "limit": limit})
+        # MEMORY.md のみバイトサイズチェック（CC v2.1.83 で 25KB 切り詰め追加）
+        if path.name == "MEMORY.md":
+            from lib.line_limit import MEMORY_MAX_BYTES, MEMORY_NEAR_LIMIT_BYTES
+
+            byte_size = len(content.encode("utf-8"))
+            if byte_size > MEMORY_MAX_BYTES:
+                violations.append({"file": str(path), "bytes": byte_size, "bytes_limit": MEMORY_MAX_BYTES})
+            elif byte_size > MEMORY_NEAR_LIMIT_BYTES:
+                violations.append({"file": str(path), "bytes": byte_size, "bytes_limit": MEMORY_MAX_BYTES, "near_limit": True, "warning_only": True})
 
     return violations
 

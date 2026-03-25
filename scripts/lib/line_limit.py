@@ -14,6 +14,24 @@ MAX_RULE_LINES = 3
 MAX_PROJECT_RULE_LINES = 5
 CLAUDEMD_WARNING_LINES = 300
 
+# MEMORY.md バイトサイズ制限（CC v2.1.83 で 25KB 切り詰め追加）
+MEMORY_MAX_BYTES = 25_000
+MEMORY_NEAR_LIMIT_BYTES = 20_000  # 80% 警告閾値
+
+
+def check_memory_byte_limit(content: str) -> tuple[bool, int]:
+    """MEMORY.md のバイトサイズ制限をチェックする。
+
+    Args:
+        content: ファイル内容
+
+    Returns:
+        (within_limit, byte_size) のタプル。
+        within_limit は MEMORY_MAX_BYTES 以下なら True。
+    """
+    byte_size = len(content.encode("utf-8"))
+    return byte_size <= MEMORY_MAX_BYTES, byte_size
+
 
 @dataclass
 class SeparationProposal:
