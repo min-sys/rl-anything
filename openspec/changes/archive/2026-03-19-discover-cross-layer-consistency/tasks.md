@@ -33,4 +33,4 @@
 - [x] 5.3 `detect_iac_project()` に複数マーカー優先度ロジックを追加（CDK > SAM > Serverless > CloudFormation）
 - [x] 5.4 テストから Terraform/infra テストケースを削除、複数マーカー優先度テストを追加
 - [x] 5.5 VERIFICATION_CATALOG の `content_patterns` から `"terraform"` を `"aws"` に変更
-- [ ] 5.6 テスト実行・全パス確認
+- [x] 5.6 テスト実行・全パス確認

@@ -1,6 +1,6 @@
 # SPEC.md — rl-anything
 
-Last updated: 2026-03-24 by /spec-keeper update (instruction-compliance)
+Last updated: 2026-03-24 by /spec-keeper update (second-opinion)
 
 ## Overview
 
@@ -27,6 +27,7 @@ Claude Code Plugin。スキル/ルールの **自律進化パイプライン**�
 | フィードバック | reflect | 修正パターン検出 → corrections.jsonl → CLAUDE.md/rules に反映 |
 | 直接パッチ最適化 | optimize, rl-loop, generate-fitness, evolve-fitness | GA廃止、LLM 1パス直接パッチ ([ADR-003](docs/decisions/003-direct-patch-over-genetic-algorithm.md)) → regression gate |
 | エージェント管理 | agent-brushup | エージェント定義の品質診断・改善提案・upstream 監視 |
+| セカンドオピニオン | second-opinion | Claude Agent による cold-read 独立見解（codex 代替、3モード） |
 | セッション管理 | handover | 作業状態を構造化ノートに書き出し、SPEC.md 同期、別セッションへ引き継ぎ |
 
 ### コンポーネント構成
@@ -41,13 +42,14 @@ hooks/                  ← Observe 層（7個、LLMコストゼロ）[ADR-002]
   save_state.py         ← Compaction 前の作業コンテキスト保存 [ADR-013]
   restore_state.py      ← セッション開始時の状態復元
 
-skills/                 ← スキル定義（19個）
+skills/                 ← スキル定義（20個）
   evolve/               ← 3ステージ自律進化パイプライン
   discover/             ← パターン検出 + スキル候補生成
   reflect/              ← 修正フィードバック反映
   audit/                ← 環境健康診断
   optimize/             ← 直接パッチ最適化
   agent-brushup/        ← エージェント品質診断
+  second-opinion/       ← Claude Agent セカンドオピニオン（codex 代替）
   handover/             ← セッション引き継ぎ + SPEC.md 同期 + PreCompact 自動提案
 
 scripts/lib/            ← 共通ロジック（25+ モジュール）
@@ -103,6 +105,7 @@ scripts/rl/fitness/     ← 適応度関数（7個組み込み + config.py で�
 | `/rl-anything:evolve-skill <skill>` | 特定スキルに自己進化パターン組み込み | medium |
 | `/rl-anything:generate-fitness` | PJ固有 fitness 関数自動生成 | medium |
 | `/rl-anything:evolve-fitness` | 評価関数キャリブレーション | medium |
+| `/rl-anything:second-opinion` | Claude Agent セカンドオピニオン（startup/builder/general） | low |
 | `/rl-anything:handover` | セッション作業状態の構造化ノート書き出し | low |
 | `/rl-anything:version` | バージョン・ステータス表示 | low |
 | `/rl-anything:feedback` | フィードバック送信 | low |
@@ -125,11 +128,11 @@ PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 
 直近5件のみ。過去の変更は [CHANGELOG.md](CHANGELOG.md) を参照。
 
+- 2026-03-24: v1.14.0 — second-opinion エージェント+スキル追加。Claude Agent による codex 代替セカンドオピニオン（startup/builder/general 3モード）。closes #42
 - 2026-03-24: instruction compliance — スキル指示の遵守保証サイクル（Extract→Inject→Detect→Learn 4フェーズ、対立動詞+LLM Judge 2段階マッチング）。closes #39
 - 2026-03-24: gstack v0.10-v0.11 改善パターン6項目移植 — 独立検証、FP排除(12条件)、規模適応、fitness config.py集約、動的重み、/cso×fitness連携、/retro×audit cross-project、原則ベース昇格
 - 2026-03-23: handover に SPEC.md 同期ステップ追加（`/spec-keeper update` を自動実行）
 - 2026-03-22: v1.13.0 — 検証系スキルのテレメトリ非依存昇格
-- 2026-03-22: v1.12.0 — handover スキル追加 + OpenSpec→gstack 移行 Phase 1-2
 
 ## Current Limitations / Known Issues
 

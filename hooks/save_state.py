@@ -14,7 +14,6 @@ from pathlib import Path
 
 import common
 
-HANDOVER_COOLDOWN_SECONDS = 3600  # 1 時間
 _MAX_UNCOMMITTED_FILES = 30
 _MAX_RECENT_COMMITS = 5
 _GIT_TIMEOUT_SECONDS = 2
@@ -96,15 +95,6 @@ def _suggest_handover() -> None:
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR", "")
     if not project_dir:
         return
-    handover_dir = Path(project_dir) / ".claude" / "handovers"
-    if handover_dir.exists():
-        for f in sorted(handover_dir.glob("*.md"), reverse=True):
-            try:
-                if time.time() - f.stat().st_mtime < HANDOVER_COOLDOWN_SECONDS:
-                    return  # クールダウン中
-            except OSError:
-                pass
-            break
     print(
         "[rl-anything] コンテキスト圧縮されます。"
         "作業を引き継ぎノートに残しませんか？ → /rl-anything:handover"
