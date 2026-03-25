@@ -6,6 +6,7 @@
 - **handover**: checkpoint.json 優先で重複データ収集を廃止 — テンプレートを判断記録 + 次アクションに特化（Summary/Related Files 廃止）。closes #43
 
 ### Added
+- **handover**: Deploy State セクション追加 — デプロイ状態を構造化記録し、セッション復元時に Deploy State / Next Actions を優先表示。`--deploy-state` CLI で machine-readable アクセスも提供。closes #44
 - **second-opinion**: Claude Agent によるセカンドオピニオン機能 — codex 不要で Agent ツールのみで動作。startup/builder/general 3モード対応。gstack office-hours Phase 3.5 の codex 代替として、または汎用的に利用可能。closes #42
 - **critical-instruction-compliance**: スキルに書いた「必ず守れ」がちゃんと守られる — MUST/禁止等の重要指示を自動抽出し、穏やかな表現にリフレーズして注入。ユーザーの修正（corrections）とスキル指示を突合して違反を自動検出、pitfall に登録して次から守るよう自動学習。対立動詞検出（move↔delete）+ LLM Judge の2段階マッチング。closes #39
 - **remediation**: 修正の独立検証 — auto_fixable な修正に対してヒューリスティクスベースのダブルチェックを実施。見出し保持・コードブロック対応・空ファイル・行数制限を自動検証し、FP 率を低減
