@@ -170,3 +170,81 @@ class TestLatestHandover:
         time.sleep(0.001)
         result = handover.latest_handover(str(project_dir), stale_hours=0.0000001)
         assert result is None
+
+
+class TestExtractSection:
+    """extract_section() のテスト。"""
+
+    def test_extracts_deploy_state(self):
+        """## Deploy State セクションを正しく抽出する。"""
+        content = (
+            "# Handover: 2026-03-25 10:00\n\n"
+            "## Decisions\n- Used new API\n\n"
+            "## Deploy State\n- dev: deployed (commit abc1234)\n- prod: deployed (commit abc1234)\n\n"
+            "## Next Actions\n- Merge PR\n"
+        )
+        result = handover.extract_section(content, "Deploy State")
+        assert "dev: deployed" in result
+        assert "prod: deployed" in result
+        # 他のセクションは含まない
+        assert "Decisions" not in result
+        assert "Next Actions" not in result
+
+    def test_returns_empty_for_missing_section(self):
+        """存在しないセクションは空文字列。"""
+        content = "# Handover\n\n## Decisions\n- Something\n"
+        result = handover.extract_section(content, "Deploy State")
+        assert result == ""
+
+    def test_extracts_next_actions(self):
+        """## Next Actions セクションも抽出可能。"""
+        content = (
+            "# Handover\n\n"
+            "## Decisions\n- A\n\n"
+            "## Next Actions\n1. Fix bug\n2. Deploy\n"
+        )
+        result = handover.extract_section(content, "Next Actions")
+        assert "Fix bug" in result
+        assert "Deploy" in result
+
+    def test_last_section_no_trailing_header(self):
+        """最後のセクション（後続 ## なし）を正しく抽出する。"""
+        content = (
+            "# Handover\n\n"
+            "## Deploy State\nAll deployed\n"
+        )
+        result = handover.extract_section(content, "Deploy State")
+        assert "All deployed" in result
+
+
+class TestExtractDeployState:
+    """extract_deploy_state() のテスト。"""
+
+    def test_extracts_from_handover(self, project_dir):
+        """最新 handover から Deploy State を抽出する。"""
+        hdir = project_dir / ".claude" / "handovers"
+        content = (
+            "# Handover: 2026-03-25\n\n"
+            "## Deploy State\n- dev: deployed\n- prod: not deployed\n\n"
+            "## Next Actions\n- Deploy to prod\n"
+        )
+        (hdir / "2026-03-25_1000.md").write_text(content, encoding="utf-8")
+
+        result = handover.extract_deploy_state(str(project_dir))
+        assert result is not None
+        assert "dev: deployed" in result
+        assert "prod: not deployed" in result
+
+    def test_returns_none_when_no_handover(self, project_dir):
+        """handover がない場合は None。"""
+        result = handover.extract_deploy_state(str(project_dir))
+        assert result is None
+
+    def test_returns_none_when_no_deploy_section(self, project_dir):
+        """Deploy State セクションがない handover の場合は None。"""
+        hdir = project_dir / ".claude" / "handovers"
+        content = "# Handover\n\n## Decisions\n- Something\n"
+        (hdir / "2026-03-25_1000.md").write_text(content, encoding="utf-8")
+
+        result = handover.extract_deploy_state(str(project_dir))
+        assert result is None

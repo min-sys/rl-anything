@@ -5,6 +5,7 @@ git + テレメトリから handover ノート用のデータを収集する。
 LLM 呼び出しなし。SKILL.md が LLM にノート生成を指示する。
 """
 import json
+import re
 import subprocess
 import sys
 import time
@@ -158,6 +159,31 @@ def latest_handover(project_dir: str, stale_hours: float = STALE_HOURS) -> str |
         return None
 
 
+def extract_section(content: str, section_name: str) -> str:
+    """Markdown の ## セクションを名前で抽出する。見つからなければ空文字列。"""
+    pattern = rf"^## {re.escape(section_name)}\s*\n"
+    match = re.search(pattern, content, re.MULTILINE)
+    if not match:
+        return ""
+    start = match.end()
+    # 次の ## ヘッダーまたは末尾まで
+    next_header = re.search(r"^## ", content[start:], re.MULTILINE)
+    if next_header:
+        body = content[start : start + next_header.start()]
+    else:
+        body = content[start:]
+    return body.strip()
+
+
+def extract_deploy_state(project_dir: str, stale_hours: float = STALE_HOURS) -> str | None:
+    """最新 handover から Deploy State セクションを抽出する。なければ None。"""
+    content = latest_handover(project_dir, stale_hours=stale_hours)
+    if content is None:
+        return None
+    section = extract_section(content, "Deploy State")
+    return section if section else None
+
+
 def main() -> None:
     """CLI エントリポイント。"""
     import argparse
@@ -166,9 +192,18 @@ def main() -> None:
     parser.add_argument("--project-dir", default=".", help="Project directory")
     parser.add_argument("--list", action="store_true", help="List existing handovers")
     parser.add_argument("--latest", action="store_true", help="Show latest handover")
+    parser.add_argument("--deploy-state", action="store_true", help="Extract deploy state from latest handover")
     args = parser.parse_args()
 
     project_dir = str(Path(args.project_dir).resolve())
+
+    if args.deploy_state:
+        state = extract_deploy_state(project_dir)
+        if state:
+            print(state)
+        else:
+            print(json.dumps({"status": "no_deploy_state"}, ensure_ascii=False))
+        return
 
     if args.list:
         entries = list_handovers(project_dir)

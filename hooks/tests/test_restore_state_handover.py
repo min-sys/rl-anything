@@ -61,3 +61,58 @@ class TestDetectHandover:
 
         captured = capsys.readouterr()
         assert captured.out == ""
+
+    def test_deploy_state_shown_in_preview(self, tmp_path, capsys):
+        """Deploy State セクションがプレビューに含まれる。"""
+        hdir = tmp_path / ".claude" / "handovers"
+        hdir.mkdir(parents=True)
+        # Deploy State が 15 行目以降に配置されたノート
+        content = (
+            "# Handover: 2026-03-25 10:00\n\n"
+            "## Decisions\n"
+            + "\n".join(f"- Decision {i}" for i in range(20))
+            + "\n\n## Deploy State\n- dev: deployed (abc1234)\n- prod: deployed (abc1234)\n\n"
+            "## Next Actions\n- Merge PR #99\n"
+        )
+        (hdir / "2026-03-25_1000.md").write_text(content, encoding="utf-8")
+
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(tmp_path)}):
+            restore_state._detect_handover()
+
+        captured = capsys.readouterr()
+        assert "[rl-anything:handover]" in captured.out
+        # Deploy State が表示される（先頭15行には含まれないが優先抽出される）
+        assert "dev: deployed" in captured.out
+        assert "prod: deployed" in captured.out
+
+    def test_next_actions_shown_in_preview(self, tmp_path, capsys):
+        """Next Actions セクションがプレビューに含まれる。"""
+        hdir = tmp_path / ".claude" / "handovers"
+        hdir.mkdir(parents=True)
+        content = (
+            "# Handover: 2026-03-25 10:00\n\n"
+            "## Decisions\n"
+            + "\n".join(f"- Decision {i}" for i in range(20))
+            + "\n\n## Next Actions\n1. Fix critical bug\n2. Deploy to staging\n"
+        )
+        (hdir / "2026-03-25_1000.md").write_text(content, encoding="utf-8")
+
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(tmp_path)}):
+            restore_state._detect_handover()
+
+        captured = capsys.readouterr()
+        assert "Fix critical bug" in captured.out
+
+    def test_fallback_to_head_when_no_key_sections(self, tmp_path, capsys):
+        """キーセクションがない場合は従来通り先頭行プレビュー。"""
+        hdir = tmp_path / ".claude" / "handovers"
+        hdir.mkdir(parents=True)
+        content = "# Handover: 2026-03-25\n\n## Decisions\n- Used new API\n\n## Discarded\n- Old approach\n"
+        (hdir / "2026-03-25_1000.md").write_text(content, encoding="utf-8")
+
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": str(tmp_path)}):
+            restore_state._detect_handover()
+
+        captured = capsys.readouterr()
+        assert "Handover: 2026-03-25" in captured.out
+        assert "Used new API" in captured.out

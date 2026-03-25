@@ -41,8 +41,14 @@ Step 1 の JSON データ **および会話コンテキスト** を元に、以�
 ## Discarded Alternatives
 {検討したが捨てた選択肢とその理由（箇条書き）。なければ「なし」}
 
+## Deploy State
+{各環境のデプロイ状態。会話コンテキストから判断する。不明なら「不明」}
+- dev: {deployed / not deployed / 不明} (commit {hash})
+- prod: {deployed / not deployed / 不明} (commit {hash})
+
 ## Next Actions
-{次にやるべきこと（優先順付き箇条書き）。最初の一手が明確であること}
+{次にやるべきこと（優先順付き箇条書き）。Deploy State を考慮すること。
+デプロイ済みなら merge → 再デプロイ → 動作確認、未デプロイなら デプロイ → 動作確認 → merge}
 
 ## Context (auto)
 branch: {work_context.git_branch}
@@ -55,6 +61,8 @@ corrections: {corrections}
 **重要ルール**:
 - 会話コンテキストから「なぜその決定をしたか」「何を試して何がダメだったか」を必ず含める（MUST）
 - `Discarded Alternatives` は省略しない — エージェントが同じ失敗を繰り返さないための最重要セクション
+- `Deploy State` は会話コンテキストから判断する（MUST）— デプロイ済み/未デプロイが後続の `/ship` 等の次アクション提案に影響する
+- `Next Actions` は `Deploy State` を考慮して記述する — デプロイ済みなら merge-first フロー、未デプロイなら deploy-first フローを推奨
 - `Context (auto)` セクションは JSON データをそのまま展開する（LLM による要約不要）
 - Summary / Related Files セクションは **廃止** — checkpoint.json + git で復元可能
 
