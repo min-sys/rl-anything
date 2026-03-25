@@ -28,35 +28,35 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/handover/scripts/handover.py" --project-di
 
 ### Step 2: 構造化ノート生成
 
-Step 1 の JSON データ **および会話コンテキスト** を元に、以下のセクションで Markdown ノートを生成する:
+Step 1 の JSON データ **および会話コンテキスト** を元に、以下のセクションで Markdown ノートを生成する。
+
+**このノートの目的**: git/checkpoint/auto-memory では復元できない「判断の理由」と「次の一手」に特化する。
 
 ```markdown
 # Handover: {日付} {時刻}
 
-## Summary
-{今回のセッションで何をしたか 1-3 行}
-
 ## Decisions
-{決定事項とその理由（箇条書き）}
+{決定事項とその理由（箇条書き）。「なぜそうしたか」を必ず含める}
 
 ## Discarded Alternatives
 {検討したが捨てた選択肢とその理由（箇条書き）。なければ「なし」}
 
-## Next Steps
-{次にやるべきこと（優先順付き箇条書き）}
+## Next Actions
+{次にやるべきこと（優先順付き箇条書き）。最初の一手が明確であること}
 
-## Related Files
-{変更・参照した主要ファイル一覧}
-
-## Corrections
-{セッション中の修正・方針転換（あれば）}
+## Context (auto)
+branch: {work_context.git_branch}
+commits: {work_context.recent_commits}
+uncommitted: {work_context.uncommitted_files}
+skills: {skills_used}
+corrections: {corrections}
 ```
 
 **重要ルール**:
 - 会話コンテキストから「なぜその決定をしたか」「何を試して何がダメだったか」を必ず含める（MUST）
-- JSON データの `skills_used` から使用したスキル/ワークフローを Summary に反映する
-- JSON データの `corrections` があれば Corrections セクションに反映する
 - `Discarded Alternatives` は省略しない — エージェントが同じ失敗を繰り返さないための最重要セクション
+- `Context (auto)` セクションは JSON データをそのまま展開する（LLM による要約不要）
+- Summary / Related Files セクションは **廃止** — checkpoint.json + git で復元可能
 
 ### Step 3: ファイル書き出し
 

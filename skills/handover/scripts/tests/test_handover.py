@@ -35,8 +35,25 @@ def data_dir(tmp_path):
 
 
 class TestCollectHandoverData:
-    def test_happy_path(self, project_dir, data_dir):
-        """git 情報 + テレメトリが正しく収集される。"""
+    def test_happy_path_uses_checkpoint(self, project_dir, data_dir):
+        """checkpoint.json からコンテキストを取得し、git を再呼び出ししない。"""
+        # checkpoint.json にデータを用意
+        checkpoint = {
+            "session_id": "s1",
+            "timestamp": "2026-03-22T00:00:00Z",
+            "work_context": {
+                "git_branch": "feat/handover",
+                "recent_commits": ["abc1234 feat: add handover", "def5678 fix: typo"],
+                "uncommitted_files": ["M  src/app.py", "M hooks/save_state.py"],
+            },
+            "corrections_snapshot": [
+                {"pattern": "test fix", "session_id": "s1"}
+            ],
+        }
+        (data_dir / "checkpoint.json").write_text(
+            json.dumps(checkpoint, ensure_ascii=False), encoding="utf-8"
+        )
+
         # usage.jsonl にダミーデータ
         usage_file = data_dir / "usage.jsonl"
         usage_file.write_text(
@@ -46,37 +63,55 @@ class TestCollectHandoverData:
         )
 
         with mock.patch("handover._run_git") as mock_git:
+            result = handover.collect_handover_data(str(project_dir))
+
+        # git は呼ばれない（checkpoint から取得するため）
+        mock_git.assert_not_called()
+
+        # checkpoint の work_context がそのまま使われる
+        assert result["work_context"]["git_branch"] == "feat/handover"
+        assert len(result["work_context"]["recent_commits"]) == 2
+        assert len(result["work_context"]["uncommitted_files"]) == 2
+        assert result["skills_used"] == [
+            {"skill": "ship", "timestamp": "2026-03-22T00:00:00Z"},
+            {"skill": "review", "timestamp": "2026-03-22T00:01:00Z"},
+        ]
+        assert result["project_dir"] == str(project_dir)
+
+    def test_fallback_to_git_when_no_checkpoint(self, project_dir, data_dir):
+        """checkpoint.json がない場合は git にフォールバックする。"""
+        with mock.patch("handover._run_git") as mock_git:
             mock_git.side_effect = [
-                "M  src/app.py\n M hooks/save_state.py\n",  # status --short
-                "abc1234 feat: add handover\ndef5678 fix: typo\n",  # log --oneline
-                " 2 files changed, 10 insertions(+)\n",  # diff --stat
+                "feat/handover\n",  # rev-parse --abbrev-ref HEAD
+                "abc1234 feat: add handover\n",  # log --oneline
+                "M  src/app.py\n",  # status --short
             ]
             result = handover.collect_handover_data(str(project_dir))
 
-        assert "uncommitted_files" in result
-        assert len(result["uncommitted_files"]) == 2
-        assert "recent_commits" in result
-        assert len(result["recent_commits"]) == 2
-        assert "diff_stat" in result
-        assert "skills_used" in result
-        assert len(result["skills_used"]) == 2
-        assert result["project_dir"] == str(project_dir)
+        assert mock_git.call_count == 3
+        assert result["work_context"]["git_branch"] == "feat/handover"
+        assert len(result["work_context"]["recent_commits"]) == 1
+        assert len(result["work_context"]["uncommitted_files"]) == 1
 
     def test_no_git(self, project_dir, data_dir):
         """git リポジトリ外でも graceful degradation。"""
         with mock.patch("handover._run_git", return_value=""):
             result = handover.collect_handover_data(str(project_dir))
 
-        assert result["uncommitted_files"] == []
-        assert result["recent_commits"] == []
-        assert result["diff_stat"] == ""
+        assert result["work_context"]["uncommitted_files"] == []
+        assert result["work_context"]["recent_commits"] == []
+        assert result["work_context"]["git_branch"] == ""
 
-    def test_corrections_included(self, project_dir, data_dir):
-        """corrections.jsonl のデータが含まれる。"""
-        corrections_file = data_dir / "corrections.jsonl"
-        corrections_file.write_text(
-            json.dumps({"pattern": "test fix", "session_id": "s1", "timestamp": "2026-03-22T00:00:00Z"}) + "\n",
-            encoding="utf-8",
+    def test_corrections_from_checkpoint(self, project_dir, data_dir):
+        """checkpoint の corrections_snapshot が使われる。"""
+        checkpoint = {
+            "corrections_snapshot": [
+                {"pattern": "test fix", "session_id": "s1", "timestamp": "2026-03-22T00:00:00Z"}
+            ],
+            "work_context": {},
+        }
+        (data_dir / "checkpoint.json").write_text(
+            json.dumps(checkpoint, ensure_ascii=False), encoding="utf-8"
         )
 
         with mock.patch("handover._run_git", return_value=""):

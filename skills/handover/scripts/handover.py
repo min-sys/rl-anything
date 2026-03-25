@@ -57,22 +57,62 @@ def _load_session_records(jsonl_file: Path) -> list[dict]:
     return records
 
 
-def collect_handover_data(project_dir: str) -> dict:
-    """git + テレメトリからハンドオーバー用データを収集する。LLM 不使用。"""
-    # git status
-    status_out = _run_git(["status", "--short"])
-    uncommitted = [
-        line.strip() for line in status_out.strip().splitlines() if line.strip()
-    ] if status_out else []
+def _load_checkpoint() -> dict | None:
+    """checkpoint.json を読み込む。存在しないか壊れている場合は None。"""
+    checkpoint_file = DATA_DIR / "checkpoint.json"
+    if not checkpoint_file.exists():
+        return None
+    try:
+        return json.loads(checkpoint_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
 
-    # git log
+
+def _collect_work_context_from_git() -> dict:
+    """git から作業コンテキストを収集する（checkpoint がない場合のフォールバック）。"""
+    context: dict = {
+        "recent_commits": [],
+        "uncommitted_files": [],
+        "git_branch": "",
+    }
+
+    branch_out = _run_git(["rev-parse", "--abbrev-ref", "HEAD"])
+    context["git_branch"] = branch_out.strip()
+
     log_out = _run_git(["log", "--oneline", f"-{_MAX_COMMITS}"])
-    commits = [
-        line for line in log_out.strip().splitlines() if line.strip()
-    ] if log_out else []
+    if log_out:
+        context["recent_commits"] = [
+            line for line in log_out.strip().splitlines() if line.strip()
+        ]
 
-    # git diff --stat
-    diff_stat = _run_git(["diff", "--stat"]).strip()
+    status_out = _run_git(["status", "--short"])
+    if status_out:
+        context["uncommitted_files"] = [
+            line.strip() for line in status_out.strip().splitlines() if line.strip()
+        ]
+
+    return context
+
+
+def collect_handover_data(project_dir: str) -> dict:
+    """checkpoint + テレメトリからハンドオーバー用データを収集する。LLM 不使用。
+
+    checkpoint.json があればそこから work_context/corrections を取得（git 再呼び出し不要）。
+    なければ git にフォールバックする。
+    """
+    checkpoint = _load_checkpoint()
+
+    # work_context: checkpoint 優先、なければ git フォールバック
+    if checkpoint and checkpoint.get("work_context"):
+        work_context = checkpoint["work_context"]
+    else:
+        work_context = _collect_work_context_from_git()
+
+    # corrections: checkpoint 優先、なければ corrections.jsonl フォールバック
+    if checkpoint and checkpoint.get("corrections_snapshot"):
+        corrections = checkpoint["corrections_snapshot"][-10:]
+    else:
+        corrections = _load_session_records(DATA_DIR / "corrections.jsonl")[-10:]
 
     # usage.jsonl — 当セッションのスキル使用
     usage_records = _load_session_records(DATA_DIR / "usage.jsonl")
@@ -80,34 +120,14 @@ def collect_handover_data(project_dir: str) -> dict:
         {"skill": r.get("skill_name", ""), "timestamp": r.get("timestamp", "")}
         for r in usage_records
         if r.get("skill_name")
-    ]
-    # 直近 20 件に絞る
-    skills_used = skills_used[-20:]
-
-    # corrections.jsonl
-    corrections = _load_session_records(DATA_DIR / "corrections.jsonl")
-    # 直近 10 件に絞る
-    corrections = corrections[-10:]
-
-    # checkpoint.json の work_context
-    work_context = {}
-    checkpoint_file = DATA_DIR / "checkpoint.json"
-    if checkpoint_file.exists():
-        try:
-            cp = json.loads(checkpoint_file.read_text(encoding="utf-8"))
-            work_context = cp.get("work_context", {})
-        except (json.JSONDecodeError, OSError):
-            pass
+    ][-20:]
 
     return {
         "project_dir": project_dir,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "uncommitted_files": uncommitted,
-        "recent_commits": commits,
-        "diff_stat": diff_stat,
+        "work_context": work_context,
         "skills_used": skills_used,
         "corrections": corrections,
-        "work_context": work_context,
     }
 
 
