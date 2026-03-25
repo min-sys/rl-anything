@@ -38,6 +38,8 @@
 ## [1.13.0] — 2026-03-22
 
 ### SPEC.md から移動（Recent Changes ローテーション）
+- 2026-03-24: gstack v0.10-v0.11 改善パターン6項目移植 — 独立検証、FP排除(12条件)、規模適応、fitness config.py集約、動的重み、/cso×fitness連携、/retro×audit cross-project、原則ベース昇格
+- 2026-03-23: handover に SPEC.md 同期ステップ追加（`/spec-keeper update` を自動実行）
 - 2026-03-22: v1.13.0 — 検証系スキルのテレメトリ非依存昇格
 - 2026-03-22: v1.12.0 — handover スキル追加 + OpenSpec→gstack 移行 Phase 1-2
 - 2026-03-20: agent-brushup スキル追加（品質診断 + upstream 監視）

@@ -1,6 +1,6 @@
 # SPEC.md — rl-anything
 
-Last updated: 2026-03-25 by /spec-keeper update (recovery)
+Last updated: 2026-03-26 by /spec-keeper update
 
 ## Overview
 
@@ -33,8 +33,8 @@ Claude Code Plugin。スキル/ルールの **自律進化パイプライン**�
 ### コンポーネント構成
 
 ```
-hooks/                  ← Observe 層（11個、LLMコストゼロ）[ADR-002]
-  common.py             ← PROMPT_CATEGORIES, classify_prompt
+hooks/                  ← Observe 層（12個、LLMコストゼロ）[ADR-002]
+  common.py             ← PROMPT_CATEGORIES, classify_prompt, load_user_config
   observe.py            ← usage/errors/corrections 記録
   correction_detect.py  ← corrections 自動検出
   subagent_observe.py   ← subagents.jsonl 記録
@@ -42,9 +42,10 @@ hooks/                  ← Observe 層（11個、LLMコストゼロ）[ADR-002]
   stop_failure.py       ← API エラー記録
   save_state.py         ← Compaction 前の作業コンテキスト保存 [ADR-013]
   restore_state.py      ← セッション開始時の状態復元
-  session_summary.py    ← セッションサマリー記録
+  session_summary.py    ← セッションサマリー記録 + auto_trigger ゲート
   suggest_subagent_delegation.py ← subagent 委譲提案
   workflow_context.py   ← ワークフローコンテキスト記録
+  file_changed.py       ← FileChanged hook（CC v2.1.83）CLAUDE.md/SKILL.md/rules 変更検知
 
 skills/                 ← スキル定義（20個）
   evolve/               ← 3ステージ自律進化パイプライン
@@ -65,7 +66,7 @@ scripts/lib/            ← 共通ロジック（27 モジュール）
   pitfall_manager.py    ← pitfall 品質ゲート + ライフサイクル
   verification_catalog.py ← 検証知見カタログ
   pipeline_reflector.py ← Self-Evolution コアモジュール
-  trigger_engine.py     ← Auto-evolve trigger engine
+  trigger_engine.py     ← Auto-evolve trigger engine + FileChanged 評価 + userConfig マージ
   agent_quality.py      ← エージェント品質診断
   critical_instruction_extractor.py ← スキル指示の遵守保証（抽出+リフレーズ+違反検出）
   quality_engine.py     ← Skill Quality 2.0（混乱度測定+パターン推奨+スコアボード）
@@ -138,11 +139,10 @@ PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 
 直近5件のみ。過去の変更は [CHANGELOG.md](CHANGELOG.md) を参照。
 
+- 2026-03-26: v1.15.0 — CC v2.1.83 採用（FileChanged hook でファイル変更即時検知、MEMORY.md 25KB ガード、Plugin userConfig 6項目で設定対話化）
 - 2026-03-25: handover Deploy State — デプロイ状態の構造化記録 + セッション復元時の優先表示 + `--deploy-state` CLI。closes #44
 - 2026-03-24: v1.14.0 — second-opinion エージェント+スキル追加。Claude Agent による codex 代替セカンドオピニオン（startup/builder/general 3モード）。closes #42
 - 2026-03-24: instruction compliance — スキル指示の遵守保証サイクル（Extract→Inject→Detect→Learn 4フェーズ、対立動詞+LLM Judge 2段階マッチング）。closes #39
-- 2026-03-24: gstack v0.10-v0.11 改善パターン6項目移植 — 独立検証、FP排除(12条件)、規模適応、fitness config.py集約、動的重み、/cso×fitness連携、/retro×audit cross-project、原則ベース昇格
-- 2026-03-23: handover に SPEC.md 同期ステップ追加（`/spec-keeper update` を自動実行）
 
 ## Current Limitations / Known Issues
 
