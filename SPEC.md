@@ -28,7 +28,7 @@ Claude Code Plugin。スキル/ルールの **自律進化パイプライン**�
 | 直接パッチ最適化 | optimize, rl-loop, generate-fitness, evolve-fitness | GA廃止、LLM 1パス直接パッチ ([ADR-003](docs/decisions/003-direct-patch-over-genetic-algorithm.md)) → regression gate |
 | エージェント管理 | agent-brushup | エージェント定義の品質診断・改善提案・upstream 監視 |
 | セカンドオピニオン | second-opinion | Claude Agent による cold-read 独立見解（codex 代替、3モード） |
-| セッション管理 | handover | 作業状態を構造化ノートに書き出し、SPEC.md 同期、別セッションへ引き継ぎ |
+| セッション管理 | handover | 作業状態を構造化ノートに書き出し（Deploy State 構造化記録）、SPEC.md 同期、別セッションへ引き継ぎ |
 
 ### コンポーネント構成
 
@@ -50,7 +50,7 @@ skills/                 ← スキル定義（20個）
   optimize/             ← 直接パッチ最適化
   agent-brushup/        ← エージェント品質診断
   second-opinion/       ← Claude Agent セカンドオピニオン（codex 代替）
-  handover/             ← セッション引き継ぎ + SPEC.md 同期 + PreCompact 自動提案
+  handover/             ← セッション引き継ぎ + Deploy State 構造化 + SPEC.md 同期 + PreCompact 自動提案
 
 scripts/lib/            ← 共通ロジック（25+ モジュール）
   telemetry_query.py    ← DuckDB 共通クエリ層
@@ -128,6 +128,7 @@ PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 
 直近5件のみ。過去の変更は [CHANGELOG.md](CHANGELOG.md) を参照。
 
+- 2026-03-25: handover Deploy State — デプロイ状態の構造化記録 + セッション復元時の優先表示 + `--deploy-state` CLI。closes #44
 - 2026-03-24: v1.14.0 — second-opinion エージェント+スキル追加。Claude Agent による codex 代替セカンドオピニオン（startup/builder/general 3モード）。closes #42
 - 2026-03-24: instruction compliance — スキル指示の遵守保証サイクル（Extract→Inject→Detect→Learn 4フェーズ、対立動詞+LLM Judge 2段階マッチング）。closes #39
 - 2026-03-24: gstack v0.10-v0.11 改善パターン6項目移植 — 独立検証、FP排除(12条件)、規模適応、fitness config.py集約、動的重み、/cso×fitness連携、/retro×audit cross-project、原則ベース昇格
