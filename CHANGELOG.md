@@ -3,15 +3,13 @@
 ## [1.15.0] - 2026-03-26
 
 ### Added
-- **FileChanged hook**: CC v2.1.83 の FileChanged イベントを利用し、CLAUDE.md/SKILL.md/rules 変更を mid-session で検知。trigger_engine に委譲して `/rl-anything:audit` を提案。watchPaths で rules ファイルを動的登録
-- **MEMORY.md 25KB 上限チェック**: CC v2.1.83 の 25KB 切り詰め上限に対応。audit に byte-size チェック追加、bloat_check にも memory_bytes 警告追加。near-limit warning（20KB）付き
-- **Plugin userConfig**: CC v2.1.83 の manifest.userConfig を利用し、plugin enable 時に設定を対話的に収集。auto_trigger/evolve_interval_days/audit_interval_days/min_sessions/cooldown_hours/language の6項目
-- **common.py**: `load_user_config()` + `is_user_config_explicit()` — 環境変数ベースの userConfig パーサー
-- **trigger_engine**: `is_watched_file()` + `evaluate_file_changed()` + `_load_user_config_with_explicit()` — FileChanged 評価 + userConfig import ヘルパー一元化
+- **ファイル変更の即時検知**: CLAUDE.md や SKILL.md を編集すると、セッション終了を待たずに `/rl-anything:audit` を提案。rules ファイルも watchPaths で自動登録（CC v2.1.83 FileChanged hook）
+- **MEMORY.md 25KB ガード**: CC v2.1.83 の 25KB 切り詰め上限を事前検知。audit と bloat_check がバイトサイズを監視し、80%（20KB）到達で警告
+- **プラグイン設定の対話化**: plugin enable 時に evolve/audit の頻度やクールダウンを設定可能に。6項目の userConfig（CC v2.1.83 manifest.userConfig）
 
 ### Changed
-- **trigger_engine**: `load_trigger_config()` が userConfig の明示的セット値を最高優先度でマージ（DEFAULT < evolve-state < userConfig）。deep copy で DEFAULT_TRIGGER_CONFIG の変異を防止
-- **session_summary**: `_evaluate_trigger()` に userConfig `auto_trigger` ゲート追加
+- **トリガー設定の3層マージ**: デフォルト → evolve-state.json → userConfig（環境変数）の優先順位で設定を解決。明示的にセットされた値のみ上書きし、既存設定を潰さない
+- **auto_trigger ゲート**: session_summary と file_changed の両方で userConfig の auto_trigger=false を尊重
 
 ## [1.14.2] - 2026-03-25
 
