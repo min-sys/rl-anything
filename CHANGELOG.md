@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- **handover**: checkpoint.json 優先で重複データ収集を廃止 — テンプレートを判断記録 + 次アクションに特化（Summary/Related Files 廃止）。closes #43
+
 ### Added
 - **second-opinion**: Claude Agent によるセカンドオピニオン機能 — codex 不要で Agent ツールのみで動作。startup/builder/general 3モード対応。gstack office-hours Phase 3.5 の codex 代替として、または汎用的に利用可能。closes #42
 - **critical-instruction-compliance**: スキルに書いた「必ず守れ」がちゃんと守られる — MUST/禁止等の重要指示を自動抽出し、穏やかな表現にリフレーズして注入。ユーザーの修正（corrections）とスキル指示を突合して違反を自動検出、pitfall に登録して次から守るよう自動学習。対立動詞検出（move↔delete）+ LLM Judge の2段階マッチング。closes #39
@@ -18,6 +21,7 @@
 ## [1.13.0] — 2026-03-22
 
 ### SPEC.md から移動（Recent Changes ローテーション）
+- 2026-03-22: v1.12.0 — handover スキル追加 + OpenSpec→gstack 移行 Phase 1-2
 - 2026-03-20: agent-brushup スキル追加（品質診断 + upstream 監視）
 
 ### Added
