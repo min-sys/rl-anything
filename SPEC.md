@@ -1,6 +1,6 @@
 # SPEC.md — rl-anything
 
-Last updated: 2026-03-25 by /spec-keeper update (handover-deploy-state)
+Last updated: 2026-03-25 by /spec-keeper update (recovery)
 
 ## Overview
 
@@ -33,14 +33,18 @@ Claude Code Plugin。スキル/ルールの **自律進化パイプライン**�
 ### コンポーネント構成
 
 ```
-hooks/                  ← Observe 層（7個、LLMコストゼロ）[ADR-002]
+hooks/                  ← Observe 層（11個、LLMコストゼロ）[ADR-002]
   common.py             ← PROMPT_CATEGORIES, classify_prompt
   observe.py            ← usage/errors/corrections 記録
+  correction_detect.py  ← corrections 自動検出
   subagent_observe.py   ← subagents.jsonl 記録
   instructions_loaded.py← sessions.jsonl [ADR-015]
   stop_failure.py       ← API エラー記録
   save_state.py         ← Compaction 前の作業コンテキスト保存 [ADR-013]
   restore_state.py      ← セッション開始時の状態復元
+  session_summary.py    ← セッションサマリー記録
+  suggest_subagent_delegation.py ← subagent 委譲提案
+  workflow_context.py   ← ワークフローコンテキスト記録
 
 skills/                 ← スキル定義（20個）
   evolve/               ← 3ステージ自律進化パイプライン
@@ -52,7 +56,7 @@ skills/                 ← スキル定義（20個）
   second-opinion/       ← Claude Agent セカンドオピニオン（codex 代替）
   handover/             ← セッション引き継ぎ + Deploy State 構造化 + SPEC.md 同期 + PreCompact 自動提案
 
-scripts/lib/            ← 共通ロジック（25+ モジュール）
+scripts/lib/            ← 共通ロジック（27 モジュール）
   telemetry_query.py    ← DuckDB 共通クエリ層
   layer_diagnose.py     ← 4レイヤー診断
   remediation.py        ← confidence-based 問題分類 + 修正 + FP排除 + 原則ベース昇格
@@ -64,14 +68,20 @@ scripts/lib/            ← 共通ロジック（25+ モジュール）
   trigger_engine.py     ← Auto-evolve trigger engine
   agent_quality.py      ← エージェント品質診断
   critical_instruction_extractor.py ← スキル指示の遵守保証（抽出+リフレーズ+違反検出）
+  quality_engine.py     ← Skill Quality 2.0（混乱度測定+パターン推奨+スコアボード）
+  instruction_patterns.py ← スキル内7パターン自動検出+context効率分析
+  semantic_detector.py  ← LLM セマンティック検証（corrections偽陽性除去）
 
-scripts/rl/fitness/     ← 適応度関数（7個組み込み + config.py で閾値集約）
+scripts/rl/fitness/     ← 適応度関数（8個組み込み + config.py で閾値集約）
   config.py             ← 全モジュール共有閾値 + BASE_WEIGHTS
   coherence.py          ← 環境 Coherence Score（4軸）
   telemetry.py          ← テレメトリ駆動 Score（3軸）
   constitutional.py     ← 原則ベース LLM Judge + /cso security 軸
   chaos.py              ← 仮想除去ロバストネス
   environment.py        ← 動的重み統合（_normalize_weights + skill_quality 4軸目）
+  skill_quality.py      ← ルールベース構造品質
+  principles.py         ← PJ固有原則抽出 + キャッシュ
+  plugin.py             ← プラグイン統合 fitness
 ```
 
 ### データフロー
@@ -112,7 +122,7 @@ scripts/rl/fitness/     ← 適応度関数（7個組み込み + config.py で�
 
 ### 適応度関数
 
-組み込み7個: `default`, `skill_quality`, `coherence`, `telemetry`, `constitutional`（+ /cso security軸）, `chaos`, `environment`（動的重み、`config.py` で閾値集約）
+組み込み8個: `default`, `skill_quality`, `coherence`, `telemetry`, `constitutional`（+ /cso security軸）, `chaos`, `environment`（動的重み）, `plugin`（プラグイン統合）。`config.py` で閾値集約
 PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 
 ## Key Design Decisions

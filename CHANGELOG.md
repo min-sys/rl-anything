@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.14.2] - 2026-03-25
+
+### Fixed
+- **SPEC.md**: 構造突合リカバリーで未記載コンポーネントを修正 — hooks 7→11, scripts/lib 25+→27, fitness 7→8
+
 ## [Unreleased]
 
 ### Changed
