@@ -11,26 +11,38 @@
   "keywords": ["optimization", "direct-patch", "skill-evolution", "rl-loop", "claude-code"],
   "userConfig": {
     "auto_trigger": {
-      "description": "Enable auto-trigger for evolve/audit proposals (true/false)",
+      "title": "Auto Trigger",
+      "type": "boolean",
+      "description": "Enable auto-trigger for evolve/audit proposals",
       "sensitive": false
     },
     "evolve_interval_days": {
+      "title": "Evolve Interval (days)",
+      "type": "number",
       "description": "Days between evolve suggestions (default: 7)",
       "sensitive": false
     },
     "audit_interval_days": {
+      "title": "Audit Interval (days)",
+      "type": "number",
       "description": "Days between audit suggestions (default: 30)",
       "sensitive": false
     },
     "min_sessions": {
+      "title": "Min Sessions",
+      "type": "number",
       "description": "Minimum sessions before suggesting evolve (default: 10)",
       "sensitive": false
     },
     "cooldown_hours": {
+      "title": "Cooldown (hours)",
+      "type": "number",
       "description": "Cooldown hours between trigger evaluations (default: 24)",
       "sensitive": false
     },
     "language": {
+      "title": "Language",
+      "type": "string",
       "description": "Language for trigger messages: ja or en (default: ja)",
       "sensitive": false
     }
