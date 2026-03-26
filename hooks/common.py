@@ -28,6 +28,7 @@ USER_CONFIG_DEFAULTS: dict[str, object] = {
     "min_sessions": 10,
     "cooldown_hours": 24,
     "language": "ja",
+    "growth_display": True,
 }
 
 

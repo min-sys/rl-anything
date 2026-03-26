@@ -66,6 +66,47 @@ def handle_instructions_loaded(event: dict) -> None:
     }
     common.append_jsonl(common.DATA_DIR / "sessions.jsonl", record)
 
+    # ── NFD: Growth greeting 出力 ──────────────────────────────
+    _emit_growth_greeting(project)
+
+
+def _emit_growth_greeting(project: str | None) -> None:
+    """growth-state キャッシュを読み、成長データを stdout に出力。
+
+    Claude が受け取ってユーザーに自然な形で表示する。
+    LLM 呼び出しなし（ファイル読み取りのみ）。
+    """
+    if not project:
+        return
+
+    # userConfig チェック
+    config = common.load_user_config()
+    if not config.get("growth_display", True):
+        return
+
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "lib"))
+        from growth_engine import read_cache, PHASE_DISPLAY_NAMES, Phase
+
+        cache = read_cache(project)
+        if cache is None:
+            return
+
+        phase_str = cache.get("phase", "bootstrap")
+        progress = cache.get("progress", 0.0)
+        stale = cache.get("stale", False)
+        progress_pct = int(progress * 100)
+
+        # stdout にデータ出力（Claude が受け取る）
+        parts = [f"GROWTH: {phase_str} {progress_pct}%"]
+        if stale:
+            stale_days = cache.get("stale_days", 0)
+            parts.append(f"(stale: {stale_days}d ago)")
+
+        print(" ".join(parts))
+    except Exception:
+        pass  # greeting 失敗はサイレント（hook の安定性優先）
+
 
 def main() -> None:
     try:

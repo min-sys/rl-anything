@@ -1169,9 +1169,14 @@ def generate_report(
     environment_report: Optional[List[str]] = None,
     pipeline_health_report: Optional[List[str]] = None,
     cross_project_report: Optional[List[str]] = None,
+    growth_report: Optional[List[str]] = None,
 ) -> str:
     """1画面レポートを生成する。"""
     lines = ["# Environment Audit Report", ""]
+
+    # Growth Report (NFD) — 最上部に表示
+    if growth_report:
+        lines.extend(growth_report)
 
     # セクション順序: Environment Fitness → Constitutional → Coherence → Telemetry → Pipeline Health
     if environment_report:
@@ -1404,7 +1409,7 @@ def _load_global_retro(gstack_dir: Path = None) -> Optional[Dict[str, Any]]:
         return None
 
 
-def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coherence_score: bool = False, telemetry_score: bool = False, constitutional_score: bool = False, pipeline_health: bool = False, cross_project: bool = False) -> str:
+def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coherence_score: bool = False, telemetry_score: bool = False, constitutional_score: bool = False, pipeline_health: bool = False, cross_project: bool = False, growth: bool = False) -> str:
     """Audit を実行してレポートを返す。"""
     proj = Path(project_dir) if project_dir else Path.cwd()
     artifacts = find_artifacts(proj)
@@ -1544,6 +1549,11 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coh
         environment_report=environment_report_lines,
     )
 
+    # ── NFD Growth Report ──────────────────────────────────────
+    growth_report_lines = None
+    if growth:
+        growth_report_lines = _build_growth_report(proj)
+
     return generate_report(
         artifacts, violations, usage, duplicates, advisories,
         quality_baselines, project_dir=proj,
@@ -1557,7 +1567,97 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coh
         environment_report=environment_report_lines,
         pipeline_health_report=pipeline_health_report_lines,
         cross_project_report=cross_project_report_lines,
+        growth_report=growth_report_lines,
     )
+
+
+def _build_growth_report(proj: Path) -> List[str]:
+    """NFD Growth Report セクションを生成する。"""
+    lines = ["## 🌱 Growth Report (NFD)", ""]
+    project_name = proj.resolve().name
+    try:
+        _scripts_lib = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "lib"
+        if str(_scripts_lib) not in sys.path:
+            sys.path.insert(0, str(_scripts_lib))
+
+        from growth_engine import read_cache, detect_phase, compute_phase_progress, update_cache, PHASE_DISPLAY_NAMES, Phase
+        from growth_journal import query_crystallizations, count_crystallized_rules
+        from growth_narrative import compute_profile, generate_story
+
+        # テレメトリからフェーズ判定
+        from telemetry_query import query_sessions, query_corrections
+        sessions = query_sessions(project=project_name)
+        corrections = query_corrections(project=project_name)
+        crystallized = count_crystallized_rules(project=project_name)
+        sessions_count = len(sessions) if sessions else 0
+        corrections_count = len(corrections) if corrections else 0
+
+        phase = detect_phase(sessions_count, corrections_count, crystallized, 0.0)
+        progress = compute_phase_progress(phase, sessions_count, corrections_count, crystallized, 0.0)
+        names = PHASE_DISPLAY_NAMES[phase]
+
+        # キャッシュ更新
+        update_cache(project_name, phase, progress, {
+            "sessions_count": sessions_count,
+            "crystallizations_count": crystallized,
+        })
+
+        progress_pct = int(progress * 100)
+        bar_filled = int(progress * 20)
+        bar = "█" * bar_filled + "░" * (20 - bar_filled)
+
+        lines.append(f"**Phase:** {names['en']} ({names['ja']})")
+        lines.append(f"**Progress:** [{bar}] {progress_pct}%")
+        lines.append(f"**Sessions:** {sessions_count} | **Corrections:** {corrections_count} | **Crystallizations:** {crystallized}")
+        lines.append("")
+
+        # 結晶化ログ
+        events = query_crystallizations(project=project_name)
+        if events:
+            lines.append("### Crystallization Log")
+            for ev in events[-10:]:  # 最新10件
+                ts = ev.get("ts", "")[:10]
+                targets = ", ".join(ev.get("targets", [])[:3]) or "(no targets)"
+                lines.append(f"- {ts}: {targets}")
+            lines.append("")
+
+        # Environment Profile
+        profile = compute_profile(project_name)
+        if profile.strengths or profile.personality_traits:
+            lines.append("### Environment Profile")
+            if profile.strengths:
+                lines.append(f"**Strengths:** {', '.join(profile.strengths)}")
+            if profile.personality_traits:
+                lines.append(f"**Traits:** {', '.join(profile.personality_traits)}")
+            lines.append(f"**Style:** {profile.crystallization_style}")
+            lines.append("")
+
+        # Growth Story
+        story = generate_story(project_name)
+        if story and "まだ" not in story:
+            lines.append("### Growth Story")
+            lines.append(story)
+            lines.append("")
+
+        # Next Milestone
+        lines.append("### Next Milestone")
+        if phase == Phase.MATURE_OPERATION:
+            lines.append("最終フェーズに到達しています。")
+        else:
+            next_phases = {
+                Phase.BOOTSTRAP: ("Initial Nurturing", "sessions >= 10"),
+                Phase.INITIAL_NURTURING: ("Structured Nurturing", "sessions >= 50, corrections >= 10, crystallized_rules >= 3"),
+                Phase.STRUCTURED_NURTURING: ("Mature Operation", "sessions > 200, crystallized_rules >= 10, coherence >= 0.7"),
+            }
+            next_name, next_req = next_phases.get(phase, ("?", "?"))
+            lines.append(f"Next phase: **{next_name}** — requires: {next_req}")
+        lines.append("")
+
+    except Exception as e:
+        lines.append(f"Growth Report の生成に失敗しました: {e}")
+        lines.append("")
+
+    return lines
 
 
 if __name__ == "__main__":
@@ -1571,10 +1671,11 @@ if __name__ == "__main__":
     _parser.add_argument("--telemetry-score", action="store_true", help="Telemetry Score セクションを表示")
     _parser.add_argument("--constitutional-score", action="store_true", help="Constitutional Score セクションを表示")
     _parser.add_argument("--pipeline-health", action="store_true", help="Pipeline Health セクションを表示")
+    _parser.add_argument("--growth", action="store_true", help="NFD Growth Report セクションを表示")
     _args = _parser.parse_args()
     if _args.memory_context:
         proj = Path(_args.project) if _args.project else Path.cwd()
         ctx = build_memory_verification_context(proj)
         print(json.dumps(ctx, ensure_ascii=False, indent=2))
     else:
-        print(run_audit(_args.project, skip_rescore=_args.skip_rescore, coherence_score=_args.coherence_score, telemetry_score=_args.telemetry_score, constitutional_score=_args.constitutional_score, pipeline_health=_args.pipeline_health))
+        print(run_audit(_args.project, skip_rescore=_args.skip_rescore, coherence_score=_args.coherence_score, telemetry_score=_args.telemetry_score, constitutional_score=_args.constitutional_score, pipeline_health=_args.pipeline_health, growth=_args.growth))
