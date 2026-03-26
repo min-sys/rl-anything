@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from lib.frontmatter import count_content_lines
+from frontmatter import count_content_lines
 
 MAX_SKILL_LINES = 500
 MAX_RULE_LINES = 3

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.15.1] - 2026-03-26
+
+### Fixed
+- **discover**: evolve→discover 呼び出し時の `No module named 'lib'` エラーを修正 — line_limit.py のインポートスタイルをコードベース多数派パターンに統一
+
 ## [1.15.0] - 2026-03-26
 
 ### Added
