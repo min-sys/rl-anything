@@ -90,4 +90,5 @@ claude plugin validate
 
 ## Specification
 - 現在の仕様全体像: [SPEC.md](SPEC.md)
+- 詳細仕様: [spec/](spec/)
 - 設計判断の記録: [docs/decisions/](docs/decisions/)

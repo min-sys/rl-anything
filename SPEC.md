@@ -1,6 +1,6 @@
 # SPEC.md — rl-anything
 
-Last updated: 2026-03-26 by /spec-keeper update (recovery)
+Last updated: 2026-03-26 by /spec-keeper update (L2 promotion)
 
 ## Overview
 
@@ -31,82 +31,10 @@ Claude Code Plugin。スキル/ルールの **自律進化パイプライン**�
 | セッション管理 | handover | 作業状態を構造化ノートに書き出し（Deploy State 構造化記録）、SPEC.md 同期、別セッションへ引き継ぎ |
 | **成長可視化 (NFD)** | audit --growth | NFD 論文ベースの Spiral Development Model — 4フェーズ自動判定 + 環境プロファイル + 成長ストーリー |
 
-### コンポーネント構成
+Observe hooks (12個, LLMコストゼロ) → テレメトリ JSONL → evolve/discover/reflect/audit → remediation → 自動改善。
+スキル20個、共通ロジック30モジュール、適応度関数8個組み込み。
 
-```
-hooks/                  ← Observe 層（12個、LLMコストゼロ）[ADR-002]
-  common.py             ← PROMPT_CATEGORIES, classify_prompt, load_user_config
-  observe.py            ← usage/errors/corrections 記録
-  correction_detect.py  ← corrections 自動検出
-  subagent_observe.py   ← subagents.jsonl 記録
-  instructions_loaded.py← sessions.jsonl [ADR-015] + Growth greeting（LLMコストゼロ）
-  stop_failure.py       ← API エラー記録
-  save_state.py         ← Compaction 前の作業コンテキスト保存 [ADR-013]
-  restore_state.py      ← セッション開始時の状態復元
-  session_summary.py    ← セッションサマリー記録 + auto_trigger ゲート
-  suggest_subagent_delegation.py ← subagent 委譲提案
-  workflow_context.py   ← ワークフローコンテキスト記録
-  file_changed.py       ← FileChanged hook（CC v2.1.83）CLAUDE.md/SKILL.md/rules 変更検知
-
-skills/                 ← スキル定義（20個）
-  evolve/               ← 3ステージ自律進化パイプライン
-  discover/             ← パターン検出 + スキル候補生成
-  reflect/              ← 修正フィードバック反映
-  audit/                ← 環境健康診断
-  optimize/             ← 直接パッチ最適化
-  agent-brushup/        ← エージェント品質診断
-  second-opinion/       ← Claude Agent セカンドオピニオン（codex 代替）
-  handover/             ← セッション引き継ぎ + Deploy State 構造化 + SPEC.md 同期 + PreCompact 自動提案
-
-scripts/lib/            ← 共通ロジック（31 モジュール）
-  telemetry_query.py    ← DuckDB 共通クエリ層
-  layer_diagnose.py     ← 4レイヤー診断
-  remediation.py        ← confidence-based 問題分類 + 修正 + FP排除 + 原則ベース昇格
-  regression_gate.py    ← 共通 regression gate
-  skill_triage.py       ← スキルライフサイクル 5択判定
-  pitfall_manager.py    ← pitfall 品質ゲート + ライフサイクル
-  verification_catalog.py ← 検証知見カタログ
-  pipeline_reflector.py ← Self-Evolution コアモジュール
-  trigger_engine.py     ← Auto-evolve trigger engine + FileChanged 評価 + userConfig マージ
-  agent_quality.py      ← エージェント品質診断
-  critical_instruction_extractor.py ← スキル指示の遵守保証（抽出+リフレーズ+違反検出）
-  quality_engine.py     ← Skill Quality 2.0（混乱度測定+パターン推奨+スコアボード）
-  instruction_patterns.py ← スキル内7パターン自動検出+context効率分析
-  semantic_detector.py  ← LLM セマンティック検証（corrections偽陽性除去）
-  growth_engine.py      ← NFD Growth Engine（Phase 4段階判定 + 進捗率 + PJ別キャッシュ）
-  growth_journal.py     ← 結晶化イベント記録・照会 + git log backfill
-  growth_narrative.py   ← 環境プロファイル（性格特性5種）+ 成長ストーリー生成
-
-scripts/rl/fitness/     ← 適応度関数（8個組み込み + config.py で閾値集約）
-  config.py             ← 全モジュール共有閾値 + BASE_WEIGHTS
-  coherence.py          ← 環境 Coherence Score（4軸）
-  telemetry.py          ← テレメトリ駆動 Score（3軸）
-  constitutional.py     ← 原則ベース LLM Judge + /cso security 軸
-  chaos.py              ← 仮想除去ロバストネス
-  environment.py        ← 動的重み統合（_normalize_weights + skill_quality 4軸目）
-  skill_quality.py      ← ルールベース構造品質
-  principles.py         ← PJ固有原則抽出 + キャッシュ
-  plugin.py             ← プラグイン統合 fitness
-```
-
-### データフロー
-
-```
-ユーザー操作
-  → Observe hooks (自動記録、LLMコストゼロ)
-    → usage.jsonl / errors.jsonl / corrections.jsonl / sessions.jsonl
-      → discover (パターン検出)
-      → evolve (Diagnose → Compile → Housekeeping)
-        → remediation (問題分類 → 修正 → 検証)
-      → reflect (corrections → rules/CLAUDE.md 反映)
-      → audit (環境健康診断)
-      → optimize (直接パッチ → regression gate)
-      → instruction compliance (corrections × critical指示 → 違反検出 → pitfall学習)
-      → growth_engine (Phase判定 → growth-state.json キャッシュ)
-        → growth_journal (結晶化イベント記録)
-        → growth_narrative (環境プロファイル + 成長ストーリー)
-  → InstructionsLoaded hook (growth-state.json → Growth greeting stdout)
-```
+コンポーネント構成・データフローの詳細は [spec/architecture.md](spec/architecture.md) を参照。
 
 ## API / Interface Spec
 
