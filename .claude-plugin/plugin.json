@@ -1,6 +1,6 @@
 {
   "name": "rl-anything",
-  "version": "1.15.1",
+  "version": "1.15.2",
   "description": "スキル/ルールの直接パッチ最適化と自律進化ループ",
   "author": {
     "name": "min-sys"
@@ -44,6 +44,12 @@
       "title": "Language",
       "type": "string",
       "description": "Language for trigger messages: ja or en (default: ja)",
+      "sensitive": false
+    },
+    "growth_display": {
+      "title": "Growth Display",
+      "type": "boolean",
+      "description": "Show environment growth phase on session start (default: true)",
       "sensitive": false
     }
   }

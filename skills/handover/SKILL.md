@@ -21,7 +21,7 @@ description: |
 ### Step 1: データ収集
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/handover/scripts/handover.py" --project-dir "${CLAUDE_PROJECT_DIR:-.}"
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/handover/scripts/handover.py" --project-dir "$(pwd)"
 ```
 
 返却された JSON を変数として保持する。
@@ -68,10 +68,10 @@ corrections: {corrections}
 
 ### Step 3: ファイル書き出し
 
-生成したノートを以下のパスに Write で書き出す:
+生成したノートを以下のパスに Write で書き出す（`project_dir` は Step 1 の JSON 出力の `project_dir` フィールド）:
 
 ```
-{CLAUDE_PROJECT_DIR}/.claude/handovers/YYYY-MM-DD_HHmm.md
+{project_dir}/.claude/handovers/YYYY-MM-DD_HHmm.md
 ```
 
 ディレクトリが存在しない場合は作成する（`mkdir -p`）。
