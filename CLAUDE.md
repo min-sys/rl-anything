@@ -30,6 +30,7 @@
 | `agent-brushup` | エージェント定義の品質診断・改善提案・upstream監視（`scripts/lib/agent_quality.py`） |
 | `critical-instruction-compliance` | スキル指示の遵守保証サイクル — critical行抽出+calm/directリフレーズ+違反検出+pitfall自動学習（`scripts/lib/critical_instruction_extractor.py`） |
 | `second-opinion` エージェント | cold-read セカンドオピニオン（startup/builder/general 3モード）。codex 不要で Agent ツールのみで動作 |
+| `growth-level` | env_score (0.0-1.0) → Lv.1-10 + 日英称号マッピング。audit がキャッシュに保存、greeting で表示（`scripts/lib/growth_level.py`） |
 
 ## クイックスタート
 

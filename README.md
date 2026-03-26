@@ -56,7 +56,7 @@ rl-anything は **3つの独立した柱** で構成される。
 | エージェント管理 | エージェント定義の品質診断・改善提案 | `/rl-anything:agent-brushup` |
 | セカンドオピニオン | 独立した cold-read セカンドオピニオン | `/rl-anything:second-opinion` |
 | 仕様管理 | SPEC.md + ADR の管理、L1/L2 自動昇格 | `/rl-anything:spec-keeper` |
-| 成長可視化 (NFD) | 環境の成熟度を4フェーズで自動判定 + 成長ストーリー | `/rl-anything:audit --growth` |
+| 成長可視化 (NFD) | Lv.1-10 レベルシステム + 4フェーズ自動判定 + 5 traits + 成長ストーリー | `/rl-anything:audit --growth` |
 
 ## やりたいこと別ガイド
 
