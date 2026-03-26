@@ -31,8 +31,9 @@ class TestComputeProfile:
         ]
         with mock.patch("growth_narrative._query_skill_counts", return_value=usage_data):
             with mock.patch("growth_narrative._query_corrections_stats", return_value={}):
-                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.0, "count": 0}):
-                    profile = compute_profile("test-proj")
+                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.0, "count": 0, "crystallized": 0}):
+                    with mock.patch("growth_narrative._query_commit_frequency", return_value=0.0):
+                        profile = compute_profile("test-proj")
 
         assert len(profile.strengths) <= 3
         assert "commit" in profile.strengths
@@ -42,8 +43,9 @@ class TestComputeProfile:
         stats = {"total": 20, "verify_count": 8, "refactor_count": 1}
         with mock.patch("growth_narrative._query_skill_counts", return_value=[]):
             with mock.patch("growth_narrative._query_corrections_stats", return_value=stats):
-                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.0, "count": 0}):
-                    profile = compute_profile("test-proj")
+                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.0, "count": 0, "crystallized": 0}):
+                    with mock.patch("growth_narrative._query_commit_frequency", return_value=0.0):
+                        profile = compute_profile("test-proj")
 
         assert "careful" in profile.personality_traits
 
@@ -52,8 +54,9 @@ class TestComputeProfile:
         stats = {"total": 20, "verify_count": 1, "refactor_count": 6}
         with mock.patch("growth_narrative._query_skill_counts", return_value=[]):
             with mock.patch("growth_narrative._query_corrections_stats", return_value=stats):
-                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.0, "count": 0}):
-                    profile = compute_profile("test-proj")
+                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.0, "count": 0, "crystallized": 0}):
+                    with mock.patch("growth_narrative._query_commit_frequency", return_value=0.0):
+                        profile = compute_profile("test-proj")
 
         assert "organizer" in profile.personality_traits
 
@@ -61,8 +64,9 @@ class TestComputeProfile:
         """テレメトリ不足 → 空プロファイル。"""
         with mock.patch("growth_narrative._query_skill_counts", return_value=[]):
             with mock.patch("growth_narrative._query_corrections_stats", return_value={}):
-                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.0, "count": 0}):
-                    profile = compute_profile("empty-proj")
+                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.0, "count": 0, "crystallized": 0}):
+                    with mock.patch("growth_narrative._query_commit_frequency", return_value=0.0):
+                        profile = compute_profile("empty-proj")
 
         assert profile.strengths == []
         assert profile.personality_traits == []
@@ -72,10 +76,31 @@ class TestComputeProfile:
         """結晶化効率 η > 0.5 → correction-driven。"""
         with mock.patch("growth_narrative._query_skill_counts", return_value=[]):
             with mock.patch("growth_narrative._query_corrections_stats", return_value={"total": 10}):
-                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.6, "count": 5}):
-                    profile = compute_profile("proj")
+                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.6, "count": 5, "crystallized": 6}):
+                    with mock.patch("growth_narrative._query_commit_frequency", return_value=0.0):
+                        profile = compute_profile("proj")
 
         assert profile.crystallization_style == "correction-driven"
+
+    def test_fast_shipper_trait(self):
+        """commit/session > 2.0 → fast_shipper。"""
+        with mock.patch("growth_narrative._query_skill_counts", return_value=[]):
+            with mock.patch("growth_narrative._query_corrections_stats", return_value={}):
+                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.0, "count": 0, "crystallized": 0}):
+                    with mock.patch("growth_narrative._query_commit_frequency", return_value=2.5):
+                        profile = compute_profile("proj")
+
+        assert "fast_shipper" in profile.personality_traits
+
+    def test_fast_shipper_not_triggered_below_threshold(self):
+        """commit/session <= 2.0 → fast_shipper なし。"""
+        with mock.patch("growth_narrative._query_skill_counts", return_value=[]):
+            with mock.patch("growth_narrative._query_corrections_stats", return_value={}):
+                with mock.patch("growth_narrative._query_crystallization_stats", return_value={"eta": 0.0, "count": 0, "crystallized": 0}):
+                    with mock.patch("growth_narrative._query_commit_frequency", return_value=1.5):
+                        profile = compute_profile("proj")
+
+        assert "fast_shipper" not in profile.personality_traits
 
 
 # ── generate_story ──────────────────────────────────────────────

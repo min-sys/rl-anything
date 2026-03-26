@@ -52,6 +52,9 @@ def _check_explorer(skill_counts: list) -> bool:
     return len(skill_counts) > 10
 
 
+FAST_SHIPPER_THRESHOLD = 2.0  # commits per session average
+
+
 TRAIT_DEFINITIONS: Dict[str, Dict[str, Any]] = {
     "careful": {
         "name_en": "Careful",
@@ -72,6 +75,11 @@ TRAIT_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "name_en": "Explorer",
         "name_ja": "探検家",
         "check": "skills",
+    },
+    "fast_shipper": {
+        "name_en": "Fast Shipper",
+        "name_ja": "速攻派",
+        "check": "workflows",
     },
 }
 
@@ -111,16 +119,19 @@ def _query_corrections_stats(project: str) -> dict:
 
 
 def _query_crystallization_stats(project: str) -> dict:
-    """結晶化統計を取得。"""
+    """結晶化統計を取得。η = crystallized_rules / total_corrections (0.0-1.0)。"""
     try:
         from growth_journal import query_crystallizations, count_crystallized_rules
+        from telemetry_query import query_corrections
+
         events = query_crystallizations(project=project)
-        count = count_crystallized_rules(project=project)
-        # η = crystallization_events / total (簡易)
-        eta = len(events) / max(count, 1) if events else 0.0
-        return {"eta": eta, "count": len(events)}
+        crystallized = count_crystallized_rules(project=project)
+        corrections = query_corrections(project=project)
+        total_corrections = len(corrections) if corrections else 0
+        eta = crystallized / max(total_corrections, 1)
+        return {"eta": eta, "count": len(events), "crystallized": crystallized}
     except Exception:
-        return {"eta": 0.0, "count": 0}
+        return {"eta": 0.0, "count": 0, "crystallized": 0}
 
 
 def _get_crystallization_events(project: str) -> List[Dict[str, Any]]:
@@ -130,6 +141,25 @@ def _get_crystallization_events(project: str) -> List[Dict[str, Any]]:
         return query_crystallizations(project=project)
     except Exception:
         return []
+
+
+def _query_commit_frequency(project: str) -> float:
+    """workflows.jsonl から session あたり commit スキル使用頻度を算出。"""
+    try:
+        from telemetry_query import query_workflows, query_sessions
+
+        workflows = query_workflows(project=project)
+        sessions = query_sessions(project=project)
+        if not sessions:
+            return 0.0
+
+        commit_count = sum(
+            1 for w in (workflows or [])
+            if w.get("skill_name") == "commit"
+        )
+        return commit_count / len(sessions)
+    except Exception:
+        return 0.0
 
 
 # ── プロファイル計算 ────────────────────────────────────────────
@@ -159,6 +189,8 @@ def compute_profile(project: str) -> EnvironmentProfile:
         traits.append("feedbacker")
     if _check_explorer(skill_counts):
         traits.append("explorer")
+    if _query_commit_frequency(project) > FAST_SHIPPER_THRESHOLD:
+        traits.append("fast_shipper")
     profile.personality_traits = traits
 
     # crystallization style
