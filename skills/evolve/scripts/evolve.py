@@ -753,10 +753,14 @@ def run_evolve(
 
 
 def _emit_growth_crystallization(result: Dict[str, Any], project_dir: Optional[str]) -> None:
-    """evolve 完了時に結晶化イベントを記録し、growth キャッシュを更新する。"""
+    """evolve 完了時に結晶化イベントを journal に記録する。
+
+    キャッシュ (growth-state) は更新しない — audit が唯一の権威。
+    journal の phase はキャッシュからフォールバック取得する。
+    """
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "lib"))
-    from growth_journal import emit_crystallization, count_crystallized_rules
-    from growth_engine import detect_phase, compute_phase_progress, update_cache, Phase
+    from growth_journal import emit_crystallization
+    from growth_engine import read_cache
 
     project_name = Path(project_dir).name if project_dir else "unknown"
 
@@ -776,42 +780,16 @@ def _emit_growth_crystallization(result: Dict[str, Any], project_dir: Optional[s
                 targets.append(target)
                 evidence_count += 1
 
-    # targets がなくても evolve 実行自体を記録
-    from growth_engine import detect_phase as _dp
-    sessions_count = result.get("sessions_since_last", 0)
-    # 簡易フェーズ判定（キャッシュ更新用）
-    crystallized = count_crystallized_rules(project=project_name)
-    phase = detect_phase(
-        sessions_count=sessions_count,
-        corrections_count=remediation_data.get("total_issues", 0),
-        crystallized_rules=crystallized,
-        coherence_score=0.0,  # evolve 時点では coherence を再計算しない
-    )
+    # phase をキャッシュからフォールバック取得（audit が正確な値を持つ）
+    cache = read_cache(project_name)
+    phase_str = cache.get("phase", "unknown") if cache else "unknown"
 
     emit_crystallization(
         project=project_name,
         targets=list(set(targets)),
         evidence_count=evidence_count,
-        phase=phase.value,
+        phase=phase_str,
         source="evolve",
-    )
-
-    # growth キャッシュ更新
-    progress = compute_phase_progress(
-        phase,
-        sessions_count=sessions_count,
-        corrections_count=remediation_data.get("total_issues", 0),
-        crystallized_rules=crystallized,
-        coherence_score=0.0,
-    )
-    update_cache(
-        project=project_name,
-        phase=phase,
-        progress=progress,
-        extra={
-            "sessions_count": sessions_count,
-            "crystallizations_count": crystallized,
-        },
     )
 
 
