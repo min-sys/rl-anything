@@ -22,7 +22,7 @@ hooks/                  ← Observe 層（12個、LLMコストゼロ）[ADR-002]
   workflow_context.py   ← ワークフローコンテキスト記録
   file_changed.py       ← FileChanged hook（CC v2.1.83）CLAUDE.md/SKILL.md/rules 変更検知
 
-skills/                 ← スキル定義（20個）
+skills/                 ← スキル定義（21個）
   evolve/               ← 3ステージ自律進化パイプライン
   discover/             ← パターン検出 + スキル候補生成
   reflect/              ← 修正フィードバック反映

@@ -29,10 +29,11 @@ Claude Code Plugin。スキル/ルールの **自律進化パイプライン**�
 | エージェント管理 | agent-brushup | エージェント定義の品質診断・改善提案・upstream 監視 |
 | セカンドオピニオン | second-opinion | Claude Agent による cold-read 独立見解（codex 代替、3モード） |
 | セッション管理 | handover | 作業状態を構造化ノートに書き出し（Deploy State 構造化記録）、SPEC.md 同期、別セッションへ引き継ぎ |
+| 仕様管理 | spec-keeper | SPEC.md + ADR の管理、Progressive Disclosure L1/L2 自動昇格 |
 | **成長可視化 (NFD)** | audit --growth | NFD 論文ベースの Spiral Development Model — 4フェーズ自動判定 + 環境プロファイル + 成長ストーリー |
 
 Observe hooks (12個, LLMコストゼロ) → テレメトリ JSONL → evolve/discover/reflect/audit → remediation → 自動改善。
-スキル20個、共通ロジック30モジュール、適応度関数8個組み込み。
+スキル21個、共通ロジック30モジュール、適応度関数8個組み込み。
 
 コンポーネント構成・データフローの詳細は [spec/architecture.md](spec/architecture.md) を参照。
 
@@ -55,6 +56,7 @@ Observe hooks (12個, LLMコストゼロ) → テレメトリ JSONL → evolve/d
 | `/rl-anything:second-opinion` | Claude Agent セカンドオピニオン（startup/builder/general） | low |
 | `/rl-anything:handover` | セッション作業状態の構造化ノート書き出し | low |
 | `/rl-anything:version` | バージョン・ステータス表示 | low |
+| `/rl-anything:spec-keeper` | SPEC.md + ADR 管理（init/update/adr/status） | medium |
 | `/rl-anything:feedback` | フィードバック送信 | low |
 
 ### 適応度関数

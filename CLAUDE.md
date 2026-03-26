@@ -11,6 +11,7 @@
 | 直接パッチ最適化 | optimize, rl-loop, generate-fitness, evolve-fitness | corrections/context → LLM 1パスパッチ → regression gate（`scripts/lib/regression_gate.py` に共通化） |
 | エージェント管理 | agent-brushup | エージェント定義の品質診断・改善提案・新規作成・削除候補 |
 | セカンドオピニオン | second-opinion | Claude Agent による独立した cold-read セカンドオピニオン（codex 代替） |
+| 仕様管理 | spec-keeper | SPEC.md + ADR の管理、Progressive Disclosure L1/L2 自動昇格 |
 | ユーティリティ | feedback, update, version, backfill | フィードバック・更新・バージョン確認・初期セットアップ |
 
 ## コンポーネント
@@ -50,6 +51,10 @@
 
 # セカンドオピニオン（codex代替）
 /rl-anything:second-opinion
+
+# SPEC.md の初期化・更新
+/rl-anything:spec-keeper init
+/rl-anything:spec-keeper update
 ```
 
 ## 適応度関数
