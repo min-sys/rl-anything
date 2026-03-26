@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.17.1] - 2026-03-26
 
 ### Fixed
 - **ルール行数カウント誤検出**: `count_content_lines()` が frontmatter 直後の空行をコンテンツ行としてカウントしていた問題を修正 (#47)
