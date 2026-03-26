@@ -1,6 +1,6 @@
 # SPEC.md — rl-anything
 
-Last updated: 2026-03-26 by /spec-keeper update
+Last updated: 2026-03-26 by /spec-keeper update (v1.18.0)
 
 ## Overview
 
@@ -33,7 +33,7 @@ Claude Code Plugin。スキル/ルールの **自律進化パイプライン**�
 | **成長可視化 (NFD)** | audit --growth | NFD 論文ベースの Spiral Development Model — 4フェーズ自動判定 + Lv.1-10 レベルシステム + 環境プロファイル（5 traits）+ 成長ストーリー |
 
 Observe hooks (12個, LLMコストゼロ) → テレメトリ JSONL → evolve/discover/reflect/audit → remediation → 自動改善。
-スキル21個、共通ロジック33モジュール、適応度関数8個組み込み。
+スキル21個、共通ロジック31モジュール、適応度関数8個組み込み。
 
 コンポーネント構成・データフローの詳細は [spec/architecture.md](spec/architecture.md) を参照。
 
