@@ -702,6 +702,23 @@ RECOMMENDED_ARTIFACTS = [
         "description": "前回の続き判定 — handover/ロードマップ言及時に引き継ぎファイルとSPEC.mdを自動確認",
         "hook_path": None,
     },
+    # --- 並行開発パターン ---
+    {
+        "id": "worktree-parallel-work",
+        "type": "rule+hook",
+        "path": Path.home() / ".claude" / "rules" / "worktree-parallel-work.md",
+        "description": "worktree 並行開発 — 複数ブランチの同時作業時に git worktree を使い、stash+checkout 事故を防止",
+        "hook_path": Path.home() / ".claude" / "hooks" / "check-worktree.py",
+        "hook_description": "PreToolUse hook: git stash+checkout パターンを検出し worktree を提案",
+    },
+    {
+        "id": "deploy-lock",
+        "type": "hook",
+        "path": None,
+        "description": "デプロイ排他制御 — 同一環境への並行デプロイを lock ファイルで防止",
+        "hook_path": Path.home() / ".claude" / "hooks" / "deploy-lock.py",
+        "hook_description": "PreToolUse hook: deploy コマンド実行時に lock ファイルで排他制御",
+    },
 ]
 
 

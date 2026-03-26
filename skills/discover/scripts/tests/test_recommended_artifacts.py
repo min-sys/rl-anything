@@ -84,6 +84,64 @@ def test_builtin_replaceable_and_sleep_polling_registered():
     assert "sleep_polling" in rec_ids
 
 
+def test_worktree_parallel_work_registered():
+    """worktree-parallel-work エントリが RECOMMENDED_ARTIFACTS に登録されている。"""
+    ids = {art["id"] for art in RECOMMENDED_ARTIFACTS}
+    assert "worktree-parallel-work" in ids
+    art = next(a for a in RECOMMENDED_ARTIFACTS if a["id"] == "worktree-parallel-work")
+    assert art["type"] == "rule+hook"
+    assert art["path"] is not None  # rule path あり
+    assert art["hook_path"] is not None  # hook path あり
+
+
+def test_deploy_lock_registered():
+    """deploy-lock エントリが RECOMMENDED_ARTIFACTS に登録されている。"""
+    ids = {art["id"] for art in RECOMMENDED_ARTIFACTS}
+    assert "deploy-lock" in ids
+    art = next(a for a in RECOMMENDED_ARTIFACTS if a["id"] == "deploy-lock")
+    assert art["type"] == "hook"
+    assert art["path"] is None  # hook-only
+    assert art["hook_path"] is not None
+
+
+def test_worktree_missing_when_no_rule(tmp_path):
+    """worktree rule が未導入の場合、missing に含まれる。"""
+    hook = tmp_path / "check-worktree.py"
+    hook.write_text("# stash detection hook")
+    patched = [
+        {
+            "id": "worktree-parallel-work",
+            "type": "rule+hook",
+            "path": tmp_path / "nonexistent.md",
+            "description": "test",
+            "hook_path": hook,
+        },
+    ]
+    with patch("discover.RECOMMENDED_ARTIFACTS", patched):
+        result = detect_recommended_artifacts()
+    assert len(result) == 1
+    assert result[0]["id"] == "worktree-parallel-work"
+    assert any(m["type"] == "rule" for m in result[0]["missing"])
+
+
+def test_deploy_lock_missing_when_no_hook(tmp_path):
+    """deploy-lock hook が未導入の場合、missing に含まれる。"""
+    patched = [
+        {
+            "id": "deploy-lock",
+            "type": "hook",
+            "path": None,
+            "description": "test",
+            "hook_path": tmp_path / "nonexistent.py",
+        },
+    ]
+    with patch("discover.RECOMMENDED_ARTIFACTS", patched):
+        result = detect_recommended_artifacts()
+    assert len(result) == 1
+    assert result[0]["id"] == "deploy-lock"
+    assert any(m["type"] == "hook" for m in result[0]["missing"])
+
+
 def test_path_none_artifact_handled_in_detect_recommended(tmp_path):
     """path=None の artifact（sleep-polling-guard 等）でエラーにならない。"""
     patched = [
