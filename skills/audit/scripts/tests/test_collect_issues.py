@@ -203,6 +203,92 @@ def test_rule_with_frontmatter_violation(project_dir):
     assert rule_violations[0]["detail"]["limit"] == 5
 
 
+def test_rule_with_frontmatter_and_blank_line_no_violation(project_dir):
+    """frontmatter + 空行 + コンテンツ5行 → 空行除外で5行、violation にならない (#47)。"""
+    rules_dir = project_dir / ".claude" / "rules"
+    rule_file = rules_dir / "blank-rule.md"
+    rule_file.write_text('---\npaths:\n  - "**/*.py"\n---\n\nLine 1\nLine 2\nLine 3\nLine 4\nLine 5')
+
+    with patch("audit.read_auto_memory", return_value=[]), \
+         patch("audit.find_artifacts", side_effect=_find_artifacts_local_only):
+        issues = collect_issues(project_dir)
+
+    rule_violations = [
+        i for i in issues
+        if i["type"] == "line_limit_violation" and "blank-rule.md" in i["file"]
+    ]
+    assert len(rule_violations) == 0
+
+
+def test_untagged_reference_excludes_claudemd_skills(project_dir):
+    """CLAUDE.md Skills セクションに記載のスキルは untagged_reference にならない (#47)。"""
+    from audit import detect_untagged_reference_candidates
+
+    # CLAUDE.md にスキル記載
+    claude_md = project_dir / "CLAUDE.md"
+    claude_md.write_text("# Project\n\n## Skills\n\n- `/my-skill` — does stuff\n")
+
+    # type 未設定、usage ゼロのスキル
+    skills_dir = project_dir / ".claude" / "skills" / "my-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text("# My Skill\nTrigger: my-skill\n使用タイミング: ...\n")
+
+    artifacts = _find_artifacts_local_only(project_dir)
+    usage = {}
+
+    with patch("audit.classify_artifact_origin", return_value="project"):
+        candidates = detect_untagged_reference_candidates(
+            artifacts, usage, project_dir=project_dir,
+        )
+
+    skill_names = [c["skill_name"] for c in candidates]
+    assert "my-skill" not in skill_names
+
+
+def test_untagged_reference_excludes_user_invocable_heuristic(project_dir):
+    """トリガーワードや使用タイミング記載のスキルは除外 (#47)。"""
+    from audit import detect_untagged_reference_candidates
+
+    skills_dir = project_dir / ".claude" / "skills" / "generate-docs"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text(
+        "# Generate Docs\nTrigger: generate-docs, ドキュメント生成\n使用タイミング: ドキュメント更新時\n"
+    )
+
+    artifacts = _find_artifacts_local_only(project_dir)
+    usage = {}
+
+    with patch("audit.classify_artifact_origin", return_value="project"):
+        candidates = detect_untagged_reference_candidates(
+            artifacts, usage, project_dir=project_dir,
+        )
+
+    skill_names = [c["skill_name"] for c in candidates]
+    assert "generate-docs" not in skill_names
+
+
+def test_untagged_reference_detects_actual_reference(project_dir):
+    """参照型スキルは引き続き検出される (#47)。"""
+    from audit import detect_untagged_reference_candidates
+
+    skills_dir = project_dir / ".claude" / "skills" / "design-guide"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text(
+        "# Design Guide\nThis is a reference guide for design system specifications.\n"
+    )
+
+    artifacts = _find_artifacts_local_only(project_dir)
+    usage = {}
+
+    with patch("audit.classify_artifact_origin", return_value="project"):
+        candidates = detect_untagged_reference_candidates(
+            artifacts, usage, project_dir=project_dir,
+        )
+
+    skill_names = [c["skill_name"] for c in candidates]
+    assert "design-guide" in skill_names
+
+
 def test_issue_format(project_dir):
     """各 issue が統一フォーマットを満たす。"""
     claude_md = project_dir / "CLAUDE.md"

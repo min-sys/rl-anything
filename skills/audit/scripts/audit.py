@@ -940,17 +940,53 @@ def build_gstack_analytics_section(
     return lines
 
 
+def _is_user_invocable_heuristic(content: str) -> bool:
+    """スキル内容からユーザー呼び出し型かどうかを推定する (#47)。
+
+    トリガーワード、使用タイミング等のアクション指標が
+    リファレンス指標を上回ればユーザー呼び出し型と判定。
+    """
+    lower = content.lower()
+    action_signals = [
+        "trigger:", "トリガー", "使用タイミング",
+        "steps", "手順", "実行", "execute",
+        "run ", "deploy", "create", "generate",
+    ]
+    reference_signals = [
+        "ガイド", "guide", "仕様", "specification",
+        "デザインシステム", "design system", "リファレンス", "reference",
+        "評価基準", "criteria", "ルールブック", "rulebook",
+        "type: reference",
+    ]
+    act_score = sum(1 for sig in action_signals if sig in lower)
+    ref_score = sum(1 for sig in reference_signals if sig in lower)
+    return act_score > ref_score
+
+
 def detect_untagged_reference_candidates(
     artifacts: Dict[str, List[Path]],
     usage: Dict[str, int],
+    *,
+    project_dir: Optional[Path] = None,
 ) -> List[Dict[str, Any]]:
     """ゼロ呼び出しだが reference 未設定のスキルを検出する。
 
     frontmatter に type フィールドがなく、usage もゼロのスキルを警告候補として返す。
-    プラグインスキルは除外（プラグイン側で管理すべきため）。
-    ユーザーに type: reference タグの付与を促すためのもの。
+    以下は除外:
+    - プラグインスキル（プラグイン側で管理すべきため）
+    - CLAUDE.md Skills セクションに記載されたスキル (#47)
+    - コンテンツのヒューリスティックでユーザー呼び出し型と判定されたスキル (#47)
     """
     from frontmatter import parse_frontmatter
+
+    # CLAUDE.md Skills セクションに記載のスキル名を収集
+    claudemd_skills: set = set()
+    if project_dir:
+        from skill_triggers import extract_skill_triggers
+
+        triggers = extract_skill_triggers(project_root=project_dir)
+        for entry in triggers:
+            claudemd_skills.add(entry["skill"])
 
     candidates = []
     for path in artifacts.get("skills", []):
@@ -959,13 +995,24 @@ def detect_untagged_reference_candidates(
             continue
         if skill_name in usage and usage[skill_name] > 0:
             continue
+        # CLAUDE.md に記載済みなら除外 (#47)
+        if skill_name in claudemd_skills:
+            continue
         # frontmatter に type がないスキルのみ
         fm = parse_frontmatter(path)
-        if not fm.get("type"):
-            candidates.append({
-                "skill_name": skill_name,
-                "file": str(path),
-            })
+        if fm.get("type"):
+            continue
+        # ヒューリスティックでユーザー呼び出し型なら除外 (#47)
+        try:
+            content = path.read_text(encoding="utf-8")
+            if _is_user_invocable_heuristic(content):
+                continue
+        except (OSError, UnicodeDecodeError):
+            pass
+        candidates.append({
+            "skill_name": skill_name,
+            "file": str(path),
+        })
     return candidates
 
 
@@ -1099,7 +1146,7 @@ def collect_issues(project_dir: Path) -> List[Dict[str, Any]]:
     try:
         usage_records = load_usage_data(project_root=project_dir)
         usage = aggregate_usage(usage_records, exclude_plugins=True)
-        untagged = detect_untagged_reference_candidates(artifacts, usage)
+        untagged = detect_untagged_reference_candidates(artifacts, usage, project_dir=project_dir)
         for candidate in untagged:
             issues.append({
                 "type": "untagged_reference_candidates",
@@ -1442,7 +1489,7 @@ def run_audit(project_dir: Optional[str] = None, skip_rescore: bool = False, coh
     gstack_analytics = build_gstack_analytics_section(usage_records)
 
     # Reference type 未設定警告
-    untagged = detect_untagged_reference_candidates(artifacts, usage)
+    untagged = detect_untagged_reference_candidates(artifacts, usage, project_dir=proj)
 
     # Hardcoded values 検出
     hardcoded_values = []

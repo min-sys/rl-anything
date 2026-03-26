@@ -40,6 +40,8 @@ def count_content_lines(content: str) -> int:
         after_close += 1
 
     body = content[after_close:]
+    # frontmatter 直後の空行を除外 (#47)
+    body = body.lstrip("\n")
     if not body or not body.strip():
         return 0
 

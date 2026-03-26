@@ -118,6 +118,24 @@ def test_count_content_lines_unclosed_frontmatter():
 
 
 def test_count_content_lines_blank_after_frontmatter():
-    """閉じ --- 後の空行を含めてカウント。"""
+    """閉じ --- 後の空行は除外してカウント (#47)。"""
     content = '---\npaths:\n  - "**/*.py"\n---\n\n# Rule Title\nLine 1'
+    assert count_content_lines(content) == 2
+
+
+def test_count_content_lines_multiple_blanks_after_frontmatter():
+    """閉じ --- 後の複数空行も全て除外 (#47)。"""
+    content = '---\nname: test\n---\n\n\n# Rule Title\nLine 1\nLine 2'
+    assert count_content_lines(content) == 3
+
+
+def test_count_content_lines_blank_within_content_preserved():
+    """コンテンツ内部の空行はカウントに含める (#47)。"""
+    content = '---\nname: test\n---\n# Rule Title\n\nLine 1'
+    assert count_content_lines(content) == 3
+
+
+def test_count_content_lines_no_frontmatter_blank_preserved():
+    """frontmatter なしの場合は空行もカウント。"""
+    content = "# Rule Title\n\nLine 1"
     assert count_content_lines(content) == 3
