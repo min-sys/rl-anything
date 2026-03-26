@@ -53,6 +53,10 @@ rl-anything は **3つの独立した柱** で構成される。
 | 自律進化 | 使用データからパターン検出→スキル生成→淘汰→進化 | `/rl-anything:evolve` |
 | フィードバック | ユーザーの修正（「いや、違う」等）を検出→ルールに反映 | `/rl-anything:reflect` |
 | 直接パッチ最適化 | corrections/context → LLM 1パスパッチ → regression gate | `/rl-anything:optimize` |
+| エージェント管理 | エージェント定義の品質診断・改善提案 | `/rl-anything:agent-brushup` |
+| セカンドオピニオン | 独立した cold-read セカンドオピニオン | `/rl-anything:second-opinion` |
+| 仕様管理 | SPEC.md + ADR の管理、L1/L2 自動昇格 | `/rl-anything:spec-keeper` |
+| 成長可視化 (NFD) | 環境の成熟度を4フェーズで自動判定 + 成長ストーリー | `/rl-anything:audit --growth` |
 
 ## やりたいこと別ガイド
 
@@ -66,39 +70,54 @@ rl-anything は **3つの独立した柱** で構成される。
 | プロジェクト固有の評価関数を作成 | `generate-fitness --ask` |
 | 過去セッションからデータ収集 | `backfill` |
 | 評価関数自体を改善 | `evolve-fitness` |
+| エージェント定義を診断・改善 | `agent-brushup` |
+| 独立したセカンドオピニオンを取得 | `second-opinion` |
+| SPEC.md を初期化・更新 | `spec-keeper init` / `spec-keeper update` |
+| セッションを引き継ぎ | `handover` |
+| 環境の成長レポート | `audit --growth` |
 
 > すべてのコマンドは `/rl-anything:` プレフィックス付きで呼び出す（例: `/rl-anything:evolve`）
 
-## スキル一覧（全13スキル）
+## スキル一覧（全21スキル）
 
 | スキル | 柱 | 説明 |
 |--------|-----|------|
-| `backfill` | 自律進化 | 過去セッション履歴からデータ収集＋分析 |
+| `evolve` | 自律進化 | 全フェーズ統合実行（日次運用） |
 | `discover` | 自律進化 | 観測データからパターン検出→スキル/ルール候補生成 |
 | `prune` | 自律進化 | 未使用・重複アーティファクトの淘汰（merge 統合対応） |
-| `evolve` | 自律進化 | 全フェーズ統合実行（日次運用） |
-| `audit` | 自律進化 | 全 skills/rules/memory の棚卸し＋健康診断 |
+| `audit` | 自律進化 | 全 skills/rules/memory の棚卸し＋健康診断＋Growth Report |
+| `backfill` | 自律進化 | 過去セッション履歴からデータ収集＋分析 |
 | `reflect` | フィードバック | corrections の修正フィードバックを CLAUDE.md/rules に反映 |
 | `optimize` | 直接パッチ最適化 | corrections/context ベースの LLM 1パスパッチ |
 | `rl-loop` | 直接パッチ最適化 | ベースライン→直接パッチ→評価→人間確認ループ |
 | `generate-fitness` | 直接パッチ最適化 | プロジェクト固有の評価関数を自動生成 |
 | `evolve-fitness` | 直接パッチ最適化 | accept/reject データから評価関数を改善 |
+| `evolve-skill` | 直接パッチ最適化 | 特定スキルに自己進化パターン組み込み |
+| `agent-brushup` | エージェント管理 | エージェント定義の品質診断・改善提案 |
+| `second-opinion` | セカンドオピニオン | Claude Agent による独立した cold-read セカンドオピニオン |
+| `spec-keeper` | 仕様管理 | SPEC.md + ADR 管理、Progressive Disclosure L1/L2 自動昇格 |
+| `handover` | セッション管理 | 作業状態を構造化ノートに書き出し、別セッションへ引き継ぎ |
+| `release-notes-review` | ユーティリティ | Claude Code リリースノート分析＋適用可能な新機能報告 |
 | `feedback` | ユーティリティ | GitHub Issue でフィードバック送信 |
 | `update` | ユーティリティ | プラグインを最新版に更新 |
 | `version` | ユーティリティ | バージョン・コミットハッシュを表示 |
 
-内部スキル（evolve から自動呼出し）: `reorganize`（split 検出のみ）。`enrich` は discover に統合済み（deprecated）
+内部スキル（evolve から自動呼出し）: `reorganize`（split 検出のみ）、`enrich`（discover に統合済み、deprecated）
 
 ## Hooks（データ収集）
 
-7つの hooks が LLM コストゼロでセッションライフサイクル全体をカバーする。
+12個の hooks が LLM コストゼロでセッションライフサイクル全体をカバーする。
 
 | Hook | イベント | 出力先 |
 |------|---------|--------|
 | `observe` | PostToolUse | `usage.jsonl`, `errors.jsonl` |
 | `correction_detect` | UserPromptSubmit | `corrections.jsonl` |
 | `subagent_observe` | SubagentStop | `subagents.jsonl` |
+| `instructions_loaded` | InstructionsLoaded | `sessions.jsonl` + Growth greeting |
 | `workflow_context` | PreToolUse | `$TMPDIR/rl-anything-workflow-*.json` |
+| `suggest_subagent_delegation` | PreToolUse | stdout（委譲提案） |
+| `file_changed` | FileChanged | stdout（audit 提案） |
+| `stop_failure` | Stop | `errors.jsonl`（API エラー） |
 | `save_state` | PreCompact | `checkpoint.json` |
 | `restore_state` | SessionStart | stdout |
 | `session_summary` | Stop | `sessions.jsonl`, `workflows.jsonl` |
@@ -267,12 +286,15 @@ rl-anything は **3つの独立した柱** で構成される。
 | 関数 | 説明 |
 |------|------|
 | `default` | LLM による汎用評価（明確性・完全性・構造・実用性） |
-| `skill_quality` | ルールベースの構造品質チェック |
+| `skill_quality` | ルールベースの構造品質チェック（+ CSO security 軸） |
 | `coherence` | 環境の構造的整合性（Coverage/Consistency/Completeness/Efficiency の4軸） |
 | `telemetry` | テレメトリ駆動の環境実効性（Utilization/Effectiveness/Implicit Reward の3軸） |
-| `environment` | coherence + telemetry をブレンドした統合環境スコア |
+| `constitutional` | 原則ベース LLM Judge 評価（PJ固有原則 × 4レイヤー） |
+| `chaos` | 仮想除去ロバストネス（Rules/Skills を仮想削除し Coherence ΔScore で SPOF 検出） |
+| `environment` | coherence + telemetry + constitutional の動的重み統合 |
+| `plugin` | プラグイン統合 fitness |
 
-`telemetry` / `environment` は `--fitness` フラグでは使用しない（プロジェクトパスが必要なため）。`audit --telemetry-score` / `audit --coherence-score --telemetry-score` で利用する。
+`telemetry` / `environment` / `constitutional` は `--fitness` フラグでは使用しない（プロジェクトパスが必要なため）。`audit --coherence-score --telemetry-score --constitutional-score` で利用する。
 
 ### プロジェクト固有（カスタム）
 
