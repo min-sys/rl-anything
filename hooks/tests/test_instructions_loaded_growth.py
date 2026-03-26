@@ -18,8 +18,31 @@ import instructions_loaded
 class TestGrowthGreeting:
     """_emit_growth_greeting のテスト。"""
 
-    def test_emits_growth_data(self, tmp_path, capsys):
-        """キャッシュ存在時 → GROWTH データを stdout 出力。"""
+    def test_emits_growth_data_with_level(self, tmp_path, capsys):
+        """キャッシュに level あり → GROWTH Lv.N Title 表示。"""
+        cache_data = {
+            "phase": "structured_nurturing",
+            "progress": 0.72,
+            "updated_at": "2026-03-25T15:00:00+00:00",
+            "level": 7,
+            "title_en": "Experienced",
+        }
+        cache_file = tmp_path / "growth-state-myproj.json"
+        cache_file.write_text(json.dumps(cache_data))
+
+        with mock.patch("growth_engine._data_dir", return_value=tmp_path):
+            with mock.patch.dict(os.environ, {}, clear=False):
+                instructions_loaded._emit_growth_greeting("myproj")
+
+        captured = capsys.readouterr()
+        assert "GROWTH:" in captured.out
+        assert "Lv.7" in captured.out
+        assert "Experienced" in captured.out
+        assert "structured_nurturing" in captured.out
+        assert "72%" in captured.out
+
+    def test_emits_growth_data_without_level(self, tmp_path, capsys):
+        """キャッシュに level なし → 旧フォーマット。"""
         cache_data = {
             "phase": "structured_nurturing",
             "progress": 0.72,
@@ -34,6 +57,7 @@ class TestGrowthGreeting:
 
         captured = capsys.readouterr()
         assert "GROWTH:" in captured.out
+        assert "Lv." not in captured.out
         assert "structured_nurturing" in captured.out
         assert "72%" in captured.out
 

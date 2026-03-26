@@ -98,7 +98,13 @@ def _emit_growth_greeting(project: str | None) -> None:
         progress_pct = int(progress * 100)
 
         # stdout にデータ出力（Claude が受け取る）
-        parts = [f"GROWTH: {phase_str} {progress_pct}%"]
+        # level がキャッシュにある場合はレベル表示、なければ旧フォーマット
+        level = cache.get("level")
+        title_en = cache.get("title_en", "")
+        if level is not None:
+            parts = [f"GROWTH: Lv.{level} {title_en} {phase_str} {progress_pct}%"]
+        else:
+            parts = [f"GROWTH: {phase_str} {progress_pct}%"]
         if stale:
             stale_days = cache.get("stale_days", 0)
             parts.append(f"(stale: {stale_days}d ago)")
