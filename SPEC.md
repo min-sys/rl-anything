@@ -1,6 +1,6 @@
 # SPEC.md — rl-anything
 
-Last updated: 2026-03-26 by /spec-keeper update
+Last updated: 2026-03-26 by /spec-keeper update (recovery)
 
 ## Overview
 
@@ -29,6 +29,7 @@ Claude Code Plugin。スキル/ルールの **自律進化パイプライン**�
 | エージェント管理 | agent-brushup | エージェント定義の品質診断・改善提案・upstream 監視 |
 | セカンドオピニオン | second-opinion | Claude Agent による cold-read 独立見解（codex 代替、3モード） |
 | セッション管理 | handover | 作業状態を構造化ノートに書き出し（Deploy State 構造化記録）、SPEC.md 同期、別セッションへ引き継ぎ |
+| **成長可視化 (NFD)** | audit --growth | NFD 論文ベースの Spiral Development Model — 4フェーズ自動判定 + 環境プロファイル + 成長ストーリー |
 
 ### コンポーネント構成
 
@@ -38,7 +39,7 @@ hooks/                  ← Observe 層（12個、LLMコストゼロ）[ADR-002]
   observe.py            ← usage/errors/corrections 記録
   correction_detect.py  ← corrections 自動検出
   subagent_observe.py   ← subagents.jsonl 記録
-  instructions_loaded.py← sessions.jsonl [ADR-015]
+  instructions_loaded.py← sessions.jsonl [ADR-015] + Growth greeting（LLMコストゼロ）
   stop_failure.py       ← API エラー記録
   save_state.py         ← Compaction 前の作業コンテキスト保存 [ADR-013]
   restore_state.py      ← セッション開始時の状態復元
@@ -57,7 +58,7 @@ skills/                 ← スキル定義（20個）
   second-opinion/       ← Claude Agent セカンドオピニオン（codex 代替）
   handover/             ← セッション引き継ぎ + Deploy State 構造化 + SPEC.md 同期 + PreCompact 自動提案
 
-scripts/lib/            ← 共通ロジック（27 モジュール）
+scripts/lib/            ← 共通ロジック（31 モジュール）
   telemetry_query.py    ← DuckDB 共通クエリ層
   layer_diagnose.py     ← 4レイヤー診断
   remediation.py        ← confidence-based 問題分類 + 修正 + FP排除 + 原則ベース昇格
@@ -72,6 +73,9 @@ scripts/lib/            ← 共通ロジック（27 モジュール）
   quality_engine.py     ← Skill Quality 2.0（混乱度測定+パターン推奨+スコアボード）
   instruction_patterns.py ← スキル内7パターン自動検出+context効率分析
   semantic_detector.py  ← LLM セマンティック検証（corrections偽陽性除去）
+  growth_engine.py      ← NFD Growth Engine（Phase 4段階判定 + 進捗率 + PJ別キャッシュ）
+  growth_journal.py     ← 結晶化イベント記録・照会 + git log backfill
+  growth_narrative.py   ← 環境プロファイル（性格特性5種）+ 成長ストーリー生成
 
 scripts/rl/fitness/     ← 適応度関数（8個組み込み + config.py で閾値集約）
   config.py             ← 全モジュール共有閾値 + BASE_WEIGHTS
@@ -98,6 +102,10 @@ scripts/rl/fitness/     ← 適応度関数（8個組み込み + config.py で�
       → audit (環境健康診断)
       → optimize (直接パッチ → regression gate)
       → instruction compliance (corrections × critical指示 → 違反検出 → pitfall学習)
+      → growth_engine (Phase判定 → growth-state.json キャッシュ)
+        → growth_journal (結晶化イベント記録)
+        → growth_narrative (環境プロファイル + 成長ストーリー)
+  → InstructionsLoaded hook (growth-state.json → Growth greeting stdout)
 ```
 
 ## API / Interface Spec
@@ -139,10 +147,10 @@ PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 
 直近5件のみ。過去の変更は [CHANGELOG.md](CHANGELOG.md) を参照。
 
+- 2026-03-26: v1.16.0 — **NFD Living Agent Identity** — NFD 論文 (arXiv:2603.10808) の Spiral Development Model 実装。4フェーズ自動判定 + セッション開始時 Growth greeting + audit --growth + 環境プロファイル（性格特性5種）+ 結晶化イベント記録 + git log backfill + growth_display userConfig
 - 2026-03-26: v1.15.0 — CC v2.1.83 採用（FileChanged hook でファイル変更即時検知、MEMORY.md 25KB ガード、Plugin userConfig 6項目で設定対話化）
 - 2026-03-25: handover Deploy State — デプロイ状態の構造化記録 + セッション復元時の優先表示 + `--deploy-state` CLI。closes #44
 - 2026-03-24: v1.14.0 — second-opinion エージェント+スキル追加。Claude Agent による codex 代替セカンドオピニオン（startup/builder/general 3モード）。closes #42
-- 2026-03-24: instruction compliance — スキル指示の遵守保証サイクル（Extract→Inject→Detect→Learn 4フェーズ、対立動詞+LLM Judge 2段階マッチング）。closes #39
 
 ## Current Limitations / Known Issues
 
