@@ -25,18 +25,11 @@ _GIT_TIMEOUT_SECONDS = 3
 _MAX_COMMITS = 10
 
 
-def _run_git(args: list[str], *, cwd: str | None = None) -> str:
-    """git コマンドを実行し stdout を返す。失敗時は空文字列。
-
-    cwd が指定された場合は ``git -C <cwd>`` で対象ディレクトリを明示する。
-    """
-    cmd = ["git"]
-    if cwd:
-        cmd += ["-C", cwd]
-    cmd += args
+def _run_git(args: list[str]) -> str:
+    """git コマンドを実行し stdout を返す。失敗時は空文字列。"""
     try:
         result = subprocess.run(
-            cmd,
+            ["git"] + args,
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT_SECONDS,
@@ -76,7 +69,7 @@ def _load_checkpoint() -> dict | None:
         return None
 
 
-def _collect_work_context_from_git(project_dir: str) -> dict:
+def _collect_work_context_from_git() -> dict:
     """git から作業コンテキストを収集する（checkpoint がない場合のフォールバック）。"""
     context: dict = {
         "recent_commits": [],
@@ -84,16 +77,16 @@ def _collect_work_context_from_git(project_dir: str) -> dict:
         "git_branch": "",
     }
 
-    branch_out = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=project_dir)
+    branch_out = _run_git(["rev-parse", "--abbrev-ref", "HEAD"])
     context["git_branch"] = branch_out.strip()
 
-    log_out = _run_git(["log", "--oneline", f"-{_MAX_COMMITS}"], cwd=project_dir)
+    log_out = _run_git(["log", "--oneline", f"-{_MAX_COMMITS}"])
     if log_out:
         context["recent_commits"] = [
             line for line in log_out.strip().splitlines() if line.strip()
         ]
 
-    status_out = _run_git(["status", "--short"], cwd=project_dir)
+    status_out = _run_git(["status", "--short"])
     if status_out:
         context["uncommitted_files"] = [
             line.strip() for line in status_out.strip().splitlines() if line.strip()
@@ -114,7 +107,7 @@ def collect_handover_data(project_dir: str) -> dict:
     if checkpoint and checkpoint.get("work_context"):
         work_context = checkpoint["work_context"]
     else:
-        work_context = _collect_work_context_from_git(project_dir)
+        work_context = _collect_work_context_from_git()
 
     # corrections: checkpoint 優先、なければ corrections.jsonl フォールバック
     if checkpoint and checkpoint.get("corrections_snapshot"):

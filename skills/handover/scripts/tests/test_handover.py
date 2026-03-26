@@ -93,21 +93,6 @@ class TestCollectHandoverData:
         assert len(result["work_context"]["recent_commits"]) == 1
         assert len(result["work_context"]["uncommitted_files"]) == 1
 
-    def test_git_fallback_uses_project_dir(self, project_dir, data_dir):
-        """git フォールバック時に project_dir を git -C で渡す (#46)。"""
-        with mock.patch("handover.subprocess.run") as mock_run:
-            mock_run.return_value = subprocess.CompletedProcess(
-                args=[], returncode=0, stdout="main\n", stderr=""
-            )
-            handover.collect_handover_data(str(project_dir))
-
-        # 全ての git 呼び出しで -C project_dir が使われる
-        for call in mock_run.call_args_list:
-            args = call[0][0]  # positional args[0] = command list
-            assert args[0] == "git"
-            assert args[1] == "-C"
-            assert args[2] == str(project_dir)
-
     def test_no_git(self, project_dir, data_dir):
         """git リポジトリ外でも graceful degradation。"""
         with mock.patch("handover._run_git", return_value=""):

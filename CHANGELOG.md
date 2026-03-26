@@ -1,15 +1,5 @@
 # Changelog
 
-## [1.15.2] - 2026-03-26
-
-### Fixed
-- **handover**: `CLAUDE_PROJECT_DIR` がプラグインのインストール元を参照する問題を修正 — `$(pwd)` + `git -C` で実際の作業ディレクトリを使用。closes #46
-
-## [1.15.1] - 2026-03-26
-
-### Fixed
-- **discover**: evolve→discover 呼び出し時の `No module named 'lib'` エラーを修正 — line_limit.py のインポートスタイルをコードベース多数派パターンに統一
-
 ## [1.15.0] - 2026-03-26
 
 ### Added
