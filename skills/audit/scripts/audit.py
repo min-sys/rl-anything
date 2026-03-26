@@ -1630,6 +1630,7 @@ def _build_growth_report(proj: Path) -> List[str]:
         from growth_engine import read_cache, detect_phase, compute_phase_progress, update_cache, PHASE_DISPLAY_NAMES, Phase
         from growth_journal import query_crystallizations, count_crystallized_rules
         from growth_narrative import compute_profile, generate_story
+        from growth_level import compute_level
 
         # テレメトリからフェーズ判定
         from telemetry_query import query_sessions, query_corrections
@@ -1639,20 +1640,43 @@ def _build_growth_report(proj: Path) -> List[str]:
         sessions_count = len(sessions) if sessions else 0
         corrections_count = len(corrections) if corrections else 0
 
-        phase = detect_phase(sessions_count, corrections_count, crystallized, 0.0)
-        progress = compute_phase_progress(phase, sessions_count, corrections_count, crystallized, 0.0)
+        # env_score 計算（coherence 含む正確なスコア）
+        _fitness_dir = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "rl" / "fitness"
+        if str(_fitness_dir) not in sys.path:
+            sys.path.insert(0, str(_fitness_dir))
+        env_score = 0.0
+        coherence_score = 0.0
+        try:
+            from environment import compute_environment_fitness
+            env_result = compute_environment_fitness(proj)
+            env_score = env_result.get("overall", 0.0) if isinstance(env_result, dict) else 0.0
+            coherence_score = env_result.get("axes", {}).get("coherence", {}).get("score", 0.0) if isinstance(env_result, dict) else 0.0
+        except Exception:
+            pass
+
+        phase = detect_phase(sessions_count, corrections_count, crystallized, coherence_score)
+        progress = compute_phase_progress(phase, sessions_count, corrections_count, crystallized, coherence_score)
         names = PHASE_DISPLAY_NAMES[phase]
 
-        # キャッシュ更新
+        # Level 計算
+        level_info = compute_level(env_score)
+
+        # キャッシュ更新（env_score + level を含む）
         update_cache(project_name, phase, progress, {
             "sessions_count": sessions_count,
             "crystallizations_count": crystallized,
+            "env_score": round(env_score, 4),
+            "level": level_info.level,
+            "title_en": level_info.title_en,
+            "title_ja": level_info.title_ja,
         })
 
         progress_pct = int(progress * 100)
         bar_filled = int(progress * 20)
         bar = "█" * bar_filled + "░" * (20 - bar_filled)
 
+        lines.append(f"**Level:** Lv.{level_info.level} {level_info.title_en} ({level_info.title_ja})")
+        lines.append(f"**Environment Score:** {env_score:.2f}")
         lines.append(f"**Phase:** {names['en']} ({names['ja']})")
         lines.append(f"**Progress:** [{bar}] {progress_pct}%")
         lines.append(f"**Sessions:** {sessions_count} | **Corrections:** {corrections_count} | **Crystallizations:** {crystallized}")
