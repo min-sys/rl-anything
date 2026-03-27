@@ -5,6 +5,13 @@
 ### Added
 - **handover Issue モード**: `--issue` フラグで GitHub Issue として引き継ぎノートを作成可能に。GitHub リポ検出時は自動提案
 
+### Fixed
+- **handover --project-dir cwd 伝播**: `_run_git()` に `cwd` パラメータを追加し、`--project-dir` が git コマンドの実行ディレクトリに正しく反映されるように修正 (#49)
+
+_SPEC.md Recent Changes から移動（既存エントリへの参照）:_
+- _2026-03-26: v1.15.0 — [1.15.0] 参照_
+- _2026-03-25: handover Deploy State — [Unreleased] 参照_
+
 ## [1.18.0] - 2026-03-26
 
 ### Added
