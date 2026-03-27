@@ -203,8 +203,10 @@ class TestDetectInstructionViolation:
         assert isinstance(result, Violation)
         assert result.match_type == "opposing_verb"
 
-    def test_synonym_verb_no_violation(self):
-        """同義動詞 (move vs transfer) → 非違反。"""
+    @mock.patch("critical_instruction_extractor._call_llm_judge")
+    def test_synonym_verb_no_violation(self, mock_judge):
+        """同義動詞 (move vs transfer) → LLM が非違反と判定すれば None。"""
+        mock_judge.return_value = {"is_violation": False, "confidence": 0.3, "reason": "同義語"}
         correction = {
             "message": "transfer ではなく move にして",
             "correction_type": "stop",
@@ -219,7 +221,6 @@ class TestDetectInstructionViolation:
             )
         ]
         result = detect_instruction_violation(correction, instructions)
-        # move と transfer は同義なので違反ではない
         assert result is None
 
     @mock.patch("critical_instruction_extractor._call_llm_judge")
