@@ -800,21 +800,61 @@ def build_quality_trends_section(
 
 # ---------- gstack ワークフロー分析 ----------
 
-# gstack ライフサイクルフェーズの順序
-_GSTACK_LIFECYCLE = ["plan", "refine", "ship", "document", "spec", "retro"]
+_FLOW_CHAIN_FILE = Path.home() / ".gstack" / "flow-chain.json"
 
-# gstack スキル名 → フェーズのマッピング
-_GSTACK_SKILL_PHASE_MAP: Dict[str, str] = {
+# fallback 値（flow-chain.json がない場合に使用）
+_FALLBACK_GSTACK_LIFECYCLE = ["plan", "ship", "document", "spec", "retro"]
+_FALLBACK_GSTACK_SKILL_PHASE_MAP: Dict[str, str] = {
     "office-hours": "plan",
     "plan-eng-review": "plan",
     "plan-ceo-review": "plan",
     "plan-design-review": "plan",
-    "gstack-refine": "refine",
     "ship": "ship",
     "document-release": "document",
     "spec-keeper": "spec",
     "retro": "retro",
 }
+
+
+def _load_flow_chain_phases(
+    path: Optional[Path] = None,
+) -> tuple:
+    """flow-chain.json から lifecycle と phase_map を構築する。
+
+    Returns:
+        (lifecycle, phase_map) — ファイル不在・不正時は fallback 値
+    """
+    p = path or _FLOW_CHAIN_FILE
+    try:
+        if not p.exists():
+            return _FALLBACK_GSTACK_LIFECYCLE, _FALLBACK_GSTACK_SKILL_PHASE_MAP
+        data = json.loads(p.read_text(encoding="utf-8"))
+        chain = data.get("chain")
+        if not isinstance(chain, dict) or not chain:
+            return _FALLBACK_GSTACK_LIFECYCLE, _FALLBACK_GSTACK_SKILL_PHASE_MAP
+
+        phase_map: Dict[str, str] = {}
+        seen_phases: list = []
+        for skill_name, entry in chain.items():
+            if not isinstance(entry, dict):
+                continue
+            phase = entry.get("phase")
+            if not phase:
+                continue
+            phase_map[skill_name] = phase
+            if phase not in seen_phases:
+                seen_phases.append(phase)
+
+        if not phase_map:
+            return _FALLBACK_GSTACK_LIFECYCLE, _FALLBACK_GSTACK_SKILL_PHASE_MAP
+
+        return seen_phases, phase_map
+    except (json.JSONDecodeError, OSError, KeyError):
+        return _FALLBACK_GSTACK_LIFECYCLE, _FALLBACK_GSTACK_SKILL_PHASE_MAP
+
+
+# 動的読み込み（モジュールロード時に1回実行）
+_GSTACK_LIFECYCLE, _GSTACK_SKILL_PHASE_MAP = _load_flow_chain_phases()
 
 # gstack スキル名の集合（高速判定用）
 _GSTACK_SKILL_NAMES = frozenset(_GSTACK_SKILL_PHASE_MAP.keys())

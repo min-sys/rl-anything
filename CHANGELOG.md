@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.20.0] - 2026-03-27
+
+### Added
+- **gstack flow chain 動的化**: `~/.gstack/flow-chain.json` から audit の gstack ワークフロー分析（lifecycle/phase_map）を動的構築。ファイル不在時は fallback 値を使用
+- **`_load_flow_chain_phases()`**: flow-chain.json パーサー + テスト 6 件
+
+### Removed
+- **gstack-refine 全参照削除**: audit の `_GSTACK_SKILL_PHASE_MAP`、discover の `RECOMMENDED_ARTIFACTS`、spec-keeper の SKILL.md から gstack-refine を削除
+
 ## [1.19.0] - 2026-03-27
 
 ### Added

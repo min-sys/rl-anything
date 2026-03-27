@@ -689,13 +689,6 @@ RECOMMENDED_ARTIFACTS = [
         "hook_path": None,
     },
     {
-        "id": "gstack-refine",
-        "type": "skill",
-        "path": Path.home() / ".claude" / "skills" / "gstack-refine" / "SKILL.md",
-        "description": "gstack-refine — build 前のプラン品質レビュー（設計+テスト計画の検証）",
-        "hook_path": None,
-    },
-    {
         "id": "continuation-check",
         "type": "rule",
         "path": Path.home() / ".claude" / "rules" / "continuation-check.md",
