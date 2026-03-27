@@ -1,6 +1,6 @@
 # SPEC.md — rl-anything
 
-Last updated: 2026-03-26 by /spec-keeper update (v1.18.0)
+Last updated: 2026-03-27 by /spec-keeper update (v1.19.0)
 
 ## Overview
 
@@ -28,11 +28,11 @@ Claude Code Plugin。スキル/ルールの **自律進化パイプライン**�
 | 直接パッチ最適化 | optimize, rl-loop, generate-fitness, evolve-fitness | GA廃止、LLM 1パス直接パッチ ([ADR-003](docs/decisions/003-direct-patch-over-genetic-algorithm.md)) → regression gate |
 | エージェント管理 | agent-brushup | エージェント定義の品質診断・改善提案・upstream 監視 |
 | セカンドオピニオン | second-opinion | Claude Agent による cold-read 独立見解（codex 代替、3モード） |
-| セッション管理 | handover | 作業状態を構造化ノートに書き出し（Deploy State 構造化記録）、SPEC.md 同期、別セッションへ引き継ぎ |
+| セッション管理 | handover | 作業状態を構造化ノートに書き出し（ローカルファイル or GitHub Issue）、SPEC.md 同期、別セッションへ引き継ぎ |
 | 仕様管理 | spec-keeper | SPEC.md + ADR の管理、Progressive Disclosure L1/L2 自動昇格 |
 | **成長可視化 (NFD)** | audit --growth | NFD 論文ベースの Spiral Development Model — 4フェーズ自動判定 + Lv.1-10 レベルシステム + 環境プロファイル（5 traits）+ 成長ストーリー |
 
-Observe hooks (12個, LLMコストゼロ) → テレメトリ JSONL → evolve/discover/reflect/audit → remediation → 自動改善。
+Observe hooks (11個, LLMコストゼロ) → テレメトリ JSONL → evolve/discover/reflect/audit → remediation → 自動改善。
 スキル21個、共通ロジック31モジュール、適応度関数8個組み込み。
 
 コンポーネント構成・データフローの詳細は [spec/architecture.md](spec/architecture.md) を参照。
@@ -77,12 +77,11 @@ PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 
 直近5件のみ。過去の変更は [CHANGELOG.md](CHANGELOG.md) を参照。
 
+- 2026-03-27: v1.19.0 — **handover Issue モード** — `--issue` フラグで GitHub Issue として引き継ぎノートを作成可能に。GitHub リポ検出時は自動提案
 - 2026-03-26: v1.18.0 — **NFD Level System** — env_score → Lv.1-10 + 称号。η計算修正、Fast Shipper trait、evolve フェーズ降格防止、audit がキャッシュ唯一権威に
 - 2026-03-26: v1.17.2 — **worktree 並行開発パターン提案** — discover の RECOMMENDED_ARTIFACTS に worktree-parallel-work + deploy-lock を追加。未導入 PJ に自動提案
 - 2026-03-26: v1.17.0 — spec-keeper 同梱 + Progressive Disclosure L2 レイヤー
 - 2026-03-26: v1.16.0 — **NFD Living Agent Identity** — Spiral Development Model + Growth greeting + 環境プロファイル
-- 2026-03-26: v1.15.0 — CC v2.1.83 採用（FileChanged hook + MEMORY.md 25KB ガード + userConfig）
-- 2026-03-25: handover Deploy State — デプロイ状態の構造化記録 + セッション復元時の優先表示
 
 ## Current Limitations / Known Issues
 
