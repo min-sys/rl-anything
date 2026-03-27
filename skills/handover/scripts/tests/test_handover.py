@@ -250,6 +250,81 @@ class TestExtractDeployState:
         assert result is None
 
 
+class TestRunGitCwd:
+    """_run_git() の cwd パラメータテスト。"""
+
+    def test_cwd_passed_to_subprocess(self):
+        """cwd が subprocess.run に渡される。"""
+        mock_result = mock.Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "main\n"
+
+        with mock.patch("subprocess.run", return_value=mock_result) as mock_run:
+            handover._run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd="/some/project")
+
+        _, kwargs = mock_run.call_args
+        assert kwargs["cwd"] == "/some/project"
+
+    def test_cwd_none_by_default(self):
+        """cwd 省略時は None（呼び出し元の CWD を使用）。"""
+        mock_result = mock.Mock()
+        mock_result.returncode = 0
+        mock_result.stdout = "main\n"
+
+        with mock.patch("subprocess.run", return_value=mock_result) as mock_run:
+            handover._run_git(["rev-parse", "--abbrev-ref", "HEAD"])
+
+        _, kwargs = mock_run.call_args
+        assert kwargs.get("cwd") is None
+
+
+class TestCollectWorkContextCwd:
+    """_collect_work_context_from_git() の project_dir 伝播テスト。"""
+
+    def test_project_dir_passed_to_run_git(self):
+        """project_dir が _run_git の cwd に伝播する。"""
+        with mock.patch("handover._run_git", return_value="") as mock_git:
+            handover._collect_work_context_from_git(project_dir="/my/project")
+
+        for call in mock_git.call_args_list:
+            _, kwargs = call
+            assert kwargs.get("cwd") == "/my/project"
+
+    def test_project_dir_none_default(self):
+        """project_dir 省略時は cwd=None。"""
+        with mock.patch("handover._run_git", return_value="") as mock_git:
+            handover._collect_work_context_from_git()
+
+        for call in mock_git.call_args_list:
+            _, kwargs = call
+            assert kwargs.get("cwd") is None
+
+
+class TestCollectHandoverDataCwd:
+    """collect_handover_data() → _collect_work_context_from_git() への project_dir 伝播。"""
+
+    def test_project_dir_flows_to_git_fallback(self, project_dir, data_dir):
+        """checkpoint なし時、project_dir が git フォールバックに伝播する。"""
+        with mock.patch("handover._run_git", return_value="") as mock_git:
+            handover.collect_handover_data(str(project_dir))
+
+        for call in mock_git.call_args_list:
+            _, kwargs = call
+            assert kwargs.get("cwd") == str(project_dir)
+
+
+class TestIsGithubRepoCwd:
+    """is_github_repo() の cwd パラメータテスト。"""
+
+    def test_cwd_passed_to_run_git(self):
+        """cwd が _run_git に伝播する。"""
+        with mock.patch("handover._run_git", return_value="git@github.com:user/repo.git\n") as mock_git:
+            handover.is_github_repo(cwd="/my/project")
+
+        _, kwargs = mock_git.call_args
+        assert kwargs.get("cwd") == "/my/project"
+
+
 class TestIsGithubRepo:
     """is_github_repo() のテスト。"""
 

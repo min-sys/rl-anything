@@ -28,9 +28,9 @@ _MAX_COMMITS = 10
 _GH_TIMEOUT_SECONDS = 10
 
 
-def is_github_repo() -> bool:
+def is_github_repo(*, cwd: str | None = None) -> bool:
     """origin リモートが GitHub かどうかを判定する。"""
-    url = _run_git(["remote", "get-url", "origin"]).strip()
+    url = _run_git(["remote", "get-url", "origin"], cwd=cwd).strip()
     return "github.com" in url
 
 
@@ -94,7 +94,7 @@ def create_issue(title: str, body: str, labels: list[str] | None = None) -> str 
         return None
 
 
-def _run_git(args: list[str]) -> str:
+def _run_git(args: list[str], *, cwd: str | None = None) -> str:
     """git コマンドを実行し stdout を返す。失敗時は空文字列。"""
     try:
         result = subprocess.run(
@@ -102,6 +102,7 @@ def _run_git(args: list[str]) -> str:
             capture_output=True,
             text=True,
             timeout=_GIT_TIMEOUT_SECONDS,
+            cwd=cwd,
         )
         if result.returncode != 0:
             return ""
@@ -138,7 +139,7 @@ def _load_checkpoint() -> dict | None:
         return None
 
 
-def _collect_work_context_from_git() -> dict:
+def _collect_work_context_from_git(*, project_dir: str | None = None) -> dict:
     """git から作業コンテキストを収集する（checkpoint がない場合のフォールバック）。"""
     context: dict = {
         "recent_commits": [],
@@ -146,16 +147,16 @@ def _collect_work_context_from_git() -> dict:
         "git_branch": "",
     }
 
-    branch_out = _run_git(["rev-parse", "--abbrev-ref", "HEAD"])
+    branch_out = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=project_dir)
     context["git_branch"] = branch_out.strip()
 
-    log_out = _run_git(["log", "--oneline", f"-{_MAX_COMMITS}"])
+    log_out = _run_git(["log", "--oneline", f"-{_MAX_COMMITS}"], cwd=project_dir)
     if log_out:
         context["recent_commits"] = [
             line for line in log_out.strip().splitlines() if line.strip()
         ]
 
-    status_out = _run_git(["status", "--short"])
+    status_out = _run_git(["status", "--short"], cwd=project_dir)
     if status_out:
         context["uncommitted_files"] = [
             line.strip() for line in status_out.strip().splitlines() if line.strip()
@@ -176,7 +177,7 @@ def collect_handover_data(project_dir: str) -> dict:
     if checkpoint and checkpoint.get("work_context"):
         work_context = checkpoint["work_context"]
     else:
-        work_context = _collect_work_context_from_git()
+        work_context = _collect_work_context_from_git(project_dir=project_dir)
 
     # corrections: checkpoint 優先、なければ corrections.jsonl フォールバック
     if checkpoint and checkpoint.get("corrections_snapshot"):
@@ -280,7 +281,7 @@ def main() -> None:
         issue_data = {
             "title": format_issue_title(data),
             "body": format_issue_body(data),
-            "is_github": is_github_repo(),
+            "is_github": is_github_repo(cwd=project_dir),
             "data": data,
         }
         print(json.dumps(issue_data, ensure_ascii=False, indent=2))
