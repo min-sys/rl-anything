@@ -1,9 +1,7 @@
 """gstack Workflow Analytics のテスト。"""
 import json
 import sys
-import tempfile
 from pathlib import Path
-from unittest import mock
 
 import pytest
 
@@ -95,7 +93,7 @@ class TestGstackLifecycle:
 class TestLoadFlowChainPhases:
     """_load_flow_chain_phases のテスト。"""
 
-    def test_load_valid_json(self):
+    def test_load_valid_json(self, tmp_path):
         data = {
             "$schema": "flow-chain-v1",
             "chain": {
@@ -104,12 +102,9 @@ class TestLoadFlowChainPhases:
                 "document-release": {"phase": "document", "next": ["/spec-keeper"]},
             },
         }
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
-            json.dump(data, f)
-            f.flush()
-            lifecycle, phase_map = _load_flow_chain_phases(Path(f.name))
+        p = tmp_path / "flow-chain.json"
+        p.write_text(json.dumps(data))
+        lifecycle, phase_map = _load_flow_chain_phases(p)
 
         assert "plan" in lifecycle
         assert "ship" in lifecycle
@@ -124,29 +119,23 @@ class TestLoadFlowChainPhases:
         assert lifecycle == _FALLBACK_GSTACK_LIFECYCLE
         assert phase_map == _FALLBACK_GSTACK_SKILL_PHASE_MAP
 
-    def test_load_malformed_json(self):
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
-            f.write("{bad json")
-            f.flush()
-            lifecycle, phase_map = _load_flow_chain_phases(Path(f.name))
+    def test_load_malformed_json(self, tmp_path):
+        p = tmp_path / "flow-chain.json"
+        p.write_text("{bad json")
+        lifecycle, phase_map = _load_flow_chain_phases(p)
 
         assert lifecycle == _FALLBACK_GSTACK_LIFECYCLE
         assert phase_map == _FALLBACK_GSTACK_SKILL_PHASE_MAP
 
-    def test_load_missing_chain_key(self):
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
-            json.dump({"$schema": "flow-chain-v1"}, f)
-            f.flush()
-            lifecycle, phase_map = _load_flow_chain_phases(Path(f.name))
+    def test_load_missing_chain_key(self, tmp_path):
+        p = tmp_path / "flow-chain.json"
+        p.write_text(json.dumps({"$schema": "flow-chain-v1"}))
+        lifecycle, phase_map = _load_flow_chain_phases(p)
 
         assert lifecycle == _FALLBACK_GSTACK_LIFECYCLE
         assert phase_map == _FALLBACK_GSTACK_SKILL_PHASE_MAP
 
-    def test_lifecycle_order_preserves_phase_sequence(self):
+    def test_lifecycle_order_preserves_phase_sequence(self, tmp_path):
         """phase の出現順序が lifecycle に反映される。"""
         data = {
             "chain": {
@@ -155,33 +144,44 @@ class TestLoadFlowChainPhases:
                 "ship": {"phase": "ship", "next": []},
             },
         }
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
-            json.dump(data, f)
-            f.flush()
-            lifecycle, _ = _load_flow_chain_phases(Path(f.name))
+        p = tmp_path / "flow-chain.json"
+        p.write_text(json.dumps(data))
+        lifecycle, _ = _load_flow_chain_phases(p)
 
         # 重複なし
         assert len(lifecycle) == len(set(lifecycle))
         assert set(lifecycle) == {"review", "plan", "ship"}
 
-    def test_entries_without_phase_are_skipped(self):
+    def test_entries_without_phase_are_skipped(self, tmp_path):
         data = {
             "chain": {
                 "ship": {"phase": "ship", "next": []},
                 "no-phase": {"next": ["/something"]},
             },
         }
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
-            json.dump(data, f)
-            f.flush()
-            lifecycle, phase_map = _load_flow_chain_phases(Path(f.name))
+        p = tmp_path / "flow-chain.json"
+        p.write_text(json.dumps(data))
+        lifecycle, phase_map = _load_flow_chain_phases(p)
 
         assert "no-phase" not in phase_map
         assert "ship" in phase_map
+
+    def test_non_string_phase_is_skipped(self, tmp_path):
+        """phase が文字列でない場合はスキップされる。"""
+        data = {
+            "chain": {
+                "ship": {"phase": "ship", "next": []},
+                "bad": {"phase": 123, "next": []},
+                "also-bad": {"phase": ["plan"], "next": []},
+            },
+        }
+        p = tmp_path / "flow-chain.json"
+        p.write_text(json.dumps(data))
+        lifecycle, phase_map = _load_flow_chain_phases(p)
+
+        assert "bad" not in phase_map
+        assert "also-bad" not in phase_map
+        assert phase_map["ship"] == "ship"
 
 
 class TestBuildGstackAnalyticsSection:

@@ -839,7 +839,7 @@ def _load_flow_chain_phases(
             if not isinstance(entry, dict):
                 continue
             phase = entry.get("phase")
-            if not phase:
+            if not phase or not isinstance(phase, str):
                 continue
             phase_map[skill_name] = phase
             if phase not in seen_phases:
