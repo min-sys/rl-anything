@@ -13,22 +13,53 @@ description: |
 ## Usage
 
 ```
-/rl-anything:handover
+/rl-anything:handover          # ローカルファイル出力（デフォルト）
+/rl-anything:handover --issue   # GitHub Issue として作成
 ```
 
 ## 実行手順
 
-### Step 1: データ収集
+### Step 1: データ収集 + 出力モード判定
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/skills/handover/scripts/handover.py" --project-dir "$(pwd)"
+python3 "${CLAUDE_PLUGIN_ROOT}/skills/handover/scripts/handover.py" --issue --project-dir "$(pwd)"
 ```
 
-返却された JSON を変数として保持する。
+返却 JSON の `is_github` フィールドを確認する:
+- `--issue` フラグ指定時 → **Issue モード**（Step 2a へ）
+- フラグなし、または `is_github: false` → **ファイルモード**（Step 2b へ）
+- フラグなしで `is_github: true` → ユーザーに Issue モードを提案（「GitHub リポなので Issue に書きますか？」）
 
-### Step 2: 構造化ノート生成
+### Step 2a: Issue モード — 構造化ノート生成 + Issue 作成
 
-Step 1 の JSON データ **および会話コンテキスト** を元に、以下のセクションで Markdown ノートを生成する。
+Step 1 の JSON 内 `body` テンプレートの `<!-- LLM: ... -->` コメントを **会話コンテキスト** から埋める。
+
+**埋めるセクション**:
+- `## Decisions` — 決定事項とその理由（箇条書き）。「なぜそうしたか」を必ず含める
+- `## Discarded Alternatives` — 検討したが捨てた選択肢とその理由。なければ「なし」
+- `## Deploy State` — 各環境のデプロイ状態。不明なら「不明」
+- `## Next Actions` — 次にやるべきこと（優先順付き）。Deploy State を考慮
+
+**重要ルール**（ファイルモードと共通）:
+- 会話コンテキストから「なぜその決定をしたか」「何を試して何がダメだったか」を必ず含める（MUST）
+- `Discarded Alternatives` は省略しない — エージェントが同じ失敗を繰り返さないための最重要セクション
+- `Deploy State` は会話コンテキストから判断する（MUST）
+- `Next Actions` は `Deploy State` を考慮して記述する
+- `Context (auto)` セクションは JSON データのまま（LLM 要約不要）
+
+LLM が body を埋めたら、`gh issue create` で Issue を作成する:
+
+```bash
+gh issue create --title "{title}" --body "{完成した body}" --label "handover"
+```
+
+ラベル `handover` が存在しない場合はラベルなしで作成する。
+
+作成された Issue URL をユーザーに伝える。
+
+### Step 2b: ファイルモード — 構造化ノート生成
+
+Step 1 のデータ（`--issue` なしで再取得）**および会話コンテキスト** を元に、以下のセクションで Markdown ノートを生成する。
 
 **このノートの目的**: git/checkpoint/auto-memory では復元できない「判断の理由」と「次の一手」に特化する。
 
@@ -58,17 +89,11 @@ skills: {skills_used}
 corrections: {corrections}
 ```
 
-**重要ルール**:
-- 会話コンテキストから「なぜその決定をしたか」「何を試して何がダメだったか」を必ず含める（MUST）
-- `Discarded Alternatives` は省略しない — エージェントが同じ失敗を繰り返さないための最重要セクション
-- `Deploy State` は会話コンテキストから判断する（MUST）— デプロイ済み/未デプロイが後続の `/ship` 等の次アクション提案に影響する
-- `Next Actions` は `Deploy State` を考慮して記述する — デプロイ済みなら merge-first フロー、未デプロイなら deploy-first フローを推奨
-- `Context (auto)` セクションは JSON データをそのまま展開する（LLM による要約不要）
-- Summary / Related Files セクションは **廃止** — checkpoint.json + git で復元可能
+**重要ルール**: Step 2a と同じ。Summary / Related Files セクションは **廃止** — checkpoint.json + git で復元可能。
 
-### Step 3: ファイル書き出し
+### Step 3: ファイル書き出し（ファイルモードのみ）
 
-生成したノートを以下のパスに Write で書き出す（`project_dir` は Step 1 の JSON 出力の `project_dir` フィールド）:
+生成したノートを以下のパスに Write で書き出す:
 
 ```
 {project_dir}/.claude/handovers/YYYY-MM-DD_HHmm.md
@@ -83,7 +108,9 @@ SPEC.md が存在しない場合はスキップ。
 
 ### Step 5: 確認
 
-書き出したファイルのパスをユーザーに伝える。SPEC.md を更新した場合はその旨も伝える。
+- Issue モード: Issue URL をユーザーに伝える
+- ファイルモード: 書き出したファイルのパスをユーザーに伝える
+- SPEC.md を更新した場合はその旨も伝える
 
 ## allowed-tools
 

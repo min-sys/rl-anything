@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.19.0] - 2026-03-27
+
+### Added
+- **handover Issue モード**: `--issue` フラグで GitHub Issue として引き継ぎノートを作成可能に。GitHub リポ検出時は自動提案
+
 ## [1.18.0] - 2026-03-26
 
 ### Added
