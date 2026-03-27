@@ -96,7 +96,7 @@ rl-anything は **3つの独立した柱** で構成される。
 | `agent-brushup` | エージェント管理 | エージェント定義の品質診断・改善提案 |
 | `second-opinion` | セカンドオピニオン | Claude Agent による独立した cold-read セカンドオピニオン |
 | `spec-keeper` | 仕様管理 | SPEC.md + ADR 管理、Progressive Disclosure L1/L2 自動昇格 |
-| `handover` | セッション管理 | 作業状態を構造化ノートに書き出し、別セッションへ引き継ぎ |
+| `handover` | セッション管理 | 作業状態を構造化ノートに書き出し、別セッションへ引き継ぎ。`--issue` で GitHub Issue 出力 |
 | `release-notes-review` | ユーティリティ | Claude Code リリースノート分析＋適用可能な新機能報告 |
 | `feedback` | ユーティリティ | GitHub Issue でフィードバック送信 |
 | `update` | ユーティリティ | プラグインを最新版に更新 |
@@ -106,7 +106,7 @@ rl-anything は **3つの独立した柱** で構成される。
 
 ## Hooks（データ収集）
 
-12個の hooks が LLM コストゼロでセッションライフサイクル全体をカバーする。
+11個の hooks が LLM コストゼロでセッションライフサイクル全体をカバーする。
 
 | Hook | イベント | 出力先 |
 |------|---------|--------|
