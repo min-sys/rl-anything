@@ -708,9 +708,9 @@ RECOMMENDED_ARTIFACTS = [
         "id": "deploy-lock",
         "type": "hook",
         "path": None,
-        "description": "デプロイ排他制御 — 同一環境への並行デプロイを lock ファイルで防止",
+        "description": "デプロイ排他制御 — 同一環境への並行デプロイ + プロセス kill を lock ファイルで防止",
         "hook_path": Path.home() / ".claude" / "hooks" / "deploy-lock.py",
-        "hook_description": "PreToolUse hook: deploy コマンド実行時に lock ファイルで排他制御",
+        "hook_description": "PreToolUse hook: deploy コマンド + kill 系コマンド実行時に lock ファイルで排他制御",
     },
 ]
 
