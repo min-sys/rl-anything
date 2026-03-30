@@ -1,6 +1,6 @@
 # SPEC.md — rl-anything
 
-Last updated: 2026-03-27 by /spec-keeper update (v1.19.0)
+Last updated: 2026-03-30 by /document-release (v1.21.0)
 
 ## Overview
 

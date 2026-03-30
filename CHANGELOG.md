@@ -3,8 +3,8 @@
 ## [1.21.0] - 2026-03-30
 
 ### Added
-- **release-notes-review グローバル環境対応**: プラグイン環境に加えグローバル環境（rules/skills/agents/settings hooks/memory）をスキャン・健康診断。`--env-only` オプション追加。Part 1 (Release Notes) + Part 2 (Global Environment Health) の2セクション構成レポート
-- **spec-keeper プラグイン一本化**: グローバル版削除に伴い handover/discover のパス参照をプラグイン内に更新
+- **release-notes-review グローバル環境対応**: `~/.claude/` 配下の rules/skills/agents/settings hooks/memory もスキャン・健康診断できるように。`--env-only` で環境診断だけ実行可能。レポートは Part 1 (Release Notes) + Part 2 (Global Environment Health) の2セクション構成
+- **spec-keeper プラグイン一本化**: グローバル版を廃止し、プラグイン版 `/rl-anything:spec-keeper` に統合。handover/discover のパス参照もプラグイン内に更新
 - **gstack flow chain 動的化**: `~/.gstack/flow-chain.json` から audit の gstack ワークフロー分析を動的構築。ファイル不在時は fallback 値を使用
 
 ### Fixed
