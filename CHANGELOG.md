@@ -26,6 +26,10 @@
 _SPEC.md Recent Changes から移動（既存エントリへの参照）:_
 - _2026-03-26: v1.15.0 — [1.15.0] 参照_
 - _2026-03-25: handover Deploy State — [Unreleased] 参照_
+- _2026-03-27: v1.19.0 — handover Issue モード — [1.19.0] 参照_
+- _2026-03-26: v1.18.0 — NFD Level System — [1.18.0] 参照_
+- _2026-03-26: v1.17.2 — worktree 並行開発パターン提案 — [1.17.2] 参照_
+- _2026-03-26: v1.16.0 — NFD Living Agent Identity — [1.16.0] 参照_
 
 ## [1.18.0] - 2026-03-26
 

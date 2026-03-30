@@ -1,6 +1,6 @@
 # SPEC.md — rl-anything
 
-Last updated: 2026-03-30 by /document-release (v1.21.0)
+Last updated: 2026-03-31 by /spec-keeper update (v1.21.0)
 
 ## Overview
 
@@ -32,8 +32,8 @@ Claude Code Plugin。スキル/ルールの **自律進化パイプライン**�
 | 仕様管理 | spec-keeper | SPEC.md + ADR の管理、Progressive Disclosure L1/L2 自動昇格 |
 | **成長可視化 (NFD)** | audit --growth | NFD 論文ベースの Spiral Development Model — 4フェーズ自動判定 + Lv.1-10 レベルシステム + 環境プロファイル（5 traits）+ 成長ストーリー |
 
-Observe hooks (11個, LLMコストゼロ) → テレメトリ JSONL → evolve/discover/reflect/audit → remediation → 自動改善。
-スキル21個、共通ロジック31モジュール、適応度関数8個組み込み。
+Observe hooks (12個, LLMコストゼロ) → テレメトリ JSONL → evolve/discover/reflect/audit → remediation → 自動改善。
+スキル21個、共通ロジック32モジュール、適応度関数10個組み込み。
 
 コンポーネント構成・データフローの詳細は [spec/architecture.md](spec/architecture.md) を参照。
 
@@ -77,11 +77,11 @@ PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 
 直近5件のみ。過去の変更は [CHANGELOG.md](CHANGELOG.md) を参照。
 
-- 2026-03-27: v1.19.0 — **handover Issue モード** — `--issue` フラグで GitHub Issue として引き継ぎノートを作成可能に。GitHub リポ検出時は自動提案
-- 2026-03-26: v1.18.0 — **NFD Level System** — env_score → Lv.1-10 + 称号。η計算修正、Fast Shipper trait、evolve フェーズ降格防止、audit がキャッシュ唯一権威に
-- 2026-03-26: v1.17.2 — **worktree 並行開発パターン提案** — discover の RECOMMENDED_ARTIFACTS に worktree-parallel-work + deploy-lock を追加。未導入 PJ に自動提案
+- 2026-03-31: v1.21.0 — **release-notes-review グローバル環境対応** + **gstack flow chain 動的化**（`~/.gstack/flow-chain.json` から audit の phase_map を動的構築）+ **spec-keeper プラグイン一本化** + gstack-refine 全参照削除
+- 2026-03-27: v1.19.0 — **handover Issue モード** — `--issue` フラグで GitHub Issue として引き継ぎノートを作成可能に
+- 2026-03-26: v1.18.0 — **NFD Level System** — env_score → Lv.1-10 + 称号。η計算修正、Fast Shipper trait
+- 2026-03-26: v1.17.2 — **worktree 並行開発パターン提案** — discover の RECOMMENDED_ARTIFACTS に追加
 - 2026-03-26: v1.17.0 — spec-keeper 同梱 + Progressive Disclosure L2 レイヤー
-- 2026-03-26: v1.16.0 — **NFD Living Agent Identity** — Spiral Development Model + Growth greeting + 環境プロファイル
 
 ## Current Limitations / Known Issues
 
