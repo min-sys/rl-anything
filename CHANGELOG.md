@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **release-notes-review グローバル環境対応**: プラグイン環境に加えグローバル環境（rules/skills/agents/settings hooks/memory）をスキャン・健康診断。`--env-only` オプション追加。Part 1 (Release Notes) + Part 2 (Global Environment Health) の2セクション構成レポート
+- **spec-keeper プラグイン一本化**: グローバル版削除に伴い handover/discover のパス参照をプラグイン内に更新
+
 ## [1.20.0] - 2026-03-27
 
 ### Added

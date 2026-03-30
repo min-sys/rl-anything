@@ -103,7 +103,7 @@ corrections: {corrections}
 
 ### Step 4: SPEC.md 同期
 
-プロジェクトに SPEC.md が存在する場合、`/spec-keeper update` を実行して仕様を最新化する。
+プロジェクトに SPEC.md が存在する場合、`/rl-anything:spec-keeper update` を実行して仕様を最新化する。
 SPEC.md が存在しない場合はスキップ。
 
 ### Step 5: 確認

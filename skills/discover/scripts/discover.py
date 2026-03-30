@@ -677,7 +677,7 @@ RECOMMENDED_ARTIFACTS = [
     {
         "id": "spec-keeper",
         "type": "skill",
-        "path": Path.home() / ".claude" / "skills" / "spec-keeper" / "SKILL.md",
+        "path": Path(__file__).resolve().parents[2] / "spec-keeper" / "SKILL.md",
         "description": "spec-keeper — SPEC.md + ADR 管理スキル（init/update/adr/status）",
         "hook_path": None,
     },
