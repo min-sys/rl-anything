@@ -227,6 +227,8 @@ CC 機能重複:
 
 ### Step 5: チェック済みバージョンの記録
 
+`--env-only` の場合はこのステップをスキップする（リリースノートを確認していないため）。
+
 レポート出力後、auto-memory に `release_notes_last_checked.md` を Write で保存する:
 
 ```markdown
