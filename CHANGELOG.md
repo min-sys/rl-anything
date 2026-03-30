@@ -1,19 +1,18 @@
 # Changelog
 
-## [Unreleased]
+## [1.21.0] - 2026-03-30
 
 ### Added
 - **release-notes-review グローバル環境対応**: プラグイン環境に加えグローバル環境（rules/skills/agents/settings hooks/memory）をスキャン・健康診断。`--env-only` オプション追加。Part 1 (Release Notes) + Part 2 (Global Environment Health) の2セクション構成レポート
 - **spec-keeper プラグイン一本化**: グローバル版削除に伴い handover/discover のパス参照をプラグイン内に更新
+- **gstack flow chain 動的化**: `~/.gstack/flow-chain.json` から audit の gstack ワークフロー分析を動的構築。ファイル不在時は fallback 値を使用
 
-## [1.20.0] - 2026-03-27
-
-### Added
-- **gstack flow chain 動的化**: `~/.gstack/flow-chain.json` から audit の gstack ワークフロー分析（lifecycle/phase_map）を動的構築。ファイル不在時は fallback 値を使用
-- **`_load_flow_chain_phases()`**: flow-chain.json パーサー + テスト 6 件
+### Fixed
+- **release-notes-review `--env-only` ガード**: `--env-only` 時に Step 5 バージョン記録をスキップ（リリースノート未確認時の誤記録防止）
+- **adversarial review 対応**: phase 型チェック + テスト temp file 修正
 
 ### Removed
-- **gstack-refine 全参照削除**: audit の `_GSTACK_SKILL_PHASE_MAP`、discover の `RECOMMENDED_ARTIFACTS`、spec-keeper の SKILL.md から gstack-refine を削除
+- **gstack-refine 全参照削除**: audit/discover/spec-keeper から gstack-refine 参照を削除
 
 ## [1.19.0] - 2026-03-27
 
