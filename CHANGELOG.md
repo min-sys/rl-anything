@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.21.2] - 2026-03-31
+
+### Added
+- **kill-guard RECOMMENDED_ARTIFACT 追加**: deploy-lock 保持中のプロセス kill をブロックする独立エントリ。sys-bots 実運用フィードバックから追加
+
+### Changed
+- **worktree-parallel-work description 強化**: `git checkout -b` でのブランチ作成も worktree に誘導。feature-branch rule との PJ 上書き必要性を明記
+- **deploy-lock を deploy コマンド専用に分離**: kill ガードは kill-guard エントリに委譲
+
 ## [1.21.1] - 2026-03-31
 
 ### Fixed

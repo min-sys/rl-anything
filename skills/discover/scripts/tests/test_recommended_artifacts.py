@@ -104,6 +104,34 @@ def test_deploy_lock_registered():
     assert art["hook_path"] is not None
 
 
+def test_kill_guard_registered():
+    """kill-guard エントリが RECOMMENDED_ARTIFACTS に登録されている。"""
+    ids = {art["id"] for art in RECOMMENDED_ARTIFACTS}
+    assert "kill-guard" in ids
+    art = next(a for a in RECOMMENDED_ARTIFACTS if a["id"] == "kill-guard")
+    assert art["type"] == "hook"
+    assert art["path"] is None  # hook-only
+    assert art["hook_path"] is not None
+
+
+def test_kill_guard_missing_when_no_hook(tmp_path):
+    """kill-guard hook が未導入の場合、missing に含まれる。"""
+    patched = [
+        {
+            "id": "kill-guard",
+            "type": "hook",
+            "path": None,
+            "description": "test",
+            "hook_path": tmp_path / "nonexistent.py",
+        },
+    ]
+    with patch("discover.RECOMMENDED_ARTIFACTS", patched):
+        result = detect_recommended_artifacts()
+    assert len(result) == 1
+    assert result[0]["id"] == "kill-guard"
+    assert any(m["type"] == "hook" for m in result[0]["missing"])
+
+
 def test_worktree_missing_when_no_rule(tmp_path):
     """worktree rule が未導入の場合、missing に含まれる。"""
     hook = tmp_path / "check-worktree.py"
