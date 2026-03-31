@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 DATA_DIR = Path.home() / ".claude" / "rl-anything"
 EVOLVE_STATE_FILE = DATA_DIR / "evolve-state.json"
 PENDING_TRIGGER_FILE = DATA_DIR / "pending-trigger.json"
+SNOOZE_FILE = DATA_DIR / "trigger-snooze.json"
 
 # History pruning limit
 _MAX_HISTORY_ENTRIES = 100
@@ -652,20 +653,58 @@ def write_pending_trigger(result: TriggerResult) -> None:
 
 
 def read_and_delete_pending_trigger() -> dict[str, Any] | None:
-    """pending-trigger.json を読み取り、削除する。存在しない場合は None。"""
+    """pending-trigger.json を読み取り、削除する。スヌーズ中は配信しない。"""
     if not PENDING_TRIGGER_FILE.exists():
+        return None
+    if _is_snoozed():
         return None
     try:
         data = json.loads(PENDING_TRIGGER_FILE.read_text(encoding="utf-8"))
         PENDING_TRIGGER_FILE.unlink()
         return data
     except (json.JSONDecodeError, OSError):
-        # Read error: delete and return None
         try:
             PENDING_TRIGGER_FILE.unlink()
         except OSError:
             pass
         return None
+
+
+def snooze_trigger(hours: float = 24) -> None:
+    """トリガー通知をスヌーズする。hours 後に再通知。"""
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    snoozed_until = datetime.now(timezone.utc) + timedelta(hours=hours)
+    payload = {"snoozed_until": snoozed_until.isoformat()}
+    SNOOZE_FILE.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def clear_snooze() -> None:
+    """スヌーズを解除する。evolve 実行時に呼ぶ。"""
+    try:
+        SNOOZE_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _is_snoozed() -> bool:
+    """スヌーズ中かどうか判定する。期限切れならスヌーズファイルを削除。"""
+    if not SNOOZE_FILE.exists():
+        return False
+    try:
+        data = json.loads(SNOOZE_FILE.read_text(encoding="utf-8"))
+        snoozed_until = datetime.fromisoformat(data["snoozed_until"])
+        if datetime.now(timezone.utc) < snoozed_until:
+            return True
+        # 期限切れ → クリーンアップ
+        SNOOZE_FILE.unlink(missing_ok=True)
+        return False
+    except (json.JSONDecodeError, KeyError, ValueError, OSError):
+        # 壊れたファイル → 削除
+        try:
+            SNOOZE_FILE.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
 
 
 # --- Skill change detection ---

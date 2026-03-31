@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.22.1] - 2026-03-31
+
+### Added
+- **evolve 通知スヌーズ機能**: `snooze_trigger(hours)` で通知を一時抑制。スヌーズ中は pending-trigger を配信せずファイルを保持。期限切れで自動解除、`clear_snooze()` で手動解除。closes #52
+
 ## [1.22.0] - 2026-03-31
 
 ### Added

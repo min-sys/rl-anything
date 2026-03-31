@@ -21,6 +21,8 @@ def data_dir(tmp_path):
         "trigger_engine.EVOLVE_STATE_FILE", tmp_path / "evolve-state.json"
     ), mock.patch(
         "trigger_engine.PENDING_TRIGGER_FILE", tmp_path / "pending-trigger.json"
+    ), mock.patch(
+        "trigger_engine.SNOOZE_FILE", tmp_path / "trigger-snooze.json"
     ):
         yield tmp_path
 
@@ -109,6 +111,65 @@ class TestE2ETriggerFlow:
         result = trigger_engine.evaluate_corrections()
         assert result.triggered is True
         assert "my-skill" in result.message
+
+    def test_snooze_suppresses_delivery(self, data_dir):
+        """スヌーズ中は pending-trigger を配信しない（ファイルは残る）。"""
+        # pending-trigger を作成
+        pending = {
+            "triggered": True,
+            "reason": "days_elapsed",
+            "action": "/rl-anything:evolve",
+            "message": "前回 evolve から 15.6 日経過",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        (data_dir / "pending-trigger.json").write_text(
+            json.dumps(pending), encoding="utf-8"
+        )
+
+        # スヌーズ設定（24時間後まで）
+        trigger_engine.snooze_trigger(hours=24)
+        assert (data_dir / "trigger-snooze.json").exists()
+
+        # 配信されない（None）+ ファイルが残る
+        data = trigger_engine.read_and_delete_pending_trigger()
+        assert data is None
+        assert (data_dir / "pending-trigger.json").exists()
+
+    def test_snooze_expired_delivers(self, data_dir):
+        """スヌーズ期限切れなら通常通り配信する。"""
+        pending = {
+            "triggered": True,
+            "reason": "days_elapsed",
+            "action": "/rl-anything:evolve",
+            "message": "前回 evolve から 15.6 日経過",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        (data_dir / "pending-trigger.json").write_text(
+            json.dumps(pending), encoding="utf-8"
+        )
+
+        # 過去のスヌーズ（既に期限切れ）
+        expired = {
+            "snoozed_until": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+        }
+        (data_dir / "trigger-snooze.json").write_text(
+            json.dumps(expired), encoding="utf-8"
+        )
+
+        # 期限切れなので配信される
+        data = trigger_engine.read_and_delete_pending_trigger()
+        assert data is not None
+        assert data["triggered"] is True
+        # スヌーズファイルもクリーンアップ
+        assert not (data_dir / "trigger-snooze.json").exists()
+
+    def test_snooze_clears_on_evolve_run(self, data_dir):
+        """evolve 実行でスヌーズが自動解除される。"""
+        trigger_engine.snooze_trigger(hours=48)
+        assert (data_dir / "trigger-snooze.json").exists()
+
+        trigger_engine.clear_snooze()
+        assert not (data_dir / "trigger-snooze.json").exists()
 
     def test_cooldown_prevents_repeated_trigger(self, data_dir):
         """クールダウン中は同一条件の再トリガーを防止。"""
