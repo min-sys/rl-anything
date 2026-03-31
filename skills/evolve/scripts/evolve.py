@@ -742,6 +742,13 @@ def run_evolve(
             }
         save_evolve_state(state)
 
+        # スヌーズ解除（evolve 実行完了で自動クリア）
+        try:
+            from trigger_engine import clear_snooze
+            clear_snooze()
+        except ImportError:
+            pass
+
     # ── NFD: 結晶化イベント emit + growth キャッシュ更新 ────────
     if not dry_run:
         try:
