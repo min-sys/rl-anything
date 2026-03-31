@@ -659,6 +659,29 @@ RECOMMENDED_ARTIFACTS = [
         "recommendation_id": "evidence_before_claims",
         "content_patterns": ["verify-before-claim", "evidence", "証拠", r"完了.*確認"],
     },
+    # --- 構造化実装 ---
+    {
+        "id": "implement-skill",
+        "type": "skill",
+        "path": Path(__file__).resolve().parents[2] / "implement" / "SKILL.md",
+        "description": "implement — plan artifact → タスク分解 → 実装（Standard/Parallel）→ 計画準拠チェック → テレメトリ記録",
+        "hook_path": None,
+    },
+    {
+        "id": "suggest-implement-skill",
+        "type": "rule",
+        "path": Path.home() / ".claude" / "rules" / "suggest-implement-skill.md",
+        "description": "実装タスク時の implement スキル提案 — 「実装して」等で /rl-anything:implement を提案",
+        "hook_path": None,
+    },
+    {
+        "id": "implement-flow-chain",
+        "type": "config",
+        "path": Path.home() / ".gstack" / "flow-chain.json",
+        "description": "gstack フローチェーンに implement を追加 — plan-eng-review → /rl-anything:implement → /review",
+        "hook_path": None,
+        "content_patterns": ["implement"],
+    },
     # --- gstack ワークフローツール ---
     {
         "id": "gstack-flow-chain",
