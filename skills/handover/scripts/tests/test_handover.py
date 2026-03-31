@@ -54,11 +54,11 @@ class TestCollectHandoverData:
             json.dumps(checkpoint, ensure_ascii=False), encoding="utf-8"
         )
 
-        # usage.jsonl にダミーデータ
+        # usage.jsonl にダミーデータ（project フィールド付き）
         usage_file = data_dir / "usage.jsonl"
         usage_file.write_text(
-            json.dumps({"skill_name": "ship", "session_id": "s1", "timestamp": "2026-03-22T00:00:00Z"}) + "\n"
-            + json.dumps({"skill_name": "review", "session_id": "s1", "timestamp": "2026-03-22T00:01:00Z"}) + "\n",
+            json.dumps({"skill_name": "ship", "session_id": "s1", "timestamp": "2026-03-22T00:00:00Z", "project": str(project_dir)}) + "\n"
+            + json.dumps({"skill_name": "review", "session_id": "s1", "timestamp": "2026-03-22T00:01:00Z", "project": str(project_dir)}) + "\n",
             encoding="utf-8",
         )
 
@@ -160,6 +160,27 @@ class TestCollectHandoverData:
 
         # checkpoint はセッション内データなのでフィルタしない
         assert len(result["corrections"]) == 2
+
+
+    def test_usage_filtered_by_project(self, project_dir, data_dir):
+        """usage.jsonl のスキル使用も project でフィルタされる。"""
+        usage_file = data_dir / "usage.jsonl"
+        usage_file.write_text(
+            json.dumps({"skill_name": "ship", "project": str(project_dir), "timestamp": "T1"}) + "\n"
+            + json.dumps({"skill_name": "review", "project": "/other/project", "timestamp": "T2"}) + "\n"
+            + json.dumps({"skill_name": "commit", "project": str(project_dir), "timestamp": "T3"}) + "\n"
+            + json.dumps({"skill_name": "qa", "timestamp": "T4"}) + "\n",  # project なし
+            encoding="utf-8",
+        )
+
+        with mock.patch("handover._run_git", return_value=""):
+            result = handover.collect_handover_data(str(project_dir))
+
+        skills = [s["skill"] for s in result["skills_used"]]
+        assert "ship" in skills
+        assert "commit" in skills
+        assert "review" not in skills
+        assert "qa" not in skills
 
 
 class TestDefaultOutputIsGithub:
