@@ -708,9 +708,9 @@ RECOMMENDED_ARTIFACTS = [
         "id": "deploy-lock",
         "type": "hook",
         "path": None,
-        "description": "デプロイ排他制御 — 同一環境への並行デプロイを lock ファイルで防止（PID + タイムアウト）",
+        "description": "デプロイ排他制御 — 同一環境への並行デプロイを lock ファイルで防止（PreToolUse で取得 + PostToolUse で解放）",
         "hook_path": Path.home() / ".claude" / "hooks" / "deploy-lock.py",
-        "hook_description": "PreToolUse hook: deploy コマンド実行時に環境別 lock ファイルで排他制御",
+        "hook_description": "PreToolUse hook: deploy 時に環境別 lock 取得。PostToolUse hook: deploy 完了時に lock 解放",
     },
     {
         "id": "kill-guard",
