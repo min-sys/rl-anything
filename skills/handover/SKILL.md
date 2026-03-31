@@ -27,8 +27,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/skills/handover/scripts/handover.py" --issue --pr
 
 返却 JSON の `is_github` フィールドを確認する:
 - `--issue` フラグ指定時 → **Issue モード**（Step 2a へ）
-- フラグなし、または `is_github: false` → **ファイルモード**（Step 2b へ）
-- フラグなしで `is_github: true` → ユーザーに Issue モードを提案（「GitHub リポなので Issue に書きますか？」）
+- `is_github: true`（フラグなし） → **Issue モード**（Step 2a へ、GitHub リポはデフォルトで Issue）
+- `is_github: false` → **ファイルモード**（Step 2b へ）
 
 ### Step 2a: Issue モード — 構造化ノート生成 + Issue 作成
 

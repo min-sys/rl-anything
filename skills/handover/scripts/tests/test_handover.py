@@ -36,7 +36,7 @@ def data_dir(tmp_path):
 
 class TestCollectHandoverData:
     def test_happy_path_uses_checkpoint(self, project_dir, data_dir):
-        """checkpoint.json からコンテキストを取得し、git を再呼び出ししない。"""
+        """checkpoint.json からコンテキストを取得し、work_context 用の git を再呼び出ししない。"""
         # checkpoint.json にデータを用意
         checkpoint = {
             "session_id": "s1",
@@ -54,18 +54,19 @@ class TestCollectHandoverData:
             json.dumps(checkpoint, ensure_ascii=False), encoding="utf-8"
         )
 
-        # usage.jsonl にダミーデータ
+        # usage.jsonl にダミーデータ（project フィールド付き）
         usage_file = data_dir / "usage.jsonl"
         usage_file.write_text(
-            json.dumps({"skill_name": "ship", "session_id": "s1", "timestamp": "2026-03-22T00:00:00Z"}) + "\n"
-            + json.dumps({"skill_name": "review", "session_id": "s1", "timestamp": "2026-03-22T00:01:00Z"}) + "\n",
+            json.dumps({"skill_name": "ship", "session_id": "s1", "timestamp": "2026-03-22T00:00:00Z", "project": str(project_dir)}) + "\n"
+            + json.dumps({"skill_name": "review", "session_id": "s1", "timestamp": "2026-03-22T00:01:00Z", "project": str(project_dir)}) + "\n",
             encoding="utf-8",
         )
 
-        with mock.patch("handover._run_git") as mock_git:
-            result = handover.collect_handover_data(str(project_dir))
+        with mock.patch("handover.is_github_repo", return_value=False):
+            with mock.patch("handover._run_git") as mock_git:
+                result = handover.collect_handover_data(str(project_dir))
 
-        # git は呼ばれない（checkpoint から取得するため）
+        # work_context 用の git は呼ばれない（checkpoint から取得するため）
         mock_git.assert_not_called()
 
         # checkpoint の work_context がそのまま使われる
@@ -80,13 +81,14 @@ class TestCollectHandoverData:
 
     def test_fallback_to_git_when_no_checkpoint(self, project_dir, data_dir):
         """checkpoint.json がない場合は git にフォールバックする。"""
-        with mock.patch("handover._run_git") as mock_git:
-            mock_git.side_effect = [
-                "feat/handover\n",  # rev-parse --abbrev-ref HEAD
-                "abc1234 feat: add handover\n",  # log --oneline
-                "M  src/app.py\n",  # status --short
-            ]
-            result = handover.collect_handover_data(str(project_dir))
+        with mock.patch("handover.is_github_repo", return_value=False):
+            with mock.patch("handover._run_git") as mock_git:
+                mock_git.side_effect = [
+                    "feat/handover\n",  # rev-parse --abbrev-ref HEAD
+                    "abc1234 feat: add handover\n",  # log --oneline
+                    "M  src/app.py\n",  # status --short
+                ]
+                result = handover.collect_handover_data(str(project_dir))
 
         assert mock_git.call_count == 3
         assert result["work_context"]["git_branch"] == "feat/handover"
@@ -118,6 +120,88 @@ class TestCollectHandoverData:
             result = handover.collect_handover_data(str(project_dir))
 
         assert len(result["corrections"]) == 1
+
+    def test_corrections_filtered_by_project_path(self, project_dir, data_dir):
+        """corrections.jsonl からの読み込み時、project_path でフィルタされる。"""
+        corrections_file = data_dir / "corrections.jsonl"
+        corrections_file.write_text(
+            json.dumps({"pattern": "fix A", "project_path": str(project_dir)}) + "\n"
+            + json.dumps({"pattern": "fix B", "project_path": "/other/project"}) + "\n"
+            + json.dumps({"pattern": "fix C", "project_path": str(project_dir)}) + "\n"
+            + json.dumps({"pattern": "fix D"}) + "\n",  # project_path なし
+            encoding="utf-8",
+        )
+
+        with mock.patch("handover._run_git", return_value=""):
+            result = handover.collect_handover_data(str(project_dir))
+
+        # project_dir 一致のみ（project_path なしは除外）
+        assert len(result["corrections"]) == 2
+        patterns = [c["pattern"] for c in result["corrections"]]
+        assert "fix A" in patterns
+        assert "fix C" in patterns
+        assert "fix B" not in patterns
+
+    def test_corrections_checkpoint_not_filtered(self, project_dir, data_dir):
+        """checkpoint の corrections_snapshot はフィルタ不要（同セッションのため）。"""
+        checkpoint = {
+            "corrections_snapshot": [
+                {"pattern": "fix A", "project_path": str(project_dir)},
+                {"pattern": "fix B", "project_path": "/other/project"},
+            ],
+            "work_context": {},
+        }
+        (data_dir / "checkpoint.json").write_text(
+            json.dumps(checkpoint, ensure_ascii=False), encoding="utf-8"
+        )
+
+        with mock.patch("handover._run_git", return_value=""):
+            result = handover.collect_handover_data(str(project_dir))
+
+        # checkpoint はセッション内データなのでフィルタしない
+        assert len(result["corrections"]) == 2
+
+
+    def test_usage_filtered_by_project(self, project_dir, data_dir):
+        """usage.jsonl のスキル使用も project でフィルタされる。"""
+        usage_file = data_dir / "usage.jsonl"
+        usage_file.write_text(
+            json.dumps({"skill_name": "ship", "project": str(project_dir), "timestamp": "T1"}) + "\n"
+            + json.dumps({"skill_name": "review", "project": "/other/project", "timestamp": "T2"}) + "\n"
+            + json.dumps({"skill_name": "commit", "project": str(project_dir), "timestamp": "T3"}) + "\n"
+            + json.dumps({"skill_name": "qa", "timestamp": "T4"}) + "\n",  # project なし
+            encoding="utf-8",
+        )
+
+        with mock.patch("handover._run_git", return_value=""):
+            result = handover.collect_handover_data(str(project_dir))
+
+        skills = [s["skill"] for s in result["skills_used"]]
+        assert "ship" in skills
+        assert "commit" in skills
+        assert "review" not in skills
+        assert "qa" not in skills
+
+
+class TestDefaultOutputIsGithub:
+    """Bug 2: デフォルト出力に is_github を含む。"""
+
+    def test_default_output_includes_is_github(self, data_dir):
+        """--issue なしでも is_github フィールドを含む。"""
+        with mock.patch("handover._run_git", return_value=""):
+            with mock.patch("handover.is_github_repo", return_value=True):
+                result = handover.collect_handover_data("/tmp/proj")
+
+        assert "is_github" in result
+        assert result["is_github"] is True
+
+    def test_default_output_is_github_false(self, data_dir):
+        """非 GitHub リポでは is_github=False。"""
+        with mock.patch("handover._run_git", return_value=""):
+            with mock.patch("handover.is_github_repo", return_value=False):
+                result = handover.collect_handover_data("/tmp/proj")
+
+        assert result["is_github"] is False
 
 
 class TestListHandovers:

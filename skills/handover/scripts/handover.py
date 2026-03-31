@@ -94,6 +94,13 @@ def create_issue(title: str, body: str, labels: list[str] | None = None) -> str 
         return None
 
 
+def _match_project_path(record_path: str, resolved_dir: str) -> bool:
+    """レコードの project_path が resolved_dir と同じかを判定する。パス正規化対応。"""
+    if not record_path:
+        return False
+    return str(Path(record_path).resolve()) == resolved_dir
+
+
 def _run_git(args: list[str], *, cwd: str | None = None) -> str:
     """git コマンドを実行し stdout を返す。失敗時は空文字列。"""
     try:
@@ -172,6 +179,7 @@ def collect_handover_data(project_dir: str) -> dict:
     なければ git にフォールバックする。
     """
     checkpoint = _load_checkpoint()
+    resolved_dir = str(Path(project_dir).resolve())
 
     # work_context: checkpoint 優先、なければ git フォールバック
     if checkpoint and checkpoint.get("work_context"):
@@ -183,14 +191,18 @@ def collect_handover_data(project_dir: str) -> dict:
     if checkpoint and checkpoint.get("corrections_snapshot"):
         corrections = checkpoint["corrections_snapshot"][-10:]
     else:
-        corrections = _load_session_records(DATA_DIR / "corrections.jsonl")[-10:]
+        all_corrections = _load_session_records(DATA_DIR / "corrections.jsonl")
+        corrections = [
+            c for c in all_corrections
+            if _match_project_path(c.get("project_path", ""), resolved_dir)
+        ][-10:]
 
     # usage.jsonl — 当セッションのスキル使用
     usage_records = _load_session_records(DATA_DIR / "usage.jsonl")
     skills_used = [
         {"skill": r.get("skill_name", ""), "timestamp": r.get("timestamp", "")}
         for r in usage_records
-        if r.get("skill_name")
+        if r.get("skill_name") and _match_project_path(r.get("project", ""), resolved_dir)
     ][-20:]
 
     return {
@@ -199,6 +211,7 @@ def collect_handover_data(project_dir: str) -> dict:
         "work_context": work_context,
         "skills_used": skills_used,
         "corrections": corrections,
+        "is_github": is_github_repo(cwd=project_dir),
     }
 
 
@@ -281,7 +294,7 @@ def main() -> None:
         issue_data = {
             "title": format_issue_title(data),
             "body": format_issue_body(data),
-            "is_github": is_github_repo(cwd=project_dir),
+            "is_github": data["is_github"],
             "data": data,
         }
         print(json.dumps(issue_data, ensure_ascii=False, indent=2))
