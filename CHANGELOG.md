@@ -5,6 +5,11 @@
 ### Added
 - **implement スキル追加**: plan artifact → タスク分解 → 実装（Standard/Parallel）→ 計画準拠チェック → テレメトリ記録の構造化実装スキル。gstack plan artifact 連携（オプション）、usage.jsonl + growth-journal 記録、worktree 並列対応
 
+## [1.21.3] - 2026-03-31
+
+### Fixed
+- **deploy-lock description に PostToolUse lock 解放要件を追記**: デプロイ完了後に lock を自動解放する仕組みが必要であることを明記。lock 未解放による次回 deploy ブロック問題の防止
+
 ## [1.21.2] - 2026-03-31
 
 ### Added
