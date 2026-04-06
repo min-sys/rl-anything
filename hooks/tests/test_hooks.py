@@ -12,9 +12,13 @@ from unittest import mock
 import pytest
 
 # hooks/ をインポートパスに追加
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_hooks = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_hooks))
+# scripts/lib/ も追加（rl_common を直接パッチするため）
+sys.path.insert(0, str(_hooks.parent / "scripts" / "lib"))
 
 import common
+import rl_common
 import observe
 import session_summary
 import save_state
@@ -33,9 +37,19 @@ def tmp_data_dir(tmp_path):
 
 @pytest.fixture
 def patch_data_dir(tmp_data_dir):
-    """common.DATA_DIR と CHECKPOINTS_DIR を一時ディレクトリに差し替える。"""
+    """common.DATA_DIR / CHECKPOINTS_DIR と rl_common の同名変数を一時ディレクトリに差し替える。
+
+    common.py が rl_common の re-exporter になったため、関数内部で参照される
+    rl_common.DATA_DIR / CHECKPOINTS_DIR / FALSE_POSITIVES_FILE も同時にパッチする。
+    """
+    checkpoints = tmp_data_dir / "checkpoints"
+    fp_file = tmp_data_dir / "false_positives.jsonl"
     with mock.patch.object(common, "DATA_DIR", tmp_data_dir), \
-         mock.patch.object(common, "CHECKPOINTS_DIR", tmp_data_dir / "checkpoints"):
+         mock.patch.object(common, "CHECKPOINTS_DIR", checkpoints), \
+         mock.patch.object(common, "FALSE_POSITIVES_FILE", fp_file), \
+         mock.patch.object(rl_common, "DATA_DIR", tmp_data_dir), \
+         mock.patch.object(rl_common, "CHECKPOINTS_DIR", checkpoints), \
+         mock.patch.object(rl_common, "FALSE_POSITIVES_FILE", fp_file):
         yield tmp_data_dir
 
 
@@ -464,7 +478,9 @@ class TestObserve:
     def test_directory_auto_created(self, tmp_path):
         """ディレクトリが存在しない場合 MUST 自動作成する。"""
         new_dir = tmp_path / "new-rl-anything"
-        with mock.patch.object(common, "DATA_DIR", new_dir):
+        with mock.patch.object(common, "DATA_DIR", new_dir), \
+             mock.patch.object(rl_common, "DATA_DIR", new_dir), \
+             mock.patch.object(rl_common, "CHECKPOINTS_DIR", new_dir / "checkpoints"):
             event = {
                 "tool_name": "Skill",
                 "tool_input": {"skill": "test"},
@@ -1258,7 +1274,7 @@ class TestPruneParentSkill:
                 "skill_name": "Agent:Explore",
                 "parent_skill": "opsx:refine",
                 "workflow_id": "wf-prune001",
-                "timestamp": "2026-03-03T10:00:00+00:00",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         ]
         usage_file.write_text(
@@ -1314,7 +1330,9 @@ class TestFilePermissions:
     def test_ensure_data_dir_creates_700(self, tmp_path):
         """ensure_data_dir がディレクトリを 700 で作成する。"""
         data_dir = tmp_path / "new-dir"
-        with mock.patch.object(common, "DATA_DIR", data_dir):
+        with mock.patch.object(common, "DATA_DIR", data_dir), \
+             mock.patch.object(rl_common, "DATA_DIR", data_dir), \
+             mock.patch.object(rl_common, "CHECKPOINTS_DIR", data_dir / "checkpoints"):
             common.ensure_data_dir()
         assert data_dir.exists()
         assert oct(data_dir.stat().st_mode & 0o777) == oct(0o700)
@@ -1762,21 +1780,28 @@ class TestStopFailure:
 
 
 class TestDataDirFallback:
-    """DATA_DIR の CLAUDE_PLUGIN_DATA フォールバックテスト。"""
+    """DATA_DIR の CLAUDE_PLUGIN_DATA フォールバックテスト。
+
+    common.py は rl_common の re-exporter になったため、DATA_DIR の実体は
+    rl_common にある。reload 時は rl_common → common の順で行う。
+    """
 
     def test_plugin_data_env_used(self, tmp_path):
         """CLAUDE_PLUGIN_DATA が設定されている場合はそちらが使われる。"""
         plugin_data = str(tmp_path / "plugin-data")
         with mock.patch.dict(os.environ, {"CLAUDE_PLUGIN_DATA": plugin_data}):
+            importlib.reload(rl_common)
             importlib.reload(common)
-            assert common.DATA_DIR == Path(plugin_data)
+            assert rl_common.DATA_DIR == Path(plugin_data)
         # 元に戻す
         os.environ.pop("CLAUDE_PLUGIN_DATA", None)
+        importlib.reload(rl_common)
         importlib.reload(common)
 
     def test_fallback_when_unset(self):
         """CLAUDE_PLUGIN_DATA 未設定時は従来パスにフォールバック。"""
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("CLAUDE_PLUGIN_DATA", None)
+            importlib.reload(rl_common)
             importlib.reload(common)
             assert common.DATA_DIR == Path.home() / ".claude" / "rl-anything"
