@@ -35,7 +35,7 @@ TARGET がスキル名（例: `my-skill`）の場合、`.claude/skills/{name}/SK
 ### 2. スクリプトを実行する
 
 ```bash
-python3 <PLUGIN_DIR>/skills/rl-loop-orchestrator/scripts/run-loop.py \
+rl-loop \
   --target <TARGET> [OPTIONS]
 ```
 

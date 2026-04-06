@@ -29,7 +29,7 @@ corrections.jsonl に蓄積されたユーザー修正を分析し、
 ### Step 1: reflect.py を実行
 
 ```bash
-python3 <PLUGIN_DIR>/skills/reflect/scripts/reflect.py [オプション]
+rl-reflect [オプション]
 ```
 
 ### Step 2: 出力 JSON を読み取る

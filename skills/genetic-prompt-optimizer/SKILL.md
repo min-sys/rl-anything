@@ -37,7 +37,7 @@ TARGET がスキル名（例: `my-skill`）の場合、`.claude/skills/{name}/SK
 ### 2. スクリプトを実行する
 
 ```bash
-python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py \
+rl-optimize \
   --target <TARGET> [OPTIONS]
 ```
 
@@ -55,11 +55,11 @@ python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py \
 1. AskUserQuestion で「この最適化結果を採用しますか？」と確認する（options: 「Accept（結果を採用）」「Reject（却下して理由を記録）」）
 2. **Accept の場合**: 以下を実行して `history.jsonl` に `human_accepted: true` を記録する
    ```bash
-   python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py --target <TARGET> --accept
+   rl-optimize --target <TARGET> --accept
    ```
 3. **Reject の場合**: AskUserQuestion（open-ended）で却下理由を確認し、以下を実行して `history.jsonl` に `human_accepted: false` と `rejection_reason` を記録する
    ```bash
-   python3 <PLUGIN_DIR>/skills/genetic-prompt-optimizer/scripts/optimize.py --target <TARGET> --reject --reason "<理由>"
+   rl-optimize --target <TARGET> --reject --reason "<理由>"
    ```
 
 ## 使用例
