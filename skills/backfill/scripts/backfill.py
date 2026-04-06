@@ -17,11 +17,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-# プラグインルートを sys.path に追加して hooks/common.py を import
-PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(PLUGIN_ROOT / "hooks"))
+from plugin_root import PLUGIN_ROOT
+sys.path.insert(0, str(PLUGIN_ROOT / "scripts" / "lib"))
 
-import common
+import rl_common as common
 
 CLAUDE_PROJECTS_DIR = Path.home() / ".claude" / "projects"
 MAX_PROMPT_LENGTH = 500

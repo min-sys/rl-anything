@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""bin/rl-loop — 自律進化ループオーケストレーター CLI。"""
+import sys
+from pathlib import Path
+
+_lib = Path(__file__).resolve().parent.parent / "scripts" / "lib"
+_scripts = Path(__file__).resolve().parent.parent / "skills" / "rl-loop-orchestrator" / "scripts"
+sys.path.insert(0, str(_lib))
+sys.path.insert(0, str(_scripts))
+
+from run_loop import main
+
+if __name__ == "__main__":
+    main()

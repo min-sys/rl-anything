@@ -12,11 +12,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-# hooks/common.py を import
-PLUGIN_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(PLUGIN_ROOT / "hooks"))
+from plugin_root import PLUGIN_ROOT
+sys.path.insert(0, str(PLUGIN_ROOT / "scripts" / "lib"))
 
-import common
+import rl_common as common
 
 
 # routing 優先度テーブル（数値が小さいほど優先度が高い）
