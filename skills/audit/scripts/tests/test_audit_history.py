@@ -7,6 +7,8 @@ from unittest import mock
 import pytest
 
 _audit_dir = Path(__file__).resolve().parent.parent
+_plugin_root = _audit_dir.parent.parent.parent
+sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 sys.path.insert(0, str(_audit_dir))
 
 from audit import (

@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+_plugin_root = Path(__file__).resolve().parent.parent.parent.parent.parent
+sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from audit import _extract_paths_outside_codeblocks
 
