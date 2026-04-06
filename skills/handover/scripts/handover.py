@@ -12,11 +12,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-_plugin_root = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(_plugin_root / "hooks"))
+from plugin_root import PLUGIN_ROOT
+_plugin_root = PLUGIN_ROOT
+sys.path.insert(0, str(PLUGIN_ROOT / "scripts" / "lib"))
 
-import common
-from common import DATA_DIR
+import rl_common as common
+from rl_common import DATA_DIR
 
 # Constants
 HANDOVER_DIR = ".claude/handovers"

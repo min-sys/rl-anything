@@ -14,9 +14,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # プラグインルートを解決して import パスに追加
-_plugin_root = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(_plugin_root / "scripts"))
-sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
+from plugin_root import PLUGIN_ROOT
+_plugin_root = PLUGIN_ROOT
+sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
+sys.path.insert(0, str(PLUGIN_ROOT / "scripts" / "lib"))
 
 from reflect_utils import (
     read_all_memory_entries,
@@ -29,9 +30,7 @@ from line_limit import check_line_limit, suggest_separation
 from semantic_detector import detect_contradictions, validate_corrections
 from similarity import tokenize
 
-# hooks/common.py から偽陽性ユーティリティを import
-sys.path.insert(0, str(_plugin_root / "hooks"))
-from common import cleanup_false_positives
+from rl_common import cleanup_false_positives
 
 # corrections.jsonl のデフォルトパス
 CORRECTIONS_FILE = Path.home() / ".claude" / "rl-anything" / "corrections.jsonl"
@@ -449,7 +448,7 @@ def build_output(
     for c in corrections_out:
         ctype = c.get("correction_type", "other")
         # type を大分類に
-        from hooks.common import CORRECTION_PATTERNS
+        from rl_common import CORRECTION_PATTERNS
         pattern_info = CORRECTION_PATTERNS.get(ctype, {})
         broad_type = pattern_info.get("type", "correction")
         by_type[broad_type] += 1

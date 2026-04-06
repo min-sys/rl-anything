@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""bin/rl-handover — セッション作業状態の構造化ノート書き出し CLI。"""
+import sys
+from pathlib import Path
+
+_lib = Path(__file__).resolve().parent.parent / "scripts" / "lib"
+_scripts = Path(__file__).resolve().parent.parent / "skills" / "handover" / "scripts"
+sys.path.insert(0, str(_lib))
+sys.path.insert(0, str(_scripts))
+
+from handover import main
+
+if __name__ == "__main__":
+    main()
