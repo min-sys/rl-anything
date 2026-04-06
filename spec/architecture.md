@@ -3,18 +3,19 @@
 > このファイルは SPEC.md から分離された詳細仕様です。
 > 概要は [SPEC.md](../SPEC.md) を参照してください。
 
-Last updated: 2026-03-26
+Last updated: 2026-04-07
 
 ## コンポーネント構成
 
 ```
-hooks/                  ← Observe 層（12個、LLMコストゼロ）[ADR-002]
-  common.py             ← PROMPT_CATEGORIES, classify_prompt, load_user_config
+hooks/                  ← Observe 層（13個、LLMコストゼロ）[ADR-002]
+  common.py             ← scripts/lib/rl_common の re-exporter（後方互換）[ADR-019]
   observe.py            ← usage/errors/corrections 記録
   correction_detect.py  ← corrections 自動検出
   subagent_observe.py   ← subagents.jsonl 記録
   instructions_loaded.py← sessions.jsonl [ADR-015] + Growth greeting（LLMコストゼロ）
   stop_failure.py       ← API エラー記録
+  permission_denied.py  ← PermissionDenied hook（CC v2.1.89）errors.jsonl に記録
   save_state.py         ← Compaction 前の作業コンテキスト保存 [ADR-013]
   restore_state.py      ← セッション開始時の状態復元
   session_summary.py    ← セッションサマリー記録 + auto_trigger ゲート
@@ -22,7 +23,12 @@ hooks/                  ← Observe 層（12個、LLMコストゼロ）[ADR-002]
   workflow_context.py   ← ワークフローコンテキスト記録
   file_changed.py       ← FileChanged hook（CC v2.1.83）CLAUDE.md/SKILL.md/rules 変更検知
 
-skills/                 ← スキル定義（21個）
+bin/                    ← bareコマンド CLI（13個）[ADR-019]
+  rl-evolve, rl-audit, rl-discover, rl-prune, rl-reorganize
+  rl-reflect, rl-handover, rl-optimize, rl-loop
+  rl-backfill, rl-backfill-analyze, rl-backfill-reclassify, rl-audit-aggregate
+
+skills/                 ← スキル定義（22個）
   evolve/               ← 3ステージ自律進化パイプライン
   discover/             ← パターン検出 + スキル候補生成
   reflect/              ← 修正フィードバック反映
@@ -31,11 +37,18 @@ skills/                 ← スキル定義（21個）
   agent-brushup/        ← エージェント品質診断
   second-opinion/       ← Claude Agent セカンドオピニオン（codex 代替）
   handover/             ← セッション引き継ぎ + Deploy State 構造化 + SPEC.md 同期 + PreCompact 自動提案
+  implement/            ← 構造化実装スキル（plan → 実装 → 計画準拠チェック → テレメトリ）
 
-scripts/lib/            ← 共通ロジック（30 モジュール）
+scripts/lib/            ← 共通ロジック（38 モジュール）[ADR-019]
+  plugin_root.py        ← PLUGIN_ROOT 定数（depth ハードコード廃止）
+  rl_common.py          ← hooks 共通ユーティリティ（DATA_DIR, classify_prompt 等）
+  audit.py              ← 環境健康診断ロジック（スキル/ルール/CLAUDE.md 診断）
+  discover.py           ← パターン検出 + スキル/ルール候補生成
+  prune.py              ← スキル/ルール統廃合候補抽出
+  reorganize.py         ← スキル分割候補検出
+  remediation.py        ← confidence-based 問題分類 + 修正 + FP排除 + 原則ベース昇格
   telemetry_query.py    ← DuckDB 共通クエリ層
   layer_diagnose.py     ← 4レイヤー診断
-  remediation.py        ← confidence-based 問題分類 + 修正 + FP排除 + 原則ベース昇格
   regression_gate.py    ← 共通 regression gate
   skill_triage.py       ← スキルライフサイクル 5択判定
   pitfall_manager.py    ← pitfall 品質ゲート + ライフサイクル
@@ -50,6 +63,7 @@ scripts/lib/            ← 共通ロジック（30 モジュール）
   growth_engine.py      ← NFD Growth Engine（Phase 4段階判定 + 進捗率 + PJ別キャッシュ）
   growth_journal.py     ← 結晶化イベント記録・照会 + git log backfill
   growth_narrative.py   ← 環境プロファイル（性格特性5種）+ 成長ストーリー生成
+  （他 15 モジュール: frontmatter, growth_level, skill_evolve, skill_triggers 等）
 
 scripts/rl/fitness/     ← 適応度関数（8個組み込み + config.py で閾値集約）
   config.py             ← 全モジュール共有閾値 + BASE_WEIGHTS

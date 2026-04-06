@@ -16,6 +16,12 @@ claude plugin install rl-anything@rl-anything --scope user
 
 再起動後、Observe hooks が自動で動き始め、スキル使用・エラー・修正フィードバックを記録する。
 
+`bin/` に bareコマンド（`rl-audit`, `rl-evolve` 等）も提供。PATH に追加すると CLI から直接実行できる:
+```bash
+export PATH="$(claude plugin path rl-anything)/bin:$PATH"
+rl-audit
+```
+
 ```bash
 # 環境の健康診断
 /rl-anything:audit
@@ -78,7 +84,7 @@ rl-anything は **3つの独立した柱** で構成される。
 
 > すべてのコマンドは `/rl-anything:` プレフィックス付きで呼び出す（例: `/rl-anything:evolve`）
 
-## スキル一覧（全21スキル）
+## スキル一覧（全22スキル）
 
 | スキル | 柱 | 説明 |
 |--------|-----|------|
@@ -95,6 +101,7 @@ rl-anything は **3つの独立した柱** で構成される。
 | `evolve-skill` | 直接パッチ最適化 | 特定スキルに自己進化パターン組み込み |
 | `agent-brushup` | エージェント管理 | エージェント定義の品質診断・改善提案 |
 | `second-opinion` | セカンドオピニオン | Claude Agent による独立した cold-read セカンドオピニオン |
+| `implement` | 構造化実装 | plan artifact → タスク分解 → 実装（Standard/Parallel）→ 計画準拠チェック → テレメトリ記録 |
 | `spec-keeper` | 仕様管理 | SPEC.md + ADR 管理、Progressive Disclosure L1/L2 自動昇格 |
 | `handover` | セッション管理 | 作業状態を構造化ノートに書き出し、別セッションへ引き継ぎ。`--issue` で GitHub Issue 出力 |
 | `release-notes-review` | ユーティリティ | CC リリースノート分析＋グローバル環境健康診断（`--env-only` 対応） |
@@ -106,7 +113,7 @@ rl-anything は **3つの独立した柱** で構成される。
 
 ## Hooks（データ収集）
 
-11個の hooks が LLM コストゼロでセッションライフサイクル全体をカバーする。
+12個の hooks が LLM コストゼロでセッションライフサイクル全体をカバーする。
 
 | Hook | イベント | 出力先 |
 |------|---------|--------|
@@ -117,6 +124,7 @@ rl-anything は **3つの独立した柱** で構成される。
 | `workflow_context` | PreToolUse | `$TMPDIR/rl-anything-workflow-*.json` |
 | `suggest_subagent_delegation` | PreToolUse | stdout（委譲提案） |
 | `file_changed` | FileChanged | stdout（audit 提案） |
+| `permission_denied` | PermissionDenied | `errors.jsonl`（パーミッション拒否記録） |
 | `stop_failure` | Stop | `errors.jsonl`（API エラー） |
 | `save_state` | PreCompact | `checkpoint.json` |
 | `restore_state` | SessionStart | stdout |
