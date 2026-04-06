@@ -8,10 +8,11 @@ import pytest
 
 # backfill.py をインポートパスに追加
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-# hooks/ もインポートパスに追加（common.py 用）
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent / "hooks"))
+# scripts/lib/ を追加（rl_common 用）
+_lib = Path(__file__).resolve().parent.parent.parent.parent.parent / "scripts" / "lib"
+sys.path.insert(0, str(_lib))
 
-import common
+import rl_common as common
 import backfill
 
 
@@ -25,8 +26,12 @@ def tmp_data_dir(tmp_path):
 
 @pytest.fixture
 def patch_data_dir(tmp_data_dir):
-    """common.DATA_DIR を一時ディレクトリに差し替える。"""
-    with mock.patch.object(common, "DATA_DIR", tmp_data_dir):
+    """rl_common.DATA_DIR と backfill.common.DATA_DIR を一時ディレクトリに差し替える。
+
+    backfill.py が import rl_common as common しているため両方パッチが必要。
+    """
+    with mock.patch.object(common, "DATA_DIR", tmp_data_dir), \
+         mock.patch.object(backfill.common, "DATA_DIR", tmp_data_dir):
         yield tmp_data_dir
 
 

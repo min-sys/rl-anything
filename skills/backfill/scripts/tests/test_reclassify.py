@@ -8,9 +8,11 @@ import pytest
 
 # reclassify.py をインポートパスに追加
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent.parent.parent / "hooks"))
+# scripts/lib/ を追加（rl_common 用）
+_lib = Path(__file__).resolve().parent.parent.parent.parent.parent / "scripts" / "lib"
+sys.path.insert(0, str(_lib))
 
-import common
+import rl_common as common
 import reclassify
 
 
@@ -24,8 +26,9 @@ def tmp_data_dir(tmp_path):
 
 @pytest.fixture
 def patch_data_dir(tmp_data_dir):
-    """common.DATA_DIR を一時ディレクトリに差し替える。"""
-    with mock.patch.object(common, "DATA_DIR", tmp_data_dir):
+    """rl_common.DATA_DIR と reclassify.common.DATA_DIR を一時ディレクトリに差し替える。"""
+    with mock.patch.object(common, "DATA_DIR", tmp_data_dir), \
+         mock.patch.object(reclassify.common, "DATA_DIR", tmp_data_dir):
         yield tmp_data_dir
 
 
