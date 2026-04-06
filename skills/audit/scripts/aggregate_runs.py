@@ -10,7 +10,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List
 
-GENERATIONS_DIR = Path(__file__).parent.parent / "skills" / "genetic-prompt-optimizer" / "scripts" / "generations"
+from plugin_root import PLUGIN_ROOT
+_lib = PLUGIN_ROOT / "scripts" / "lib"
+if str(_lib) not in sys.path:
+    sys.path.insert(0, str(_lib))
+GENERATIONS_DIR = PLUGIN_ROOT / "skills" / "genetic-prompt-optimizer" / "scripts" / "generations"
 RL_LOOP_DIR = Path.cwd() / ".rl-loop"
 
 
@@ -108,7 +112,11 @@ def aggregate(records: List[Dict[str, Any]], history: List[Dict[str, Any]]) -> s
     return "\n".join(lines)
 
 
-if __name__ == "__main__":
+def main() -> None:
     records = load_generation_data()
     history = load_history()
     print(aggregate(records, history))
+
+
+if __name__ == "__main__":
+    main()

@@ -27,7 +27,7 @@ description: |
 ### Step 1: パターン検出
 
 ```bash
-python3 <PLUGIN_DIR>/skills/discover/scripts/discover.py [--session-scan]
+rl-discover [--session-scan]
 ```
 
 ### Step 2: 検出結果の表示
