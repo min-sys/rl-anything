@@ -11,15 +11,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-_plugin_root = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(_plugin_root / "scripts" / "lib"))
-sys.path.insert(0, str(_plugin_root / "skills" / "audit" / "scripts"))
-sys.path.insert(0, str(_plugin_root / "skills" / "discover" / "scripts"))
-sys.path.insert(0, str(_plugin_root / "skills" / "prune" / "scripts"))
-sys.path.insert(0, str(_plugin_root / "skills" / "evolve-fitness" / "scripts"))
-# enrich は discover に統合済み — import パス不要
-sys.path.insert(0, str(_plugin_root / "skills" / "reorganize" / "scripts"))
-sys.path.insert(0, str(_plugin_root / "skills" / "evolve" / "scripts"))
+from plugin_root import PLUGIN_ROOT
+_plugin_root = PLUGIN_ROOT
+sys.path.insert(0, str(PLUGIN_ROOT / "scripts" / "lib"))
+sys.path.insert(0, str(PLUGIN_ROOT / "skills" / "evolve-fitness" / "scripts"))
 
 DATA_DIR = Path.home() / ".claude" / "rl-anything"
 EVOLVE_STATE_FILE = DATA_DIR / "evolve-state.json"
@@ -765,7 +760,7 @@ def _emit_growth_crystallization(result: Dict[str, Any], project_dir: Optional[s
     キャッシュ (growth-state) は更新しない — audit が唯一の権威。
     journal の phase はキャッシュからフォールバック取得する。
     """
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "lib"))
+    sys.path.insert(0, str(PLUGIN_ROOT / "scripts" / "lib"))
     from growth_journal import emit_crystallization
     from growth_engine import read_cache
 
