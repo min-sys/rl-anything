@@ -19,7 +19,7 @@ sys.path.insert(0, str(PLUGIN_ROOT / "scripts" / "lib"))
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
 from frontmatter import extract_description, parse_frontmatter
-from lib.similarity import filter_merge_group_pairs
+from similarity import filter_merge_group_pairs
 from discover import load_merge_suppression
 
 from audit import (
@@ -41,8 +41,6 @@ CORRECTION_PENALTY = 0.15
 
 def _count_triggers(skill_path: Path) -> int:
     """SKILL.md の frontmatter から Trigger 数を取得する。"""
-    from frontmatter import parse_frontmatter
-
     p = Path(skill_path)
     if p.name != "SKILL.md":
         candidate = p.parent / "SKILL.md" if p.is_file() else p / "SKILL.md"
