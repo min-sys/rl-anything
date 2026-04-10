@@ -15,6 +15,10 @@ from pathlib import Path
 
 import common
 
+# sessionTitle を emit するパターン種別（v2.1.94+ の hookSpecificOutput.sessionTitle）
+_SESSION_TITLE_SENTIMENTS = {"explicit", "guardrail"}
+_SESSION_TITLE_MAX_LEN = 80
+
 # trigger_engine import (optional)
 _trigger_engine = None
 try:
@@ -108,20 +112,50 @@ def handle_user_prompt_submit(event: dict) -> None:
     }
     common.append_jsonl(common.DATA_DIR / "corrections.jsonl", record)
 
-    # Corrections threshold trigger evaluation
-    _check_corrections_trigger()
+    # Corrections threshold trigger evaluation (plain-text output)
+    trigger_fired = _check_corrections_trigger()
+
+    # Session title emission (JSON output). plain-text trigger との混在を避けるため、
+    # trigger が発火したフレームでは sessionTitle を emit しない。
+    if not trigger_fired:
+        sentiment = pattern_info.get("type", "correction")
+        if sentiment in _SESSION_TITLE_SENTIMENTS:
+            title = _build_session_title(correction_type, message.strip())
+            print(json.dumps(
+                {"hookSpecificOutput": {"sessionTitle": title}},
+                ensure_ascii=False,
+            ))
 
 
-def _check_corrections_trigger() -> None:
-    """corrections 蓄積閾値を評価し、到達時に stdout に提案メッセージを出力する。"""
+def _build_session_title(correction_type: str, message: str,
+                         max_len: int = _SESSION_TITLE_MAX_LEN) -> str:
+    """correction から 1行のセッションタイトルを組み立てる。"""
+    prefix = f"[{correction_type}] "
+    oneliner = " ".join(message.split())  # 改行・連続空白を畳む
+    available = max_len - len(prefix)
+    if available <= 0:
+        return prefix[:max_len]
+    if len(oneliner) > available:
+        oneliner = oneliner[: max(0, available - 1)] + "…"
+    return prefix + oneliner
+
+
+def _check_corrections_trigger() -> bool:
+    """corrections 蓄積閾値を評価し、到達時に stdout に提案メッセージを出力する。
+
+    Returns:
+        True if a trigger message was printed, else False.
+    """
     if _trigger_engine is None:
-        return
+        return False
     try:
         result = evaluate_corrections()
         if result.triggered and result.message:
             print(f"[rl-anything:auto-trigger] {result.message}")
+            return True
     except Exception as e:
         print(f"[rl-anything:correction] trigger eval error: {e}", file=sys.stderr)
+    return False
 
 
 def main() -> None:

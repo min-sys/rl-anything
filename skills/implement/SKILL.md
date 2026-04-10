@@ -103,6 +103,10 @@ plan ファイルの内容を計画として使う。
 
 Agent ツールの `isolation: "worktree"` を使い、レーンごとに並列実行する。
 
+> **進捗モニタリング (CC v2.1.98+)**: `run_in_background: true` で起動した subagent や長時間バックグラウンド処理の stdout は、`Monitor` tool で stream として受信できる。`sleep` ポーリングの代替として採用。
+
+
+
 各実装エージェントに渡すプロンプト:
 
 ```

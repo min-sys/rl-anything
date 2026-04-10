@@ -425,3 +425,100 @@ class TestCorrectionDetectHook:
         correction_detect.handle_user_prompt_submit(event)
         corrections_file = patch_data_dir / "corrections.jsonl"
         assert corrections_file.exists()
+
+
+class TestSessionTitle:
+    """hookSpecificOutput.sessionTitle 出力のテスト (CC v2.1.94+)."""
+
+    def test_session_title_on_remember(self, patch_data_dir, capsys):
+        """explicit パターン（remember:）で sessionTitle を JSON 出力する。"""
+        event = {
+            "session_id": "sess-st-001",
+            "message": {"content": "remember: always use bun"},
+        }
+        correction_detect.handle_user_prompt_submit(event)
+        captured = capsys.readouterr()
+        out = captured.out.strip()
+        assert out.startswith("{"), f"expected JSON output, got: {out!r}"
+        data = json.loads(out)
+        assert "hookSpecificOutput" in data
+        assert "sessionTitle" in data["hookSpecificOutput"]
+        title = data["hookSpecificOutput"]["sessionTitle"]
+        assert "remember" in title
+
+    def test_session_title_on_guardrail(self, patch_data_dir, capsys):
+        """guardrail パターンで sessionTitle を出力する。"""
+        event = {
+            "session_id": "sess-st-002",
+            "message": {"content": "don't add comments unless I ask"},
+        }
+        correction_detect.handle_user_prompt_submit(event)
+        captured = capsys.readouterr()
+        out = captured.out.strip()
+        data = json.loads(out)
+        assert "hookSpecificOutput" in data
+        assert "sessionTitle" in data["hookSpecificOutput"]
+
+    def test_no_session_title_on_regular_correction(self, patch_data_dir, capsys):
+        """通常の correction パターン（iya）では sessionTitle を出力しない。"""
+        event = {
+            "session_id": "sess-st-003",
+            "message": {"content": "いや、そうじゃなくて"},
+        }
+        correction_detect.handle_user_prompt_submit(event)
+        captured = capsys.readouterr()
+        out = captured.out.strip()
+        # 通常 correction は sessionTitle を emit しない
+        # trigger message（plain text）は許容、JSON sessionTitle は不可
+        if out.startswith("{"):
+            data = json.loads(out)
+            assert "sessionTitle" not in data.get("hookSpecificOutput", {})
+
+    def test_no_session_title_on_positive(self, patch_data_dir, capsys):
+        """positive パターンでも sessionTitle は出さない（ノイズ防止）。"""
+        event = {
+            "session_id": "sess-st-pos",
+            "message": {"content": "perfect! that's exactly what I wanted"},
+        }
+        correction_detect.handle_user_prompt_submit(event)
+        captured = capsys.readouterr()
+        out = captured.out.strip()
+        if out.startswith("{"):
+            data = json.loads(out)
+            assert "sessionTitle" not in data.get("hookSpecificOutput", {})
+
+    def test_no_output_on_no_match(self, patch_data_dir, capsys):
+        """correction パターン非該当時は一切出力しない。"""
+        event = {
+            "session_id": "sess-st-004",
+            "message": {"content": "hello world"},
+        }
+        correction_detect.handle_user_prompt_submit(event)
+        captured = capsys.readouterr()
+        assert captured.out.strip() == ""
+
+    def test_session_title_length_cap(self, patch_data_dir, capsys):
+        """sessionTitle は 80 chars 以内に収まる。"""
+        long_message = "remember: " + ("とても長い指示 " * 20)
+        event = {
+            "session_id": "sess-st-005",
+            "message": {"content": long_message},
+        }
+        correction_detect.handle_user_prompt_submit(event)
+        captured = capsys.readouterr()
+        data = json.loads(captured.out.strip())
+        title = data["hookSpecificOutput"]["sessionTitle"]
+        assert len(title) <= 80
+
+    def test_session_title_ascii_json_safe(self, patch_data_dir, capsys):
+        """日本語を含む title も UTF-8 JSON として往復できる。"""
+        event = {
+            "session_id": "sess-st-006",
+            "message": {"content": "remember: 常に bun を使う"},
+        }
+        correction_detect.handle_user_prompt_submit(event)
+        captured = capsys.readouterr()
+        out = captured.out.strip()
+        data = json.loads(out)  # round-trip parse
+        title = data["hookSpecificOutput"]["sessionTitle"]
+        assert "bun" in title
