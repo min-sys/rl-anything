@@ -23,6 +23,7 @@ import observe
 import session_summary
 import save_state
 import restore_state
+import post_compact
 import subagent_observe
 import workflow_context
 
@@ -1805,3 +1806,94 @@ class TestDataDirFallback:
             importlib.reload(rl_common)
             importlib.reload(common)
             assert common.DATA_DIR == Path.home() / ".claude" / "rl-anything"
+
+
+class TestPostCompact:
+    """post_compact.py のテスト。"""
+
+    def test_injects_system_message_from_checkpoint(self, patch_data_dir, capsys):
+        """PostCompact 時に checkpoint から systemMessage を注入する。"""
+        cp_dir = patch_data_dir / "checkpoints"
+        cp_dir.mkdir(parents=True, exist_ok=True)
+        checkpoint = {
+            "session_id": "sess-pc-01",
+            "project_dir": "/my/project",
+            "timestamp": "2026-04-13T00:00:00+00:00",
+            "evolve_state": {},
+            "corrections_snapshot": [],
+            "work_context": {
+                "git_branch": "feat/test",
+                "recent_commits": ["abc1234 fix: something"],
+                "uncommitted_files": ["M file1.py"],
+            },
+        }
+        (cp_dir / "sess-pc-01.json").write_text(json.dumps(checkpoint))
+
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "/my/project"}):
+            post_compact.handle_post_compact({"session_id": "sess-pc-01"})
+
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert "systemMessage" in output
+        assert "feat/test" in output["systemMessage"]
+        assert "abc1234" in output["systemMessage"]
+
+    def test_no_output_without_checkpoint(self, patch_data_dir, capsys):
+        """checkpoint がない場合は何も出力しない。"""
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "/no/project"}):
+            post_compact.handle_post_compact({"session_id": "sess-pc-02"})
+
+        captured = capsys.readouterr()
+        assert captured.out.strip() == ""
+
+    def test_includes_uncommitted_files(self, patch_data_dir, capsys):
+        """uncommitted_files がメッセージに含まれる。"""
+        cp_dir = patch_data_dir / "checkpoints"
+        cp_dir.mkdir(parents=True, exist_ok=True)
+        checkpoint = {
+            "session_id": "sess-pc-03",
+            "project_dir": "/my/project",
+            "timestamp": "2026-04-13T00:00:00+00:00",
+            "evolve_state": {},
+            "corrections_snapshot": [],
+            "work_context": {
+                "git_branch": "main",
+                "recent_commits": [],
+                "uncommitted_files": ["M src/app.py", "?? new_file.py"],
+            },
+        }
+        (cp_dir / "sess-pc-03.json").write_text(json.dumps(checkpoint))
+
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "/my/project"}):
+            post_compact.handle_post_compact({"session_id": "sess-pc-03"})
+
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert "src/app.py" in output["systemMessage"]
+        assert "new_file.py" in output["systemMessage"]
+
+    def test_empty_work_context(self, patch_data_dir, capsys):
+        """work_context が空でも systemMessage を出力する。"""
+        cp_dir = patch_data_dir / "checkpoints"
+        cp_dir.mkdir(parents=True, exist_ok=True)
+        checkpoint = {
+            "session_id": "sess-pc-04",
+            "project_dir": "/my/project",
+            "timestamp": "2026-04-13T00:00:00+00:00",
+            "evolve_state": {},
+            "corrections_snapshot": [],
+            "work_context": {
+                "git_branch": "",
+                "recent_commits": [],
+                "uncommitted_files": [],
+            },
+        }
+        (cp_dir / "sess-pc-04.json").write_text(json.dumps(checkpoint))
+
+        with mock.patch.dict(os.environ, {"CLAUDE_PROJECT_DIR": "/my/project"}):
+            post_compact.handle_post_compact({"session_id": "sess-pc-04"})
+
+        captured = capsys.readouterr()
+        # checkpoint exists but no work context → still outputs a minimal message
+        output = json.loads(captured.out)
+        assert "systemMessage" in output
