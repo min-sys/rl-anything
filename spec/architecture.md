@@ -8,7 +8,7 @@ Last updated: 2026-04-07
 ## コンポーネント構成
 
 ```
-hooks/                  ← Observe 層（13個、LLMコストゼロ）[ADR-002]
+hooks/                  ← Observe 層（14個、LLMコストゼロ）[ADR-002]
   common.py             ← scripts/lib/rl_common の re-exporter（後方互換）[ADR-019]
   observe.py            ← usage/errors/corrections 記録
   correction_detect.py  ← corrections 自動検出
@@ -17,6 +17,7 @@ hooks/                  ← Observe 層（13個、LLMコストゼロ）[ADR-002]
   stop_failure.py       ← API エラー記録
   permission_denied.py  ← PermissionDenied hook（CC v2.1.89）errors.jsonl に記録
   save_state.py         ← Compaction 前の作業コンテキスト保存 [ADR-013]
+  post_compact.py       ← Compaction 後の作業コンテキスト復元（systemMessage 注入）
   restore_state.py      ← セッション開始時の状態復元
   session_summary.py    ← セッションサマリー記録 + auto_trigger ゲート
   suggest_subagent_delegation.py ← subagent 委譲提案

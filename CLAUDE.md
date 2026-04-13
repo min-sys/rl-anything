@@ -19,7 +19,7 @@
 
 | コンポーネント | 説明 |
 |----------------|------|
-| Observe hooks (11個) | LLM コストゼロで使用・エラー・修正フィードバック・ワークフロー・ファイル変更を自動記録 |
+| Observe hooks (14個) | LLM コストゼロで使用・エラー・修正フィードバック・ワークフロー・ファイル変更を自動記録 |
 | Auto Trigger | セッション終了・corrections 蓄積・ファイル変更時に evolve/audit 実行を自動提案（`trigger_engine.py`） |
 | `userConfig` | CC v2.1.83 manifest.userConfig で trigger 閾値（auto_trigger/interval/cooldown 等6項目）をプラグイン有効化時に設定可能 |
 | `genetic-prompt-optimizer` | corrections/context ベースの LLM 1パス直接パッチで最適化 |
