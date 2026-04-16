@@ -57,7 +57,7 @@ Observe hooks (14個, LLMコストゼロ) → テレメトリ JSONL → evolve/d
 
 直近5件のみ。過去の変更は [CHANGELOG.md](CHANGELOG.md) を参照。
 
-- 2026-04-16: **ScorerOutput スキーマバリデーション** — `scripts/lib/scorer_schema.py` 新設。`frozen dataclass` による `AxisResult` / `ScorerOutput` + `validate_scorer_output()` で rl-scorer 出力の型付き検証を導入。`output_evaluator.py` の `_score_axis` をキー欠損時サイレント 0.0 → `None` 明示に変更。24テスト
+- 2026-04-16: **ScorerOutput スキーマバリデーション** — `scripts/lib/scorer_schema.py` 新設。`frozen dataclass` による `AxisResult` / `ScorerOutput` + `validate_scorer_output()` で rl-scorer 出力の型付き検証を導入。`output_evaluator.py` の `_score_axis` をキー欠損時サイレント 0.0 → `None` 明示に変更。28テスト
 - 2026-04-16: **implement スキル: タスク境界の認知分離** — Standard モードに context: fresh 相当の認知汚染防止を追加。タスク開始前にスコープ/インターフェース契約/完了条件を宣言し、前タスクの実装詳細はメモリ参照でなく Read ツールで確認するよう規定
 - 2026-04-16: **TBench2-rl Week 3** — `mutation_injector.py` 実装。3パターン（rule_delete / trigger_invert / prompt_truncate）+ SentinelRunner。インメモリ変換、detection_threshold=0.5、baseline を results_file から再利用
 - 2026-04-16: **TBench2-rl Week 2** — `scripts/bench/run_benchmark.py` + `output_evaluator.py` 実装。golden_cases.jsonl → haiku 出力生成 → 3軸採点（技術/ドメイン/構造）→ benchmark_results.jsonl。score_pre/delta 差分追跡、--max-api-calls 100、pytest -m bench 分離

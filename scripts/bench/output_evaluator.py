@@ -183,7 +183,7 @@ class OutputEvaluator:
         if raw is None:
             return None
         parsed = self._parse_json(raw)
-        if parsed is None:
+        if not isinstance(parsed, dict):
             return None
         # key が存在しない場合は検証失敗として None を返す（サイレントに 0.0 にしない）
         if key not in parsed:

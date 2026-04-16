@@ -160,6 +160,14 @@ class TestValidateScorerOutputTypeError:
         with pytest.raises(ScorerValidationError):
             validate_scorer_output(raw)
 
+    def test_summaryがNoneのときScorerValidationError(self):
+        """str(None)='None' でサイレント通過せず ScorerValidationError を raise する。"""
+        raw = _make_raw()
+        raw["summary"] = None
+        with pytest.raises(ScorerValidationError) as exc_info:
+            validate_scorer_output(raw)
+        assert "str" in str(exc_info.value)
+
 
 # ─────────────────────────────────────────────────
 # 範囲外
@@ -225,6 +233,13 @@ class TestValidateScorerOutputImprovements:
         raw["improvements"] = "改善点A"  # list でなく str
         with pytest.raises(ScorerValidationError):
             validate_scorer_output(raw)
+
+    def test_improvements非文字列要素はエラー(self):
+        """improvements のリスト要素が str でないとき ScorerValidationError を raise する。"""
+        raw = _make_raw(improvements=["改善A", 123, None])
+        with pytest.raises(ScorerValidationError) as exc_info:
+            validate_scorer_output(raw)
+        assert "str" in str(exc_info.value)
 
 
 # ─────────────────────────────────────────────────

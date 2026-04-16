@@ -63,11 +63,20 @@ def validate_scorer_output(raw: dict) -> ScorerOutput:
     if not isinstance(raw, dict):
         raise ScorerValidationError("raw は dict でなければなりません", raw={})
     improvements_raw = raw.get("improvements", [])
-    if isinstance(improvements_raw, str):
+    if not isinstance(improvements_raw, list):
         raise ScorerValidationError(
-            "improvements は list でなければなりません（文字列は不可）", raw=raw
+            "improvements は list でなければなりません（str 含む非 list 型は不可）", raw=raw
+        )
+    if not all(isinstance(x, str) for x in improvements_raw):
+        raise ScorerValidationError(
+            "improvements の各要素は str でなければなりません", raw=raw
         )
     try:
+        summary_val = raw["summary"]
+        if not isinstance(summary_val, str):
+            raise ScorerValidationError(
+                f"summary は str でなければなりません: {summary_val!r}", raw=raw
+            )
         return ScorerOutput(
             technical=AxisResult(
                 total=float(raw["technical"]["total"]),
@@ -82,7 +91,7 @@ def validate_scorer_output(raw: dict) -> ScorerOutput:
                 detail=dict(raw["structure"]),
             ),
             integrated_score=float(raw["integrated_score"]),
-            summary=str(raw["summary"]),
+            summary=summary_val,
             improvements=list(improvements_raw),
         )
     except ScorerValidationError:
