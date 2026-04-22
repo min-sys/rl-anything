@@ -83,10 +83,11 @@ rl-anything は **3つの独立した柱** で構成される。
 | 会話の哲学原則違反を月1レビュー | `philosophy-review` |
 | セッションを引き継ぎ | `handover` |
 | 環境の成長レポート | `audit --growth` |
+| マージ・デプロイ後の後片付け | `cleanup` |
 
 > すべてのコマンドは `/rl-anything:` プレフィックス付きで呼び出す（例: `/rl-anything:evolve`）
 
-## スキル一覧（全22スキル）
+## スキル一覧（全23スキル）
 
 | スキル | 柱 | 説明 |
 |--------|-----|------|
@@ -106,6 +107,7 @@ rl-anything は **3つの独立した柱** で構成される。
 | `implement` | 構造化実装 | plan artifact → タスク分解 → 実装（Standard/Parallel）→ 計画準拠チェック → テレメトリ記録 |
 | `spec-keeper` | 仕様管理 | SPEC.md + ADR 管理、Progressive Disclosure L1/L2 自動昇格 |
 | `handover` | セッション管理 | 作業状態を構造化ノートに書き出し、別セッションへ引き継ぎ。`--issue` で GitHub Issue 出力 |
+| `cleanup` | 後片付け | PR マージ・デプロイ後の branches / remote refs / worktrees / tmp dirs / close 候補 Issue / PR Test plan 残件を個別承認→実行で処理。tmp dir default prefix は `rl-anything-` のみ（詳細は [ADR-021](docs/decisions/021-cleanup-tmp-dir-prefix-safety.md)） |
 | `release-notes-review` | ユーティリティ | CC リリースノート分析＋グローバル環境健康診断（`--env-only` 対応） |
 | `feedback` | ユーティリティ | GitHub Issue でフィードバック送信 |
 | `update` | ユーティリティ | プラグインを最新版に更新 |

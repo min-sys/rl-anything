@@ -3,7 +3,7 @@
 > このファイルは SPEC.md から分離された詳細仕様です。
 > 概要は [SPEC.md](../SPEC.md) を参照してください。
 
-Last updated: 2026-04-16
+Last updated: 2026-04-22
 
 ## コンポーネント構成
 
@@ -30,7 +30,7 @@ bin/                    ← bareコマンド CLI（14個）[ADR-019]
   rl-backfill, rl-backfill-analyze, rl-backfill-reclassify, rl-audit-aggregate
   rl-usage-log          ← Skill self-report 用（CC Skill hook 非対応の回避策 #62）
 
-skills/                 ← スキル定義（23個）
+skills/                 ← スキル定義（24個）
   evolve/               ← 3ステージ自律進化パイプライン
   discover/             ← パターン検出 + スキル候補生成
   reflect/              ← 修正フィードバック反映
@@ -41,8 +41,9 @@ skills/                 ← スキル定義（23個）
   handover/             ← セッション引き継ぎ + Deploy State 構造化 + SPEC.md 同期 + PreCompact 自動提案
   implement/            ← 構造化実装スキル（plan → 実装 → 計画準拠チェック → テレメトリ）。Standard モードはタスク境界で認知分離（context: fresh 相当）を宣言し、前タスクの実装詳細はメモリ参照でなく Read で確認する
   philosophy-review/    ← 会話履歴を Judge LLM で評価し category=philosophy 違反を corrections 注入 [ADR-020]
+  cleanup/              ← PR マージ・デプロイ後の後片付け（branches/worktrees/tmp dirs/Issues/Test plan）を個別承認→実行 [ADR-021]
 
-scripts/lib/            ← 共通ロジック（40 モジュール）[ADR-019]
+scripts/lib/            ← 共通ロジック（41 モジュール）[ADR-019]
   plugin_root.py        ← PLUGIN_ROOT 定数（depth ハードコード廃止）
   rl_common.py          ← hooks 共通ユーティリティ（DATA_DIR, classify_prompt 等）
   audit.py              ← 環境健康診断ロジック（スキル/ルール/CLAUDE.md 診断）
@@ -67,6 +68,7 @@ scripts/lib/            ← 共通ロジック（40 モジュール）[ADR-019]
   growth_journal.py     ← 結晶化イベント記録・照会 + git log backfill
   growth_narrative.py   ← 環境プロファイル（性格特性5種）+ 成長ストーリー生成
   scorer_schema.py      ← ScorerOutput スキーマ — rl-scorer 出力の型付き検証（AxisResult / ScorerOutput / validate_scorer_output）
+  cleanup_scanner.py    ← cleanup スキル用スキャナ 6 関数（branches / remote refs / worktrees / tmp dirs / issue 抽出 / PR test plan 抽出）+ _DEFAULT_TMP_EXCLUDE_PATTERNS 安全ネット [ADR-021]
   （他 15 モジュール: frontmatter, growth_level, skill_evolve, skill_triggers 等）
 
 scripts/bench/          ← TBench2-rl Harness Quality Benchmark（Week 1-3 実装済み）

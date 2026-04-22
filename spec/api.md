@@ -3,7 +3,7 @@
 > このファイルは SPEC.md から分離された詳細仕様です。
 > 概要は [SPEC.md](../SPEC.md) を参照してください。
 
-Last updated: 2026-04-15
+Last updated: 2026-04-22
 
 ## スキルコマンド
 
@@ -25,6 +25,7 @@ Last updated: 2026-04-15
 | `/rl-anything:version` | バージョン・ステータス表示 | low |
 | `/rl-anything:spec-keeper` | SPEC.md + ADR 管理（init/update/adr/status） | medium |
 | `/rl-anything:philosophy-review` | セッション履歴を Judge LLM で評価し哲学原則違反を corrections.jsonl 注入 | medium |
+| `/rl-anything:cleanup` | PR マージ・デプロイ後の後片付け（マージ済みブランチ / remote refs prune / 一時 worktree / 一時ディレクトリ / close 候補 Issue / PR Test plan 残件）を候補提示→個別承認→実行 | low |
 | `/rl-anything:feedback` | フィードバック送信 | low |
 
 ## 適応度関数
