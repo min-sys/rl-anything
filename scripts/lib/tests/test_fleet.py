@@ -32,10 +32,13 @@ from fleet import (  # noqa: E402
     AuditResult,
     FleetRow,
     classify_project,
+    collect_fleet_status,
     enumerate_projects,
     format_status_table,
+    main,
     resolve_auto_memory_dir,
     run_audit_subprocess,
+    write_fleet_run,
 )
 
 
@@ -367,3 +370,89 @@ class TestFormatStatusTable:
         lines = out.strip().split("\n")
         assert len(lines) == 1
         assert "PJ" in lines[0] and "STATUS" in lines[0]
+
+
+class TestCollectFleetStatus:
+    """collect_fleet_status() の統合テスト（下位関数は mock）。"""
+
+    def test_ENABLEDとNOT_ENABLEDのPJ混在(self, tmp_path):
+        root = tmp_path / "repos"
+        pj_a = root / "a"
+        pj_b = root / "b"
+        (pj_a / ".claude").mkdir(parents=True)
+        (pj_b / ".claude").mkdir(parents=True)
+
+        def fake_classify(pj, *args, **kwargs):
+            return STATUS_ENABLED if pj.name == "a" else STATUS_NOT_ENABLED
+
+        def fake_audit(pj, *args, **kwargs):
+            return AuditResult(
+                status=AUDIT_OK,
+                env_score=0.70,
+                phase="mature",
+                growth_level=7,
+                latest_audit=datetime(2026, 4, 22, 10, 0, tzinfo=timezone.utc),
+            )
+
+        with mock.patch("fleet.classify_project", side_effect=fake_classify), \
+             mock.patch("fleet.run_audit_subprocess", side_effect=fake_audit) as m_audit:
+            rows = collect_fleet_status(root=root)
+
+        assert [r.pj_name for r in rows] == ["a", "b"]
+        assert rows[0].status == STATUS_ENABLED
+        assert rows[0].env_score == 0.70
+        assert rows[1].status == STATUS_NOT_ENABLED
+        assert rows[1].env_score is None
+        # NOT_ENABLED に対しては subprocess を呼ばない
+        assert m_audit.call_count == 1
+
+    def test_rootに候補なしなら空リスト(self, tmp_path):
+        with mock.patch("fleet.classify_project"), mock.patch("fleet.run_audit_subprocess"):
+            rows = collect_fleet_status(root=tmp_path / "empty")
+        assert rows == []
+
+
+class TestWriteFleetRun:
+    """write_fleet_run() のファイル書き出し検証。"""
+
+    def test_命名と内容(self, tmp_path):
+        rows = [
+            FleetRow(pj_name="a", status=STATUS_ENABLED, env_score=0.5,
+                     latest_audit=datetime(2026, 4, 22, 9, 0, tzinfo=timezone.utc),
+                     audit_status=AUDIT_OK),
+            FleetRow(pj_name="b", status=STATUS_NOT_ENABLED),
+        ]
+        now = datetime(2026, 4, 22, 12, 0, tzinfo=timezone.utc)
+        path = write_fleet_run(rows, fleet_runs_dir=tmp_path, now=now)
+        assert path.name == "20260422T120000Z.jsonl"
+        lines = path.read_text().strip().split("\n")
+        assert len(lines) == 2
+        first = json.loads(lines[0])
+        assert first["pj_name"] == "a"
+        assert first["env_score"] == 0.5
+        assert first["latest_audit"] == "2026-04-22T09:00:00+00:00"
+
+
+class TestMainCLI:
+    """main() の CLI 統合。"""
+
+    def test_statusがデフォルトで表を出力しjsonlを書く(self, tmp_path, capsys):
+        # 空ルートなので rows=[] でヘッダのみ出力される想定
+        fleet_runs = tmp_path / "runs"
+        with mock.patch("fleet._DEFAULT_MATSUKAZE_ROOT", tmp_path / "nope"), \
+             mock.patch("fleet._DEFAULT_FLEET_RUNS_DIR", fleet_runs):
+            rc = main([])
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "PJ" in out and "STATUS" in out
+        assert fleet_runs.exists()
+        jsonl_files = list(fleet_runs.glob("*.jsonl"))
+        assert len(jsonl_files) == 1
+
+    def test_no_writeでjsonlを書かない(self, tmp_path, capsys):
+        fleet_runs = tmp_path / "runs"
+        with mock.patch("fleet._DEFAULT_MATSUKAZE_ROOT", tmp_path / "nope"), \
+             mock.patch("fleet._DEFAULT_FLEET_RUNS_DIR", fleet_runs):
+            rc = main(["--no-write"])
+        assert rc == 0
+        assert not fleet_runs.exists()

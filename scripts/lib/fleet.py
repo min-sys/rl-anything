@@ -4,13 +4,15 @@
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import re
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,9 +27,13 @@ AUDIT_ERROR = "ERROR"
 _DEFAULT_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 _DEFAULT_AUTO_MEMORY_ROOT = Path.home() / ".claude" / "projects"
 _DEFAULT_DATA_DIR = Path.home() / ".claude" / "rl-anything"
+_DEFAULT_MATSUKAZE_ROOT = Path.home() / "matsukaze-utils"
 _DEFAULT_RL_AUDIT_BIN = Path(__file__).resolve().parent.parent.parent / "bin" / "rl-audit"
+_DEFAULT_FLEET_RUNS_DIR = _DEFAULT_DATA_DIR / "fleet-runs"
 _PLUGIN_KEY_PREFIX = "rl-anything@"
 _SETTINGS_RETRY_SLEEP_SEC = 0.1
+_DEFAULT_TIMEOUT_SEC = 10.0
+_DEFAULT_MAX_WORKERS = 2
 
 
 @dataclass
@@ -306,6 +312,113 @@ def format_status_table(rows: list[FleetRow], now: datetime | None = None) -> st
     return "\n".join(lines) + "\n"
 
 
+def _collect_single(
+    pj_path: Path,
+    *,
+    settings_path: Path,
+    auto_memory_root: Path,
+    data_dir: Path | None,
+    timeout: float,
+) -> FleetRow:
+    status = classify_project(pj_path, settings_path, auto_memory_root)
+    if status != STATUS_ENABLED:
+        return FleetRow(pj_name=pj_path.name, status=status)
+    audit = run_audit_subprocess(pj_path, timeout=timeout, data_dir=data_dir)
+    return FleetRow(
+        pj_name=pj_path.name,
+        status=status,
+        env_score=audit.env_score,
+        growth_level=audit.growth_level,
+        phase=audit.phase,
+        latest_audit=audit.latest_audit,
+        audit_status=audit.status,
+        message=audit.message,
+    )
+
+
+def collect_fleet_status(
+    root: Path | None = None,
+    settings_path: Path | None = None,
+    auto_memory_root: Path | None = None,
+    data_dir: Path | None = None,
+    timeout: float = _DEFAULT_TIMEOUT_SEC,
+    max_workers: int = _DEFAULT_MAX_WORKERS,
+) -> list[FleetRow]:
+    """全 PJ の fleet ステータスを並列収集して行リストを返す。
+
+    STATUS_ENABLED の PJ のみ subprocess audit を走らせる（STALE/NOT_ENABLED は
+    低コストで判定のみ）。並列度は ThreadPoolExecutor(max_workers)。
+    """
+    root = root or _DEFAULT_MATSUKAZE_ROOT
+    settings_path = settings_path or _DEFAULT_SETTINGS_PATH
+    auto_memory_root = auto_memory_root or _DEFAULT_AUTO_MEMORY_ROOT
+    projects = enumerate_projects(root)
+    if not projects:
+        return []
+
+    def _work(pj: Path) -> FleetRow:
+        return _collect_single(
+            pj,
+            settings_path=settings_path,
+            auto_memory_root=auto_memory_root,
+            data_dir=data_dir,
+            timeout=timeout,
+        )
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return list(pool.map(_work, projects))
+
+
+def _serialize_row(row: FleetRow) -> dict:
+    d = asdict(row)
+    if row.latest_audit is not None:
+        d["latest_audit"] = row.latest_audit.isoformat()
+    return d
+
+
+def write_fleet_run(
+    rows: list[FleetRow],
+    fleet_runs_dir: Path | None = None,
+    now: datetime | None = None,
+) -> Path:
+    """fleet-run を `<dir>/<ts>.jsonl` に追記する。各行は 1 PJ の状態。"""
+    fleet_runs_dir = fleet_runs_dir or _DEFAULT_FLEET_RUNS_DIR
+    now = now or datetime.now(timezone.utc)
+    fleet_runs_dir.mkdir(parents=True, exist_ok=True)
+    stamp = now.strftime("%Y%m%dT%H%M%SZ")
+    path = fleet_runs_dir / f"{stamp}.jsonl"
+    with path.open("a", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(_serialize_row(row), ensure_ascii=False) + "\n")
+    return path
+
+
+def main(argv: list[str] | None = None) -> int:
+    """`bin/rl-fleet` エントリポイント。"""
+    parser = argparse.ArgumentParser(
+        prog="rl-fleet",
+        description="全 PJ 横断で rl-anything の健康状態を一覧表示する（Phase 1）",
+    )
+    sub = parser.add_subparsers(dest="command")
+    status_p = sub.add_parser("status", help="各 PJ のステータスを表形式で表示（default）")
+    for p in (parser, status_p):
+        p.add_argument("--root", type=Path, default=None, help="PJ 列挙のルート (default: ~/matsukaze-utils)")
+        p.add_argument("--timeout", type=float, default=_DEFAULT_TIMEOUT_SEC, help="PJ 毎の audit タイムアウト秒 (default: 10)")
+        p.add_argument("--max-workers", type=int, default=_DEFAULT_MAX_WORKERS, help="並列数 (default: 2)")
+        p.add_argument("--no-write", action="store_true", help="fleet-runs/*.jsonl への追記をスキップ")
+    args = parser.parse_args(argv)
+
+    rows = collect_fleet_status(
+        root=args.root,
+        timeout=args.timeout,
+        max_workers=args.max_workers,
+    )
+    print(format_status_table(rows), end="")
+    if not args.no_write:
+        write_fleet_run(rows)
+    return 0
+
+
 def _parse_iso(ts: object) -> datetime | None:
     if not isinstance(ts, str):
         return None
@@ -313,6 +426,10 @@ def _parse_iso(ts: object) -> datetime | None:
         return datetime.fromisoformat(ts)
     except ValueError:
         return None
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
 
 
 def resolve_auto_memory_dir(pj_path: Path) -> Path:
