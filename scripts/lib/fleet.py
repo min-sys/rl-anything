@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -30,11 +31,22 @@ _DEFAULT_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 _DEFAULT_AUTO_MEMORY_ROOT = Path.home() / ".claude" / "projects"
 _DEFAULT_MATSUKAZE_ROOT = Path.home() / "matsukaze-utils"
 _DEFAULT_RL_AUDIT_BIN = Path(__file__).resolve().parent.parent.parent / "bin" / "rl-audit"
-_DEFAULT_FLEET_RUNS_DIR = _DEFAULT_DATA_DIR / "fleet-runs"
 _PLUGIN_KEY_PREFIX = "rl-anything@"
 _SETTINGS_RETRY_SLEEP_SEC = 0.1
 _DEFAULT_TIMEOUT_SEC = 10.0
 _DEFAULT_MAX_WORKERS = 2
+_KILL_GRACE_SEC = 2.0
+
+
+def _current_data_dir() -> Path:
+    """CLAUDE_PLUGIN_DATA を呼び出し時に再参照して DATA_DIR を返す。
+
+    `rl_common._DEFAULT_DATA_DIR` は import-time capture のため env 後追い変更を
+    反映できない。fleet-runs 書き出しなど呼び出しタイミングが重要な処理では
+    こちらを使う。
+    """
+    env_val = os.environ.get("CLAUDE_PLUGIN_DATA", "")
+    return Path(env_val) if env_val else Path.home() / ".claude" / "rl-anything"
 
 
 @dataclass
@@ -91,7 +103,10 @@ def enumerate_projects(root: Path) -> list[Path]:
     - `.claude/` ディレクトリ
     - `CLAUDE.md` ファイル
 
-    ドットで始まるディレクトリ (`.worktrees/` 等) は開発メタデータのため除外。
+    除外ルール:
+    - ドットで始まるディレクトリ (`.worktrees/` 等) は開発メタデータのため
+    - シンボリックリンクは任意パスへの audit trampoline を防ぐため
+
     `root` 自体が存在しない場合は空リストを返す。
     返り値はディレクトリ名でソート。
     """
@@ -99,7 +114,7 @@ def enumerate_projects(root: Path) -> list[Path]:
         return []
     projects: list[Path] = []
     for child in sorted(root.iterdir(), key=lambda p: p.name):
-        if not child.is_dir() or child.name.startswith("."):
+        if not child.is_dir() or child.name.startswith(".") or child.is_symlink():
             continue
         if (child / ".claude").is_dir() or (child / "CLAUDE.md").is_file():
             projects.append(child)
@@ -190,30 +205,48 @@ def run_audit_subprocess(
 ) -> AuditResult:
     """PJ の audit を subprocess で実行し growth-state から結果を読み取る。
 
-    - `bin/rl-audit <pj_path> --growth --skip-rescore` を実行（副作用: growth-state 更新）
+    - `bin/rl-audit --growth --skip-rescore -- <pj_path>` を実行（副作用: growth-state 更新）
+    - `--` 区切りで PJ パスに leading `-` があっても argparse を誤動作させない
     - `data_dir` 指定時は `CLAUDE_PLUGIN_DATA=<data_dir>` を env に設定
+    - subprocess は `start_new_session=True` で別プロセスグループに隔離し、timeout 時は
+      `os.killpg` で子孫まで確実に終了させる（孤児化した rl-audit 子孫が growth-state を
+      半書き状態で残すことを防ぐ）
     - subprocess timeout / returncode 非ゼロ / growth-state 破損は `AuditResult.status` で区別
 
     Phase 1 では rl-audit stdout は parse せず growth-state JSON を唯一の真実とする。
     """
     rl_audit_bin = rl_audit_bin or _DEFAULT_RL_AUDIT_BIN
     effective_data_dir = data_dir or _DEFAULT_DATA_DIR
-    cmd = [sys.executable, str(rl_audit_bin), str(pj_path), "--growth", "--skip-rescore"]
+    # flags を positional より前に置き `--` で区切る → PJ 名が `-` で始まっても安全
+    cmd = [
+        sys.executable, str(rl_audit_bin),
+        "--growth", "--skip-rescore",
+        "--", str(pj_path),
+    ]
     env = os.environ.copy()
     if data_dir is not None:
         env["CLAUDE_PLUGIN_DATA"] = str(data_dir)
 
     try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout, env=env
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            start_new_session=True,  # 別プロセスグループ → killpg 可能
         )
-    except subprocess.TimeoutExpired:
-        return AuditResult(AUDIT_TIMEOUT, message=f"timeout after {timeout}s")
     except OSError as e:
         return AuditResult(AUDIT_ERROR, message=f"spawn failed: {e}")
 
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _terminate_process_group(proc)
+        return AuditResult(AUDIT_TIMEOUT, message=f"timeout after {timeout}s")
+
     if proc.returncode != 0:
-        stderr_tail = (proc.stderr or "").strip().splitlines()
+        stderr_tail = (stderr or "").strip().splitlines()
         tail = stderr_tail[-1] if stderr_tail else f"returncode {proc.returncode}"
         return AuditResult(AUDIT_ERROR, message=tail[:200])
 
@@ -236,6 +269,28 @@ def run_audit_subprocess(
         growth_level=growth_level,
         latest_audit=latest_audit,
     )
+
+
+def _terminate_process_group(proc: subprocess.Popen) -> None:
+    """subprocess のプロセスグループを SIGTERM→SIGKILL で順次停止させる。
+
+    `start_new_session=True` で起動した子プロセスは別セッション/PGID を持つので、
+    `os.killpg` で子孫まとめて落とせる。
+    """
+    try:
+        pgid = os.getpgid(proc.pid)
+    except OSError:
+        pgid = proc.pid
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(pgid, sig)
+        except OSError:
+            break
+        try:
+            proc.wait(timeout=_KILL_GRACE_SEC)
+            return
+        except subprocess.TimeoutExpired:
+            continue
 
 
 def _safe_compute_level(env_score: object) -> int | None:
@@ -351,6 +406,20 @@ def _collect_single(
     )
 
 
+def _find_duplicate_basenames(projects: list[Path]) -> set[str]:
+    """同一 basename を持つ PJ を検出し、重複 basename 集合を返す。
+
+    rl-audit の growth-state cache (`growth-state-<basename>.json`) は basename 単位で
+    命名されるため、同じ basename の PJ が複数あると cache が衝突し fleet は誤った
+    score を表示する。Phase 1 では該当 PJ を AUDIT_ERROR として surface する。
+    Phase 3 の per-PJ CLAUDE_PLUGIN_DATA 分離で根本解決予定。
+    """
+    seen: dict[str, int] = {}
+    for pj in projects:
+        seen[pj.name] = seen.get(pj.name, 0) + 1
+    return {name for name, count in seen.items() if count > 1}
+
+
 def collect_fleet_status(
     root: Path | None = None,
     settings_path: Path | None = None,
@@ -363,6 +432,9 @@ def collect_fleet_status(
 
     STATUS_ENABLED の PJ のみ subprocess audit を走らせる（STALE/NOT_ENABLED は
     低コストで判定のみ）。並列度は ThreadPoolExecutor(max_workers)。
+
+    同じ basename の PJ が複数ある場合は growth-state cache が衝突するため、
+    該当 PJ を AUDIT_ERROR 扱いにして誤ったスコア表示を防ぐ。
     """
     root = root or _DEFAULT_MATSUKAZE_ROOT
     settings_path = settings_path or _DEFAULT_SETTINGS_PATH
@@ -370,8 +442,17 @@ def collect_fleet_status(
     projects = enumerate_projects(root)
     if not projects:
         return []
+    dup_basenames = _find_duplicate_basenames(projects)
 
     def _work(pj: Path) -> FleetRow:
+        if pj.name in dup_basenames:
+            status = classify_project(pj, settings_path, auto_memory_root)
+            return FleetRow(
+                pj_name=pj.name,
+                status=status,
+                audit_status=AUDIT_ERROR,
+                message="duplicate basename (cache would collide)",
+            )
         return _collect_single(
             pj,
             settings_path=settings_path,
@@ -396,8 +477,13 @@ def write_fleet_run(
     fleet_runs_dir: Path | None = None,
     now: datetime | None = None,
 ) -> Path:
-    """fleet-run を `<dir>/<ts>.jsonl` に追記する。各行は 1 PJ の状態。"""
-    fleet_runs_dir = fleet_runs_dir or _DEFAULT_FLEET_RUNS_DIR
+    """fleet-run を `<dir>/<ts>.jsonl` に追記する。各行は 1 PJ の状態。
+
+    `fleet_runs_dir` 未指定時は呼び出し時点の `CLAUDE_PLUGIN_DATA` を再参照して
+    `<data_dir>/fleet-runs/` を使う（import-time capture で stale 化しない）。
+    """
+    if fleet_runs_dir is None:
+        fleet_runs_dir = _current_data_dir() / "fleet-runs"
     now = now or datetime.now(timezone.utc)
     fleet_runs_dir.mkdir(parents=True, exist_ok=True)
     stamp = now.strftime("%Y%m%dT%H%M%SZ")

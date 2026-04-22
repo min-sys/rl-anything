@@ -105,6 +105,19 @@ class TestEnumerateProjects:
         result = enumerate_projects(tmp_path)
         assert [p.name for p in result] == ["pj"]
 
+    def test_symlinkは除外(self, tmp_path):
+        """PJ ディレクトリへの symlink は任意パスの audit trampoline 防止のため除外。"""
+        root = tmp_path / "root"
+        root.mkdir()
+        real_pj = root / "real_pj"
+        (real_pj / ".claude").mkdir(parents=True)
+        outside = tmp_path / "outside"  # root の外に置く
+        (outside / ".claude").mkdir(parents=True)
+        link = root / "linked_pj"
+        link.symlink_to(outside)
+        result = enumerate_projects(root)
+        assert [p.name for p in result] == ["real_pj"]
+
 
 class TestClassifyProject:
     """classify_project() の 3 値判定 + settings parse retry テスト。"""
@@ -206,6 +219,29 @@ class TestClassifyProject:
         assert classify_project(pj, settings, auto_memory) == STATUS_NOT_ENABLED
 
 
+class _FakePopen:
+    """subprocess.Popen の簡易モック（communicate/timeout/returncode/pid）。"""
+
+    def __init__(self, *, returncode=0, stdout="", stderr="", raise_timeout=False):
+        self._returncode = returncode
+        self._stdout = stdout
+        self._stderr = stderr
+        self._raise_timeout = raise_timeout
+        self.pid = 99999  # killpg 対象にはならない（mock で os.killpg を潰す）
+
+    @property
+    def returncode(self):
+        return self._returncode
+
+    def communicate(self, timeout=None):
+        if self._raise_timeout:
+            raise subprocess.TimeoutExpired(cmd="rl-audit", timeout=timeout)
+        return self._stdout, self._stderr
+
+    def wait(self, timeout=None):
+        return self._returncode
+
+
 class TestRunAuditSubprocess:
     """run_audit_subprocess() の正常系 + TIMEOUT + ERROR テスト。"""
 
@@ -233,8 +269,8 @@ class TestRunAuditSubprocess:
         data_dir = tmp_path / "data"
         self._write_growth_state(data_dir, pj, progress=0.65, phase="continuous_growth")
 
-        fake_proc = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        with mock.patch("subprocess.run", return_value=fake_proc) as m:
+        fake = _FakePopen(returncode=0)
+        with mock.patch("fleet.subprocess.Popen", return_value=fake) as m:
             result = run_audit_subprocess(pj, data_dir=data_dir)
 
         assert result.status == AUDIT_OK
@@ -245,13 +281,19 @@ class TestRunAuditSubprocess:
         # subprocess に CLAUDE_PLUGIN_DATA env が渡されたことを確認
         _, kwargs = m.call_args
         assert kwargs["env"]["CLAUDE_PLUGIN_DATA"] == str(data_dir)
+        assert kwargs.get("start_new_session") is True
+        # argv: flags が `--` 前に来て positional が `--` の後
+        cmd = m.call_args.args[0]
+        assert "--" in cmd
+        assert cmd.index("--") < cmd.index(str(pj))
+        assert cmd.index("--growth") < cmd.index("--")
 
     def test_growth_state_欠損時は_OK_だがスコア_None(self, tmp_path):
         pj = self._make_pj(tmp_path)
         data_dir = tmp_path / "data"
         data_dir.mkdir()  # ディレクトリはあるがファイルなし
-        fake_proc = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        with mock.patch("subprocess.run", return_value=fake_proc):
+        fake = _FakePopen(returncode=0)
+        with mock.patch("fleet.subprocess.Popen", return_value=fake):
             result = run_audit_subprocess(pj, data_dir=data_dir)
         assert result.status == AUDIT_OK
         assert result.env_score is None
@@ -262,21 +304,23 @@ class TestRunAuditSubprocess:
     def test_TIMEOUT(self, tmp_path):
         pj = self._make_pj(tmp_path)
         data_dir = tmp_path / "data"
-        with mock.patch(
-            "subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd="rl-audit", timeout=10),
-        ):
+        fake = _FakePopen(raise_timeout=True)
+        with mock.patch("fleet.subprocess.Popen", return_value=fake), \
+             mock.patch("fleet.os.killpg") as m_killpg:
             result = run_audit_subprocess(pj, timeout=10, data_dir=data_dir)
         assert result.status == AUDIT_TIMEOUT
         assert "timeout" in result.message.lower()
+        # プロセスグループの終了処理が走ったことを確認 (SIGTERM 1 回は呼ばれる)
+        assert m_killpg.called
 
     def test_ERROR_returncode非ゼロ(self, tmp_path):
         pj = self._make_pj(tmp_path)
         data_dir = tmp_path / "data"
-        fake_proc = subprocess.CompletedProcess(
-            args=[], returncode=1, stdout="", stderr="Traceback (most recent call last)\nKeyError: 'foo'"
+        fake = _FakePopen(
+            returncode=1,
+            stderr="Traceback (most recent call last)\nKeyError: 'foo'",
         )
-        with mock.patch("subprocess.run", return_value=fake_proc):
+        with mock.patch("fleet.subprocess.Popen", return_value=fake):
             result = run_audit_subprocess(pj, data_dir=data_dir)
         assert result.status == AUDIT_ERROR
         assert "KeyError" in result.message
@@ -286,8 +330,8 @@ class TestRunAuditSubprocess:
         data_dir = tmp_path / "data"
         data_dir.mkdir()
         (data_dir / f"growth-state-{pj.name}.json").write_text("{ corrupted")
-        fake_proc = subprocess.CompletedProcess(args=[], returncode=0, stdout="", stderr="")
-        with mock.patch("subprocess.run", return_value=fake_proc):
+        fake = _FakePopen(returncode=0)
+        with mock.patch("fleet.subprocess.Popen", return_value=fake):
             result = run_audit_subprocess(pj, data_dir=data_dir)
         assert result.status == AUDIT_ERROR
         assert "state parse" in result.message
@@ -411,9 +455,40 @@ class TestCollectFleetStatus:
             rows = collect_fleet_status(root=tmp_path / "empty")
         assert rows == []
 
+    def test_同名basenameは_AUDIT_ERROR(self, tmp_path):
+        """growth-state cache 衝突を防ぐため同一 basename の PJ は AUDIT_ERROR 扱い。"""
+        root = tmp_path / "repos"
+        pj_a1 = root / "ns_a" / "api"
+        pj_a2 = root / "ns_b" / "api"  # basename "api" が重複
+        (pj_a1 / ".claude").mkdir(parents=True)
+        (pj_a2 / ".claude").mkdir(parents=True)
+
+        # enumerate_projects は直下のみ列挙するので、ns_a / ns_b を直接列挙されるよう
+        # 疑似的に patch する
+        with mock.patch("fleet.enumerate_projects", return_value=[pj_a1, pj_a2]), \
+             mock.patch("fleet.classify_project", return_value=STATUS_ENABLED), \
+             mock.patch("fleet.run_audit_subprocess") as m_audit:
+            rows = collect_fleet_status(root=root)
+
+        assert len(rows) == 2
+        for r in rows:
+            assert r.audit_status == AUDIT_ERROR
+            assert "duplicate basename" in r.message
+        # subprocess を呼ばずに ERROR とマークすることを確認
+        assert m_audit.call_count == 0
+
 
 class TestWriteFleetRun:
     """write_fleet_run() のファイル書き出し検証。"""
+
+    def test_CLAUDE_PLUGIN_DATA_動的解決(self, tmp_path, monkeypatch):
+        """fleet_runs_dir 未指定時は呼び出し時の env を再参照する。"""
+        data_dir = tmp_path / "late_set"
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data_dir))
+        rows = [FleetRow(pj_name="x", status=STATUS_STALE)]
+        path = write_fleet_run(rows, now=datetime(2026, 4, 22, 0, 0, tzinfo=timezone.utc))
+        assert path.parent == data_dir / "fleet-runs"
+        assert path.exists()
 
     def test_命名と内容(self, tmp_path):
         rows = [
@@ -436,23 +511,25 @@ class TestWriteFleetRun:
 class TestMainCLI:
     """main() の CLI 統合。"""
 
-    def test_statusがデフォルトで表を出力しjsonlを書く(self, tmp_path, capsys):
+    def test_statusがデフォルトで表を出力しjsonlを書く(self, tmp_path, capsys, monkeypatch):
         # 空ルートなので rows=[] でヘッダのみ出力される想定
-        fleet_runs = tmp_path / "runs"
-        with mock.patch("fleet._DEFAULT_MATSUKAZE_ROOT", tmp_path / "nope"), \
-             mock.patch("fleet._DEFAULT_FLEET_RUNS_DIR", fleet_runs):
+        data_dir = tmp_path / "data"
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data_dir))
+        with mock.patch("fleet._DEFAULT_MATSUKAZE_ROOT", tmp_path / "nope"):
             rc = main([])
         assert rc == 0
         out = capsys.readouterr().out
         assert "PJ" in out and "STATUS" in out
+        fleet_runs = data_dir / "fleet-runs"
         assert fleet_runs.exists()
         jsonl_files = list(fleet_runs.glob("*.jsonl"))
         assert len(jsonl_files) == 1
 
-    def test_no_writeでjsonlを書かない(self, tmp_path, capsys):
-        fleet_runs = tmp_path / "runs"
-        with mock.patch("fleet._DEFAULT_MATSUKAZE_ROOT", tmp_path / "nope"), \
-             mock.patch("fleet._DEFAULT_FLEET_RUNS_DIR", fleet_runs):
+    def test_no_writeでjsonlを書かない(self, tmp_path, capsys, monkeypatch):
+        data_dir = tmp_path / "data"
+        monkeypatch.setenv("CLAUDE_PLUGIN_DATA", str(data_dir))
+        with mock.patch("fleet._DEFAULT_MATSUKAZE_ROOT", tmp_path / "nope"):
             rc = main(["--no-write"])
         assert rc == 0
+        fleet_runs = data_dir / "fleet-runs"
         assert not fleet_runs.exists()
