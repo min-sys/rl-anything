@@ -3,7 +3,7 @@
 > このファイルは SPEC.md から分離された詳細仕様です。
 > 概要は [SPEC.md](../SPEC.md) を参照してください。
 
-Last updated: 2026-04-22
+Last updated: 2026-04-22 (userConfig: cleanup_tmp_prefixes 追加)
 
 ## スキルコマンド
 
@@ -33,3 +33,18 @@ Last updated: 2026-04-22
 組み込み9個: `default`, `skill_quality`, `coherence`, `telemetry`, `constitutional`（+ /cso security軸）, `chaos`, `environment`（動的重み）, `plugin`（プラグイン統合）, `principles`。`config.py` で閾値集約
 
 PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
+
+## userConfig（manifest.userConfig 経由の環境変数）
+
+`.claude-plugin/plugin.json::userConfig` で公開している設定キー。インストール時の UI または `CLAUDE_PLUGIN_OPTION_<key>` 環境変数で上書き可能。`scripts/lib/rl_common.py::load_user_config` がデフォルトとマージする。
+
+| キー | 型 | default | 用途 |
+|------|-----|---------|------|
+| `auto_trigger` | boolean | true | evolve/audit 自動提案の有効化 |
+| `evolve_interval_days` | number | 7 | evolve 提案の間隔（日） |
+| `audit_interval_days` | number | 30 | audit 提案の間隔（日） |
+| `min_sessions` | number | 10 | evolve 提案の最小セッション数 |
+| `cooldown_hours` | number | 24 | trigger 評価 cooldown |
+| `language` | string | `ja` | trigger メッセージ言語（ja/en） |
+| `growth_display` | boolean | true | セッション開始時の Growth phase 表示 |
+| `cleanup_tmp_prefixes` | string | `rl-anything-` | cleanup 対象の /tmp prefix（カンマ区切り）。`scan_tmp_dirs` の `_DEFAULT_TMP_EXCLUDE_PATTERNS` 安全ネットは常時有効（ADR-021）|

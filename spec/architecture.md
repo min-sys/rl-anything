@@ -3,7 +3,7 @@
 > このファイルは SPEC.md から分離された詳細仕様です。
 > 概要は [SPEC.md](../SPEC.md) を参照してください。
 
-Last updated: 2026-04-22
+Last updated: 2026-04-22 (cleanup_scanner + userConfig 反映)
 
 ## コンポーネント構成
 
@@ -68,7 +68,7 @@ scripts/lib/            ← 共通ロジック（41 モジュール）[ADR-019]
   growth_journal.py     ← 結晶化イベント記録・照会 + git log backfill
   growth_narrative.py   ← 環境プロファイル（性格特性5種）+ 成長ストーリー生成
   scorer_schema.py      ← ScorerOutput スキーマ — rl-scorer 出力の型付き検証（AxisResult / ScorerOutput / validate_scorer_output）
-  cleanup_scanner.py    ← cleanup スキル用スキャナ 6 関数（branches / remote refs / worktrees / tmp dirs / issue 抽出 / PR test plan 抽出）+ _DEFAULT_TMP_EXCLUDE_PATTERNS 安全ネット [ADR-021]
+  cleanup_scanner.py    ← cleanup スキル用スキャナ 6 関数（branches / remote refs / worktrees / tmp dirs / issue 抽出 / PR test plan 抽出）+ `parse_prefix_config` userConfig helper + `_DEFAULT_TMP_EXCLUDE_PATTERNS` 安全ネット [ADR-021]
   （他 15 モジュール: frontmatter, growth_level, skill_evolve, skill_triggers 等）
 
 scripts/bench/          ← TBench2-rl Harness Quality Benchmark（Week 1-3 実装済み）
