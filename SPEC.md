@@ -72,6 +72,6 @@ Observe hooks (14個, LLMコストゼロ) → テレメトリ JSONL → evolve/d
 
 ## Next
 
-- gstack 改善移植の残り: Agent 3 の cross-project audit を evolve パイプラインに統合（PR #38 で基盤完了、evolve 内での呼び出し統合は次 PR）
+- gstack 改善移植の残り: Agent 3 の cross-project audit は fleet 構想（issue #68）として再設計。観測層を `bin/rl-fleet` で実装する方向で検討中
 - Subagents レイヤーの進化メカニズム（roadmap Phase 3）
 - 6レイヤー全体の自律進化ループ完成（roadmap To-be）
