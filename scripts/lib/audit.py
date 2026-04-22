@@ -16,6 +16,7 @@ _plugin_root = PLUGIN_ROOT
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts" / "lib"))
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
+from rl_common import DATA_DIR  # noqa: F401 — re-exported for backward compat (audit.DATA_DIR / bloat_control / test patches)
 from reflect_utils import read_all_memory_entries, read_auto_memory, split_memory_sections
 from hardcoded_detector import detect_hardcoded_values
 from frontmatter import count_content_lines
@@ -39,7 +40,10 @@ LIMITS = {
     "memory": 120,
 }
 
-DATA_DIR = Path.home() / ".claude" / "rl-anything"
+# DATA_DIR は rl_common.DATA_DIR を再エクスポート（L19 の import 参照）
+# - CLAUDE_PLUGIN_DATA env var サポート（cross-project / fleet 用途）
+# - 真の源を rl_common.py に一本化、bloat_control.py と test patch の互換維持
+#   詳細: docs/decisions/022-data-dir-unification.md（予定）
 
 # KNOWN_DIR_PREFIXES は path_extractor から import 済み
 
