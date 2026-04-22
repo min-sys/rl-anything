@@ -14,7 +14,7 @@ PR マージ・デプロイ完了後に残る以下の「痕跡」を、**候補
 1. マージ済みローカルブランチの削除
 2. stale な remote tracking branch の prune
 3. 一時 worktree の削除（`locked` は除外）
-4. `/tmp/claude-*` / `/tmp/gstack-*` / `/tmp/rl-anything-*` の削除
+4. `/tmp/rl-anything-*` 配下の削除（CRITICAL: `claude-` / `gstack-` はランタイム領域と衝突するためデフォルト対象外。拡張は Issue #71 で userConfig 化予定）
 5. マージ済みブランチ名から推定した関連 Issue の close 候補提案（**自動 close はしない**）
 6. 元 PR の Test plan 未完了チェックの残件リマインド
 
@@ -52,7 +52,7 @@ merged = scan_merged_branches(
 )
 prune = scan_prunable_remote_refs()
 worktrees = scan_removable_worktrees(main_worktree_path=main_wt)
-tmp_dirs = scan_tmp_dirs(prefixes=["claude-", "gstack-", "rl-anything-"])
+tmp_dirs = scan_tmp_dirs(prefixes=["rl-anything-"])  # narrow default — see CRITICAL note below
 ```
 
 **収集結果を一覧表示**してからユーザーに見せる:
@@ -129,18 +129,20 @@ C) Abort
 
 #### カテゴリ 4: 一時ディレクトリ
 
+初版デフォルト prefix は **`rl-anything-` のみ**。`claude-` / `gstack-` は Claude Code ランタイム (`/tmp/claude-<uid>`) や MCP bridge (`/tmp/claude-mcp-*`)、gstack 作業ディレクトリ (`/tmp/gstack-work`) と衝突し、削除するとセッションが壊れる危険があるため**デフォルトから除外**している。なお scanner 側 `_DEFAULT_TMP_EXCLUDE_PATTERNS` で `claude-<uid>` / `claude-mcp-*` は二重に保護している（ユーザー独自拡張時の保険）。prefix 拡張は Issue #71 で userConfig 化予定。
+
 各ディレクトリについて個別に:
 
 ```
-一時ディレクトリ `/tmp/claude-sandbox-abc` を削除しますか？
-(rm -rf /tmp/claude-sandbox-abc)
+一時ディレクトリ `/tmp/rl-anything-bench-abc` を削除しますか？
+(rm -rf /tmp/rl-anything-bench-abc)
 
 A) Yes - 削除する
 B) Skip
 C) Abort
 ```
 
-`rm -rf` 実行前に、パスが想定 prefix (`/tmp/claude-`, `/tmp/gstack-`, `/tmp/rl-anything-`) で始まることを再確認する（防衛）。
+`rm -rf` 実行前に、パスが `/tmp/rl-anything-` で始まることを再確認する（防衛）。
 
 #### カテゴリ 5: 関連 Issue close 候補
 

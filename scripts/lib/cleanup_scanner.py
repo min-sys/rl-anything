@@ -120,17 +120,38 @@ def scan_removable_worktrees(
     return removable
 
 
+# dogfood (PR #70) で `/tmp/claude-501` (Claude Code ランタイム UID dir) と
+# `/tmp/claude-mcp-*` (実行中 MCP server bridge) を削除候補に含める危険なバグを検出。
+# defense-in-depth として、呼び出し側が `claude-` を prefix に指定しても
+# 絶対に削除してはいけないものは scanner 側で除外する安全網を常時有効化する。
+_DEFAULT_TMP_EXCLUDE_PATTERNS: tuple[str, ...] = (
+    r"^claude-\d+$",       # /tmp/claude-<uid> (Claude Code runtime socket/pid dir)
+    r"^claude-mcp-.*",     # /tmp/claude-mcp-*  (running MCP server bridges)
+)
+
+
 def scan_tmp_dirs(
     prefixes: Iterable[str],
     tmp_root: str = "/tmp",
+    exclude_patterns: Optional[Iterable[str]] = None,
 ) -> list[str]:
-    """`tmp_root` 配下で `prefixes` に前方一致するディレクトリの絶対パスを返す。"""
+    """`tmp_root` 配下で `prefixes` に前方一致するディレクトリの絶対パスを返す。
+
+    `exclude_patterns` は basename に対して re.search でマッチングする。`None` を渡すと
+    デフォルトの安全網 (`_DEFAULT_TMP_EXCLUDE_PATTERNS`) が適用される。`[]` を渡せば
+    明示的に無効化できる（通常は非推奨）。
+    """
     if not os.path.isdir(tmp_root):
         return []
     prefix_list = list(prefixes)
+    patterns = _DEFAULT_TMP_EXCLUDE_PATTERNS if exclude_patterns is None else list(exclude_patterns)
+    compiled = [re.compile(p) for p in patterns]
+
     results: list[str] = []
     for name in sorted(os.listdir(tmp_root)):
         if not any(name.startswith(p) for p in prefix_list):
+            continue
+        if any(rx.search(name) for rx in compiled):
             continue
         full = os.path.join(tmp_root, name)
         if not os.path.isdir(full):

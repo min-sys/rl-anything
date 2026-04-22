@@ -3,6 +3,7 @@
 Issue #69: 後片付けスキル用のスキャナ関数群をテスト駆動で定義する。
 外部コマンド（git / fs）は `git_cmd` や `tmp_root` 引数でモック可能な設計にする。
 """
+import os
 import sys
 from pathlib import Path
 
@@ -172,6 +173,70 @@ def test_scan_tmp_dirs_returns_empty_when_no_match(tmp_path):
 def test_scan_tmp_dirs_handles_missing_root(tmp_path):
     missing = tmp_path / "does-not-exist"
     assert scan_tmp_dirs(prefixes=["claude-"], tmp_root=str(missing)) == []
+
+
+def test_scan_tmp_dirs_default_excludes_claude_runtime_uid(tmp_path):
+    """`/tmp/claude-<uid>` は Claude Code のランタイムディレクトリで絶対に削除してはいけない。
+
+    dogfood (PR #70) で `/tmp/claude-501` が候補に含まれるバグを検出したための defense-in-depth。
+    ユーザーが prefix `claude-` を明示的に指定した場合でも、デフォルト exclude_patterns で守る。
+    """
+    (tmp_path / "claude-501").mkdir()
+    (tmp_path / "claude-12345").mkdir()
+    (tmp_path / "claude-sandbox-ok").mkdir()
+
+    result = scan_tmp_dirs(prefixes=["claude-"], tmp_root=str(tmp_path))
+    names = sorted(os.path.basename(p) for p in result)
+    assert names == ["claude-sandbox-ok"], (
+        f"UID 付き claude-<digits> はデフォルトで除外されるべき。got: {names}"
+    )
+
+
+def test_scan_tmp_dirs_default_excludes_mcp_bridge(tmp_path):
+    """`/tmp/claude-mcp-*` は実行中の MCP server bridge なので削除禁止。"""
+    (tmp_path / "claude-mcp-browser-bridge-matsukaze").mkdir()
+    (tmp_path / "claude-mcp-gmail").mkdir()
+    (tmp_path / "claude-scratch-ok").mkdir()
+
+    result = scan_tmp_dirs(prefixes=["claude-"], tmp_root=str(tmp_path))
+    names = sorted(os.path.basename(p) for p in result)
+    assert names == ["claude-scratch-ok"], (
+        f"claude-mcp-* はデフォルトで除外されるべき。got: {names}"
+    )
+
+
+def test_scan_tmp_dirs_custom_exclude_patterns(tmp_path):
+    """呼び出し側で独自の exclude_patterns を指定できる。
+
+    デフォルトを上書きする形で `exclude_patterns=[]` を渡すと、exclusion を解除できる
+    （ただし通常は推奨しない — デフォルトはセーフティネットとして機能する）。
+    """
+    (tmp_path / "gstack-work").mkdir()
+    (tmp_path / "gstack-scratch-ok").mkdir()
+
+    result = scan_tmp_dirs(
+        prefixes=["gstack-"],
+        tmp_root=str(tmp_path),
+        exclude_patterns=[r"gstack-work$"],
+    )
+    names = sorted(os.path.basename(p) for p in result)
+    assert names == ["gstack-scratch-ok"]
+
+
+def test_scan_tmp_dirs_override_exclude_patterns_with_empty_list(tmp_path):
+    """exclude_patterns=[] を明示的に渡すとデフォルトの安全網を外せる。
+
+    逃げ道として残してあるが、SKILL.md は明示的にこれをしないことを前提とする。
+    """
+    (tmp_path / "claude-501").mkdir()
+
+    result = scan_tmp_dirs(
+        prefixes=["claude-"],
+        tmp_root=str(tmp_path),
+        exclude_patterns=[],
+    )
+    names = sorted(os.path.basename(p) for p in result)
+    assert names == ["claude-501"]
 
 
 # ---------- extract_issue_numbers_from_branch ----------
