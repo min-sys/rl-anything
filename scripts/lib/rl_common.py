@@ -39,6 +39,11 @@ USER_CONFIG_DEFAULTS: dict[str, object] = {
     "cooldown_hours": 24,
     "language": "ja",
     "growth_display": True,
+    # cleanup スキル: 一時ディレクトリ削除候補の prefix (カンマ区切り)。
+    # manifest.userConfig は boolean/number/string のみサポートのため string で
+    # 受け取り、scripts/lib/cleanup_scanner.parse_prefix_config で list 化する。
+    # 安全側デフォルト: rl-anything 名前空間のみ (ADR-021)。
+    "cleanup_tmp_prefixes": "rl-anything-",
 }
 
 

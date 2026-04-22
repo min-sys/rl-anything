@@ -184,6 +184,31 @@ def extract_issue_numbers_from_branch(name: str) -> list[int]:
 _UNCHECKED_RE = re.compile(r"^\s*-\s*\[\s\]\s+(.+?)\s*$")
 
 
+def parse_prefix_config(value: Optional[str]) -> list[str]:
+    """userConfig の `cleanup_tmp_prefixes` (カンマ区切り文字列) を list に展開する。
+
+    Claude Code の `manifest.userConfig` は boolean/number/string のみサポートする
+    ため、複数 prefix を指定する手段としてカンマ区切り文字列を採用している。この
+    関数は以下を保証する:
+
+    - 各要素の前後空白を trim
+    - 空要素・空白のみ要素は無視
+    - 重複は最初の出現順を保持して排除
+    - `None` や空文字は空 list を返す（呼び出し側で「候補なし」扱いにできる）
+    """
+    if not value or not value.strip():
+        return []
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for raw in value.split(","):
+        item = raw.strip()
+        if not item or item in seen:
+            continue
+        seen.add(item)
+        ordered.append(item)
+    return ordered
+
+
 def extract_unchecked_testplan(pr_body: Optional[str]) -> list[str]:
     """PR 本文から未チェック `- [ ]` 項目を抽出する。"""
     if not pr_body:

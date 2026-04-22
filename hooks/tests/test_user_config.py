@@ -75,3 +75,23 @@ class TestLoadUserConfig:
         assert config["cooldown_hours"] == 48
         assert config["auto_trigger"] is True  # default
         assert config["language"] == "ja"  # default
+
+    def test_cleanup_tmp_prefixes_default(self):
+        """cleanup_tmp_prefixes はデフォルトで "rl-anything-" 単独（安全側）。
+
+        PR #70 dogfood で検出した Claude Code runtime (`/tmp/claude-<uid>`) や
+        MCP bridge (`/tmp/claude-mcp-*`) を削除候補化する wide prefix バグの
+        再発防止として、デフォルトは rl-anything 名前空間のみに絞る。
+        """
+        with mock.patch.dict(os.environ, {}, clear=True):
+            config = common.load_user_config()
+        assert config["cleanup_tmp_prefixes"] == "rl-anything-"
+
+    def test_cleanup_tmp_prefixes_override(self):
+        """cleanup_tmp_prefixes は環境変数で上書き可能（カンマ区切りで複数指定）。"""
+        env = {
+            "CLAUDE_PLUGIN_OPTION_cleanup_tmp_prefixes": "rl-anything-,claude-sandbox-,gstack-scratch-",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            config = common.load_user_config()
+        assert config["cleanup_tmp_prefixes"] == "rl-anything-,claude-sandbox-,gstack-scratch-"

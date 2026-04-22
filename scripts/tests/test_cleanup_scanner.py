@@ -13,6 +13,7 @@ sys.path.insert(0, str(_lib))
 from cleanup_scanner import (
     extract_issue_numbers_from_branch,
     extract_unchecked_testplan,
+    parse_prefix_config,
     scan_merged_branches,
     scan_prunable_remote_refs,
     scan_removable_worktrees,
@@ -221,6 +222,48 @@ def test_scan_tmp_dirs_custom_exclude_patterns(tmp_path):
     )
     names = sorted(os.path.basename(p) for p in result)
     assert names == ["gstack-scratch-ok"]
+
+
+# ---------- parse_prefix_config ----------
+
+def test_parse_prefix_config_single():
+    assert parse_prefix_config("rl-anything-") == ["rl-anything-"]
+
+
+def test_parse_prefix_config_multiple():
+    """カンマ区切りで複数 prefix を受け付ける。"""
+    result = parse_prefix_config("rl-anything-,claude-sandbox-,gstack-scratch-")
+    assert result == ["rl-anything-", "claude-sandbox-", "gstack-scratch-"]
+
+
+def test_parse_prefix_config_trims_whitespace():
+    """各要素前後の空白を除去する（人間が手書きで編集する想定）。"""
+    result = parse_prefix_config(" rl-anything- , claude-sandbox- ")
+    assert result == ["rl-anything-", "claude-sandbox-"]
+
+
+def test_parse_prefix_config_drops_empty_items():
+    """空要素（連続カンマ・前後カンマ）は無視する。"""
+    result = parse_prefix_config(",rl-anything-,,claude-sandbox-,")
+    assert result == ["rl-anything-", "claude-sandbox-"]
+
+
+def test_parse_prefix_config_dedupes_preserving_order():
+    """重複 prefix は最初の出現順を保持して排除する。"""
+    result = parse_prefix_config("rl-anything-,claude-sandbox-,rl-anything-")
+    assert result == ["rl-anything-", "claude-sandbox-"]
+
+
+def test_parse_prefix_config_empty_or_whitespace_returns_empty():
+    """空文字・空白のみは空 list を返す（scan を実質無効化）。"""
+    assert parse_prefix_config("") == []
+    assert parse_prefix_config("   ") == []
+    assert parse_prefix_config(",,,") == []
+
+
+def test_parse_prefix_config_handles_none():
+    """None も空 list にフォールバック（load_user_config が未設定時に None を返す可能性に備える）。"""
+    assert parse_prefix_config(None) == []
 
 
 def test_scan_tmp_dirs_override_exclude_patterns_with_empty_list(tmp_path):

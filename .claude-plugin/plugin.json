@@ -51,6 +51,12 @@
       "type": "boolean",
       "description": "Show environment growth phase on session start (default: true)",
       "sensitive": false
+    },
+    "cleanup_tmp_prefixes": {
+      "title": "Cleanup Tmp Prefixes",
+      "type": "string",
+      "description": "Comma-separated /tmp prefixes scanned by /rl-anything:cleanup. Defaults to 'rl-anything-' only for safety; claude-<uid> and claude-mcp-* are always excluded by scanner even if re-added (ADR-021).",
+      "sensitive": false
     }
   }
 }

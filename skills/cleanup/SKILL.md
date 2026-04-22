@@ -14,7 +14,7 @@ PR マージ・デプロイ完了後に残る以下の「痕跡」を、**候補
 1. マージ済みローカルブランチの削除
 2. stale な remote tracking branch の prune
 3. 一時 worktree の削除（`locked` は除外）
-4. `/tmp/rl-anything-*` 配下の削除（CRITICAL: `claude-` / `gstack-` はランタイム領域と衝突するためデフォルト対象外。拡張は Issue #71 で userConfig 化予定）
+4. 一時ディレクトリ配下の削除（default: `/tmp/rl-anything-*`。CRITICAL: `claude-` / `gstack-` はランタイム領域と衝突するためデフォルト対象外。`CLAUDE_PLUGIN_OPTION_cleanup_tmp_prefixes` / manifest userConfig でカンマ区切り拡張可能、scanner 側の安全ネット (`claude-<uid>` / `claude-mcp-*` 常時除外) で防御維持）
 5. マージ済みブランチ名から推定した関連 Issue の close 候補提案（**自動 close はしない**）
 6. 元 PR の Test plan 未完了チェックの残件リマインド
 
@@ -28,13 +28,17 @@ PR マージ・デプロイ完了後に残る以下の「痕跡」を、**候補
 
 ```python
 # スキル内から Bash 経由で実行する想定のスニペット
-import json, os, subprocess, sys
-sys.path.insert(0, "scripts/lib")
+import os, subprocess, sys
+from pathlib import Path
+_lib = Path(__file__).resolve().parents[2] / "scripts" / "lib" if "__file__" in dir() else Path("scripts/lib")
+sys.path.insert(0, str(_lib))
 from cleanup_scanner import (
     scan_merged_branches, scan_prunable_remote_refs,
     scan_removable_worktrees, scan_tmp_dirs,
     extract_issue_numbers_from_branch, extract_unchecked_testplan,
+    parse_prefix_config,
 )
+from rl_common import load_user_config
 
 current = subprocess.run(
     ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -45,6 +49,11 @@ main_wt = subprocess.run(
     capture_output=True, text=True
 ).stdout.strip()
 
+cfg = load_user_config()
+tmp_prefixes = parse_prefix_config(cfg.get("cleanup_tmp_prefixes"))
+# 初回に scan scope を宣言（ユーザーが手動設定した prefix を把握できるように）
+print(f"[cleanup] tmp scan scope: {tmp_prefixes or '(none — Category 4 effectively disabled)'}")
+
 merged = scan_merged_branches(
     base_branches=["main"],
     current_branch=current,
@@ -52,7 +61,8 @@ merged = scan_merged_branches(
 )
 prune = scan_prunable_remote_refs()
 worktrees = scan_removable_worktrees(main_worktree_path=main_wt)
-tmp_dirs = scan_tmp_dirs(prefixes=["rl-anything-"])  # narrow default — see CRITICAL note below
+tmp_dirs = scan_tmp_dirs(prefixes=tmp_prefixes) if tmp_prefixes else []
+# scanner 側の _DEFAULT_TMP_EXCLUDE_PATTERNS が `claude-<uid>` / `claude-mcp-*` を常時保護
 ```
 
 **収集結果を一覧表示**してからユーザーに見せる:
@@ -129,7 +139,7 @@ C) Abort
 
 #### カテゴリ 4: 一時ディレクトリ
 
-初版デフォルト prefix は **`rl-anything-` のみ**。`claude-` / `gstack-` は Claude Code ランタイム (`/tmp/claude-<uid>`) や MCP bridge (`/tmp/claude-mcp-*`)、gstack 作業ディレクトリ (`/tmp/gstack-work`) と衝突し、削除するとセッションが壊れる危険があるため**デフォルトから除外**している。なお scanner 側 `_DEFAULT_TMP_EXCLUDE_PATTERNS` で `claude-<uid>` / `claude-mcp-*` は二重に保護している（ユーザー独自拡張時の保険）。prefix 拡張は Issue #71 で userConfig 化予定。
+デフォルト prefix は **`rl-anything-` のみ**。`claude-` / `gstack-` は Claude Code ランタイム (`/tmp/claude-<uid>`) や MCP bridge (`/tmp/claude-mcp-*`)、gstack 作業ディレクトリ (`/tmp/gstack-work`) と衝突し、削除するとセッションが壊れる危険があるため**デフォルトから除外**している。prefix 拡張は `manifest.userConfig` の `cleanup_tmp_prefixes`（またはその環境変数 `CLAUDE_PLUGIN_OPTION_cleanup_tmp_prefixes`）でカンマ区切りで追加可能（例: `"rl-anything-,claude-sandbox-,gstack-scratch-"`）。scanner 側 `_DEFAULT_TMP_EXCLUDE_PATTERNS` で `claude-<uid>` / `claude-mcp-*` は二重に保護しているため、ユーザーが `claude-` prefix を追加してもランタイム領域は守られる。
 
 各ディレクトリについて個別に:
 
