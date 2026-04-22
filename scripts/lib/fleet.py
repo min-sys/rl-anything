@@ -24,9 +24,10 @@ AUDIT_OK = "OK"
 AUDIT_TIMEOUT = "TIMEOUT"
 AUDIT_ERROR = "ERROR"
 
+from rl_common import DATA_DIR as _DEFAULT_DATA_DIR  # honors CLAUDE_PLUGIN_DATA
+
 _DEFAULT_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 _DEFAULT_AUTO_MEMORY_ROOT = Path.home() / ".claude" / "projects"
-_DEFAULT_DATA_DIR = Path.home() / ".claude" / "rl-anything"
 _DEFAULT_MATSUKAZE_ROOT = Path.home() / "matsukaze-utils"
 _DEFAULT_RL_AUDIT_BIN = Path(__file__).resolve().parent.parent.parent / "bin" / "rl-audit"
 _DEFAULT_FLEET_RUNS_DIR = _DEFAULT_DATA_DIR / "fleet-runs"
@@ -68,6 +69,21 @@ def _pj_safe_name(pj_path: Path) -> str:
     return re.sub(r"[^a-zA-Z0-9_\-]", "_", name)
 
 
+def resolve_auto_memory_dir(pj_path: Path) -> Path:
+    """PJ パスから Claude Code auto-memory ディレクトリを逆引きする。
+
+    命名規則: `~/.claude/projects/-<絶対パスを `/` → `-` に置換>`
+
+    例: `/Users/foo/bar` → `~/.claude/projects/-Users-foo-bar`
+
+    相対パスや trailing slash は `Path.resolve()` で正規化してから変換する。
+    特殊文字 (`-` を含むディレクトリ名等) は Phase 3 で扱う (本実装は非対応)。
+    """
+    absolute = pj_path.resolve()
+    slug = str(absolute).replace("/", "-")
+    return Path.home() / ".claude" / "projects" / slug
+
+
 def enumerate_projects(root: Path) -> list[Path]:
     """PJ 候補を列挙する。
 
@@ -102,7 +118,6 @@ def _load_settings_with_retry(settings_path: Path) -> dict | None:
                 time.sleep(_SETTINGS_RETRY_SLEEP_SEC)
                 continue
             return None
-    return None
 
 
 def _is_plugin_enabled(settings: dict) -> bool:
@@ -430,18 +445,3 @@ def _parse_iso(ts: object) -> datetime | None:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
-def resolve_auto_memory_dir(pj_path: Path) -> Path:
-    """PJ パスから Claude Code auto-memory ディレクトリを逆引きする。
-
-    命名規則: `~/.claude/projects/-<絶対パスを `/` → `-` に置換>`
-
-    例: `/Users/foo/bar` → `~/.claude/projects/-Users-foo-bar`
-
-    相対パスや trailing slash は `Path.resolve()` で正規化してから変換する。
-    特殊文字 (`-` を含むディレクトリ名等) は Phase 3 で扱う (本実装は非対応)。
-    """
-    absolute = pj_path.resolve()
-    slug = str(absolute).replace("/", "-")
-    return Path.home() / ".claude" / "projects" / slug
