@@ -30,7 +30,7 @@ Last updated: 2026-04-22 (userConfig: cleanup_tmp_prefixes 追加)
 
 ## 適応度関数
 
-組み込み9個: `default`, `skill_quality`, `coherence`, `telemetry`, `constitutional`（+ /cso security軸）, `chaos`, `environment`（動的重み）, `plugin`（プラグイン統合）, `principles`。`config.py` で閾値集約
+組み込み8個: `default`, `skill_quality`, `coherence`, `telemetry`, `constitutional`（+ /cso security軸）, `chaos`, `environment`（動的重み）, `plugin`（プラグイン統合）。`config.py` / `principles.py` は supporting（閾値集約 / 原則抽出）
 
 PJ固有: `scripts/rl/fitness/{name}.py` に配置 → `--fitness {name}`
 

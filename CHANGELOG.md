@@ -4,6 +4,8 @@
 
 ### Fixed
 - **`.claude-plugin/marketplace.json` の version ドリフトを同期** — `plugin.json` (1.33.0) と `marketplace.json` plugins[0].version (0.8.0) が 33 bump 分乖離していた問題を修正。`claude plugin tag` (CC v2.1.118) が両者整合を要求するためリリースフローの前提整備
+- **SPEC.md / CLAUDE.md / spec/api.md の fitness 関数数を 9個 → 8個に統一** — `scripts/rl/fitness/` の実体は 7 ファイル（`coherence` / `telemetry` / `constitutional` / `chaos` / `environment` / `skill_quality` / `plugin`）+ `default`（LLM 汎用評価、専用ファイルなし）= 8個。`config.py` と `principles.py` は supporting モジュール（閾値集約 / 原則抽出）であり fitness ではない。SPEC.md L41 の「9個組み込み」、spec/api.md L33 の「9個: ... `principles`」、CLAUDE.md listing（`plugin` 欠落）を README.md と整合させた（refs #85 Next Actions #4）
+- **SPEC.md の hot 86 行 → 79 行に縮小** — L2 caution 閾値（80）超過を解消。Key Design Decisions セクションのカテゴリ別 ADR リスティング（6 行）を `spec/architecture.md#key-design-decisions-カテゴリ別サマリ` へ移動し、SPEC.md は 3 行のポインタに圧縮（refs #85 Next Actions #5）
 
 ### Added
 - **リリースフロー刷新（`claude plugin tag` 導入）** — `.claude/rules/commit-version.md` を更新し、bump 時は plugin.json + marketplace.json + CHANGELOG の三者同期 + main マージ後の `claude plugin tag --push` で `rl-anything--v<version>` タグ作成を明記。過去 chore(release)/feat(vX.Y.Z) コミット 54 件分（v0.4.0〜v1.33.0）の git tag 欠損を historical backfill で復元（release-notes-review v2.1.118 で検出）
