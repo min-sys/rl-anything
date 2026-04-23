@@ -1,14 +1,15 @@
 # rl-anything Plugin
 
-スキル/ルールの **自律進化パイプライン**、**修正フィードバックループ**、**直接パッチ最適化** を提供する Claude Code Plugin。
+スキル/ルールの **自律進化パイプライン**、**修正フィードバックループ**、**直接パッチ最適化**、**fleet 観測・介入** を提供する Claude Code Plugin。
 
-## 3つの柱
+## 4つの柱
 
 | 柱 | スキル | 説明 |
 |----|--------|------|
 | 自律進化 | evolve, discover, reorganize, prune, audit | Observe → Diagnose → Compile → Housekeeping → Report の3ステージパイプライン |
 | フィードバック | reflect | 修正パターン検出 → corrections.jsonl → CLAUDE.md/rules に反映 |
 | 直接パッチ最適化 | optimize, rl-loop, generate-fitness, evolve-fitness | corrections/context → LLM 1パスパッチ → regression gate（`scripts/lib/regression_gate.py` に共通化） |
+| **fleet 観測・介入** | fleet (`bin/rl-fleet`) | 全 PJ 横断で env_score / 導入状況を一覧表示。Phase 分け実装（Phase 1: `status`、Phase 2/3: audit-all/reflect-all/evolve-all） |
 | エージェント管理 | agent-brushup | エージェント定義の品質診断・改善提案・新規作成・削除候補 |
 | セカンドオピニオン | second-opinion | Claude Agent による独立した cold-read セカンドオピニオン（codex 代替） |
 | 構造化実装 | implement | plan artifact → タスク分解 → 実装（single/parallel）→ 検証 → テレメトリ記録 |
@@ -48,6 +49,9 @@
 
 # 環境の健康診断
 /rl-anything:audit
+
+# 全 PJ 横断の fleet ステータス
+bin/rl-fleet status
 
 # エージェント品質診断
 /rl-anything:agent-brushup

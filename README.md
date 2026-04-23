@@ -36,9 +36,9 @@ rl-audit
 
 普段は **`evolve` を日に1回叩くだけ**。データが足りなければ自動でスキップを提案してくれる。
 
-## 全体像 — 3つの柱
+## 全体像 — 4つの柱
 
-rl-anything は **3つの独立した柱** で構成される。
+rl-anything は **4つの独立した柱** で構成される。
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -51,6 +51,9 @@ rl-anything は **3つの独立した柱** で構成される。
 ├─────────────────────────────────────────────────────────┤
 │  柱3: 直接パッチ最適化                                     │
 │  Generate-Fitness → Optimize → RL-Loop → Evolve-Fitness  │
+├─────────────────────────────────────────────────────────┤
+│  柱4: fleet 観測・介入                                     │
+│  rl-fleet status → 全 PJ 横断で env_score / 導入状況可視化│
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -59,6 +62,7 @@ rl-anything は **3つの独立した柱** で構成される。
 | 自律進化 | 使用データからパターン検出→スキル生成→淘汰→進化 | `/rl-anything:evolve` |
 | フィードバック | ユーザーの修正（「いや、違う」等）を検出→ルールに反映 | `/rl-anything:reflect` |
 | 直接パッチ最適化 | corrections/context → LLM 1パスパッチ → regression gate | `/rl-anything:optimize` |
+| **fleet 観測・介入** | 全 PJ 横断で env_score / 導入状況を一覧表示（Phase 1: status） | `bin/rl-fleet status` |
 | エージェント管理 | エージェント定義の品質診断・改善提案 | `/rl-anything:agent-brushup` |
 | セカンドオピニオン | 独立した cold-read セカンドオピニオン | `/rl-anything:second-opinion` |
 | 仕様管理 | SPEC.md + ADR の管理、L1/L2 自動昇格 | `/rl-anything:spec-keeper` |
@@ -84,6 +88,7 @@ rl-anything は **3つの独立した柱** で構成される。
 | セッションを引き継ぎ | `handover` |
 | 環境の成長レポート | `audit --growth` |
 | マージ・デプロイ後の後片付け | `cleanup` |
+| 全 PJ 横断の fleet ステータス | `bin/rl-fleet status` |
 
 > すべてのコマンドは `/rl-anything:` プレフィックス付きで呼び出す（例: `/rl-anything:evolve`）
 
