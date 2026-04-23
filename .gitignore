@@ -9,4 +9,8 @@ generations/
 .claude/session-context.md
 .claude/settings.json
 .claude/worktrees/
+.claude/agent-memory/
+.claude/constitutional_cache.json
+.claude/principles.json
+release-notes-review-workspace/
 docs/slides/
