@@ -8,7 +8,7 @@
       "name": "rl-anything",
       "source": "./",
       "description": "Automatic skill/rule optimization using direct LLM patches with fitness evaluation and human approval workflow",
-      "version": "1.33.0",
+      "version": "1.34.0",
       "author": {
         "name": "min-sys"
       },
