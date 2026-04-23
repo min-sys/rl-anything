@@ -13,4 +13,5 @@ generations/
 .claude/constitutional_cache.json
 .claude/principles.json
 release-notes-review-workspace/
+prompt-optimizer-bench/
 docs/slides/

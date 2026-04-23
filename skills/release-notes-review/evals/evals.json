@@ -1,0 +1,23 @@
+{
+  "skill_name": "release-notes-review",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "CC最近アップデートされたっぽいんだけど、自分の環境に適用できる新機能あるか調べて。rl-anythingプラグインだけじゃなくて、グローバルのrulesとかskillsも見てほしい",
+      "expected_output": "Part 1 (Release Notes) と Part 2 (Global Environment Health) の両方を含む2セクション構成レポート。各項目に適用先（プラグイン/グローバル/両方）が明記されている",
+      "files": []
+    },
+    {
+      "id": 1,
+      "prompt": "/rl-anything:release-notes-review --env-only",
+      "expected_output": "Part 1 (Release Notes) はスキップし、Part 2 (Global Environment Health) のみ出力。Rules/Skills/Agents/Settings Hooks/Memory の各セクションが含まれる",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "グローバルのrulesが増えてきたから、CC新機能で不要になったものがないか確認して。あとskillsも重複してるのあれば教えて",
+      "expected_output": "CC代替候補とCC機能重複の検出に焦点。rules の行数チェック・重複検出も含む。グローバル環境の問題点が具体的に列挙される",
+      "files": []
+    }
+  ]
+}

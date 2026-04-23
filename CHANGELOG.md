@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- **`skills/release-notes-review/evals/evals.json`** — skill-creator 互換 eval データ（3 ケース）を初 commit。他スキル evals の先例として位置付け。動的生成（`scripts/lib/trigger_eval_generator.py`）とは役割が異なる（手書き回帰テストケース）
+
 ### Fixed
+- **`.gitignore` に `prompt-optimizer-bench/` 追加（暫定）** — 2026-03-07 ADR で min-sys org の独立 repo として作成予定だが未実行のまま rl-anything ワーキング配下に置かれていた。独立 repo 化は tracking issue で別タスク化。暫定的に untracked ノイズを解消
 - **`.gitignore` に scratch ファイル追加** — `.claude/agent-memory/` / `.claude/constitutional_cache.json` / `.claude/principles.json` / `release-notes-review-workspace/` を ignore 対象に追加。`claude plugin tag` の clean working tree チェック通過 + 日常作業での untracked ノイズ削減（release-notes-review v2.1.118 post-merge で検出）
 - **`.claude-plugin/marketplace.json` の version ドリフトを同期** — `plugin.json` (1.33.0) と `marketplace.json` plugins[0].version (0.8.0) が 33 bump 分乖離していた問題を修正。`claude plugin tag` (CC v2.1.118) が両者整合を要求するためリリースフローの前提整備
 - **SPEC.md / CLAUDE.md / spec/api.md の fitness 関数数を 9個 → 8個に統一** — `scripts/rl/fitness/` の実体は 7 ファイル（`coherence` / `telemetry` / `constitutional` / `chaos` / `environment` / `skill_quality` / `plugin`）+ `default`（LLM 汎用評価、専用ファイルなし）= 8個。`config.py` と `principles.py` は supporting モジュール（閾値集約 / 原則抽出）であり fitness ではない。SPEC.md L41 の「9個組み込み」、spec/api.md L33 の「9個: ... `principles`」、CLAUDE.md listing（`plugin` 欠落）を README.md と整合させた（refs #85 Next Actions #4）
